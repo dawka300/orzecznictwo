@@ -9,6 +9,8 @@ PROJECT = Project(
     title="Orzeczenia ETPC z HUDOC",
     make_source=HudocSource,
     migrations=Path(__file__).parent / "migrations",
+    # HUDOC stoi za Cloudflare, który zatrzymuje TLS Pythona, a curl przepuszcza.
+    transport="curl",
 )
 
 if __name__ == "__main__":

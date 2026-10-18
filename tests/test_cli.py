@@ -1,6 +1,5 @@
 from fakes import FakeSource
 
-from etpc.__main__ import PROJECT as ETPC
 from judgments_core.cli import Project, main
 from judgments_core.settings import Settings
 from nsa.__main__ import PROJECT as NSA
@@ -23,6 +22,5 @@ def test_dry_run_prints_records_without_database(tmp_path, capsys):
     assert (tmp_path / "logs" / "fake.log").exists()
 
 
-def test_unwritten_sources_exit_with_2(tmp_path):
-    for project in (NSA, ETPC):
-        assert main(project, ["pobierz", "--na-sucho"], settings(tmp_path)) == 2
+def test_unwritten_source_exits_with_2(tmp_path):
+    assert main(NSA, ["pobierz", "--na-sucho"], settings(tmp_path)) == 2

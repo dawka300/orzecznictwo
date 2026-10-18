@@ -17,7 +17,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from judgments_core import db
-from judgments_core.http import PoliteClient, SourceError
+from judgments_core.http import CurlSession, PoliteClient, SourceError
 from judgments_core.importer import Importer
 from judgments_core.settings import Settings
 
@@ -30,6 +30,8 @@ class Project:
     title: str
     make_source: Callable  # (settings, client) -> Source
     migrations: Path  # katalog NNN_*.sql projektu (po migracjach rdzenia)
+    # "requests" albo "curl" - gdy źródło za Cloudflare blokuje TLS Pythona
+    transport: str = "requests"
 
 
 def build_parser(project):
@@ -114,7 +116,8 @@ def _migrate(project, settings):
 
 
 def _fetch(project, settings, args):
-    client = PoliteClient.from_settings(settings)
+    session = CurlSession() if project.transport == "curl" else None
+    client = PoliteClient.from_settings(settings, session=session)
     source = project.make_source(settings, client)
     budget = settings.time_budget_s if args.time_budget_s is None else args.time_budget_s
 

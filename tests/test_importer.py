@@ -30,6 +30,8 @@ def test_limit_cuts_inside_a_page():
     result = Importer(FakeSource([["a", "b"], ["c", "d"]]), store, limit=3).run()
     assert [i for _, i in store.saved] == ["a", "b", "c"]
     assert (result.finished, result.stopped_by) == (False, "limit")
+    # strona 2 przycięta: kursor zostaje po stronie 1, "d" pobierze następny przebieg
+    assert store.state["fake:cursor"] == "1"
 
 
 def test_time_budget_stops_after_current_page():

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import subprocess
 import time
+from urllib.parse import urlencode
 
 import requests
+import requests.structures
 
 RETRY_STATUSES = (429, 500, 502, 503, 504)
 MAX_WAIT_S = 120
+CHALLENGE_WAIT_S = 30
 
 log = logging.getLogger(__name__)
 
@@ -63,14 +68,20 @@ class PoliteClient:
             except requests.RequestException as e:
                 error, wait_s = e, None
             else:
-                if r.status_code not in RETRY_STATUSES:
+                challenged = _cloudflare_challenge(r)
+                if r.status_code not in RETRY_STATUSES and not challenged:
                     if r.status_code >= 400:
                         # 400, 403, 404 ... nie znikną po ponowieniu.
                         raise SourceError(
                             f"Źródło odrzuciło zapytanie (HTTP {r.status_code}): {r.url}"
                         )
                     return r
-                error, wait_s = f"HTTP {r.status_code}", _retry_after(r)
+                if challenged:
+                    # Cloudflare ocenia klienta i część zapytań zatrzymuje -
+                    # po dłuższej przerwie zwykle przepuszcza.
+                    error, wait_s = "Cloudflare challenge", CHALLENGE_WAIT_S * attempt
+                else:
+                    error, wait_s = f"HTTP {r.status_code}", _retry_after(r)
             if attempt == self.max_retries:
                 break
             wait_s = min(wait_s or 2**attempt, MAX_WAIT_S)
@@ -100,6 +111,74 @@ class PoliteClient:
             if remaining > 0:
                 self._sleep(remaining)
         self._last_request = self._clock()
+
+
+class CurlResponse:
+    """The part of requests.Response that PoliteClient and sources use."""
+
+    def __init__(self, status_code, headers, content, url):
+        self.status_code = status_code
+        self.headers = headers
+        self.content = content
+        self.url = url
+
+    @property
+    def text(self):
+        return self.content.decode("utf-8", errors="replace")
+
+    def json(self):
+        return json.loads(self.text)
+
+
+class CurlSession:
+    """GET through the system `curl` instead of requests.
+
+    Some sources sit behind Cloudflare, which challenges Python's TLS
+    handshake (any User-Agent) but lets curl through. Same interface as the
+    requests.Session methods PoliteClient uses; network errors are raised as
+    requests.ConnectionError so the retries work unchanged.
+    """
+
+    def __init__(self, curl="curl", run=subprocess.run):
+        self.headers = {}
+        self.curl = curl
+        self._run = run
+
+    def get(self, url, params=None, timeout=60.0):
+        if params:
+            url = f"{url}{'&' if '?' in url else '?'}{urlencode(params)}"
+        # Bez --compressed: Cloudflare HUDOC zatrzymywał z nim curl z Windows.
+        command = [self.curl, "--silent", "--show-error", "--include"]
+        command += ["--max-time", str(timeout)]
+        for name, value in self.headers.items():
+            command += ["--header", f"{name}: {value}"]
+        try:
+            done = self._run(command + ["--", url], capture_output=True, check=False)
+        except OSError as e:
+            raise requests.ConnectionError(f"nie można uruchomić curl: {e}") from e
+        if done.returncode != 0:
+            stderr = done.stderr.decode("utf-8", errors="replace").strip()
+            raise requests.ConnectionError(f"curl (kod {done.returncode}): {stderr}")
+        return _parse_curl_output(done.stdout, url)
+
+
+def _parse_curl_output(output, url):
+    """Split `curl --include` output into status, headers and body."""
+    head, _, body = output.partition(b"\r\n\r\n")
+    # "100 Continue" albo CONNECT proxy poprzedzają czasem właściwą odpowiedź.
+    while body.startswith(b"HTTP/") and b"\r\n\r\n" in body:
+        head, _, body = body.partition(b"\r\n\r\n")
+    lines = head.decode("iso-8859-1").split("\r\n")
+    headers = requests.structures.CaseInsensitiveDict()
+    for line in lines[1:]:
+        name, _, value = line.partition(":")
+        headers[name.strip()] = value.strip()
+    return CurlResponse(int(lines[0].split(" ")[1]), headers, body, url)
+
+
+def _cloudflare_challenge(response):
+    """403 with a Cloudflare bot check instead of the content."""
+    return response.status_code == 403 and response.headers.get("cf-mitigated") == "challenge"
 
 
 def _retry_after(response):

@@ -1,7 +1,9 @@
+import subprocess
+
 import pytest
 import requests
 
-from judgments_core.http import PoliteClient, SourceError
+from judgments_core.http import CurlSession, PoliteClient, SourceError
 
 
 class FakeResponse:
@@ -78,6 +80,13 @@ def test_client_errors_are_not_retried(status):
     assert c.session.calls == 1
 
 
+def test_cloudflare_challenge_is_retried_after_a_long_wait():
+    challenge = FakeResponse(403, "<html>Just a moment...", {"cf-mitigated": "challenge"})
+    c, sleeps = client([challenge, challenge, FakeResponse(200, "ok")], pause_s=0)
+    assert c.get_text("u") == "ok"
+    assert sleeps == [30, 60]
+
+
 def test_gives_up_after_max_retries():
     c, sleeps = client([FakeResponse(500)] * 3, max_retries=3, pause_s=0)
     with pytest.raises(SourceError, match="nie odpowiada"):
@@ -89,3 +98,40 @@ def test_bad_json_is_a_source_error():
     c, _ = client([FakeResponse(200, "<html>")])
     with pytest.raises(SourceError, match="JSON"):
         c.get_json("u")
+
+
+def fake_curl(stdout=b"", returncode=0, stderr=b""):
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, returncode, stdout, stderr)
+
+    return run, calls
+
+
+def test_curl_session_builds_url_and_parses_response():
+    out = 'HTTP/2 200\r\ncontent-type: application/json\r\n\r\n{"a": "ń"}'.encode()
+    run, calls = fake_curl(out)
+    session = CurlSession(run=run)
+    session.headers["User-Agent"] = "test"
+    r = session.get("https://example.test/q", params={"query": 'a="b" OR c', "start": 0})
+    assert calls[0][-1] == "https://example.test/q?query=a%3D%22b%22+OR+c&start=0"
+    assert "User-Agent: test" in calls[0]
+    assert (r.status_code, r.headers["Content-Type"], r.json()) == (
+        200,
+        "application/json",
+        {"a": "ń"},
+    )
+
+
+def test_curl_session_skips_interim_responses():
+    out = b"HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 429 Too Many\r\nRetry-After: 7\r\n\r\nslow"
+    r = CurlSession(run=fake_curl(out)[0]).get("https://example.test/")
+    assert (r.status_code, r.headers["retry-after"], r.text) == (429, "7", "slow")
+
+
+def test_curl_failure_is_a_retryable_network_error():
+    run, _ = fake_curl(returncode=28, stderr=b"Operation timed out")
+    with pytest.raises(requests.ConnectionError, match="timed out"):
+        CurlSession(run=run).get("https://example.test/")
