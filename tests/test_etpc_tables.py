@@ -113,3 +113,25 @@ def test_records_of_the_current_second_wait_for_the_next_pass(conn):
     save(store, english())
     assert Deriver(store, HudocSource.name, PROJECT.derive, now=lambda: T0).run().records == 0
     assert derive(store).records == 1
+
+
+def test_bad_and_empty_documents_become_problems(conn):
+    store = setup(conn)
+    broken = {**english(), "itemid": "001-1", "kpdate": "", "judgementdate": ""}
+    empty = {**english(), "itemid": "001-2", "ecli": "", "contentbody": "  "}
+    save(store, broken, empty, english())
+    result = derive(store)
+    assert (result.records, result.problems) == (3, 2)
+    assert rows(conn, "SELECT COUNT(*) FROM ruling_documents") == ((2,),)
+    assert rows(
+        conn,
+        "SELECT source_id, stage, problem FROM record_problems WHERE resolved_at IS NULL"
+        " ORDER BY 1",
+    ) == (("001-1", "przetworz", "blad_parsera"), ("001-2", "przetworz", "pusty_tekst"))
+
+    # naprawiony dokument: problem zamknięty
+    save(store, {**broken, "kpdate": "2026-10-08T00:00:00"}, second=1)
+    derive(store)
+    assert rows(conn, "SELECT source_id FROM record_problems WHERE resolved_at IS NULL") == (
+        ("001-2",),
+    )

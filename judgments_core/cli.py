@@ -4,16 +4,22 @@ python -m nsa migracje
 python -m nsa pobierz --limit 10 --na-sucho
 python -m nsa pobierz --budzet 240      # z crona na hostingu
 python -m nsa przetworz                 # raw_records -> tabele projektu
-python -m nsa stan
+python -m nsa sprawdz                   # porównaj źródło z bazą, zapisz braki
+python -m nsa pobierz --brakujace       # dociągnij braki znalezione przez sprawdz
+python -m nsa stan                      # kursory, ostatnie przebiegi, blokady, problemy
+
+Każdy przebieg pobierz/przetworz/sprawdz zapisuje się w fetch_runs, blokady
+i błędy źródła w fetch_events, rekordy z problemem w record_problems.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import logging
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -34,8 +40,10 @@ class Project:
     migrations: Path  # katalog NNN_*.sql projektu (po migracjach rdzenia)
     # "requests" albo "curl" - gdy źródło za Cloudflare blokuje TLS Pythona
     transport: str = "requests"
-    # derive(cursor, records): tabele projektu z raw_records; None = brak parsera
+    # derive(cursor, records) -> problemy: tabele projektu z raw_records; None = brak parsera
     derive: Callable | None = None
+    # verify(store, source, years) -> wyniki: porównanie źródła z bazą; None = brak
+    verify: Callable | None = None
 
 
 def build_parser(project):
@@ -64,6 +72,12 @@ def build_parser(project):
         type=int,
         help="zakończ po tylu sekundach (domyślnie z ustawień, 0 = bez limitu)",
     )
+    fetch.add_argument(
+        "--brakujace",
+        dest="missing",
+        action="store_true",
+        help="pobierz tylko rekordy oznaczone przez 'sprawdz' jako brakujące",
+    )
 
     derive = commands.add_parser(
         "przetworz", help="wypełnij tabele projektu z raw_records (tylko zmienione)"
@@ -82,7 +96,18 @@ def build_parser(project):
         help="zakończ po tylu sekundach (domyślnie z ustawień, 0 = bez limitu)",
     )
 
-    commands.add_parser("stan", help="pokaż zapisany stan i liczbę rekordów")
+    check = commands.add_parser(
+        "sprawdz", help="porównaj źródło z bazą (rok po roku), braki zapisz jako problemy"
+    )
+    check.add_argument("--od", dest="year_from", type=int, help="od roku")
+    check.add_argument("--do", dest="year_to", type=int, help="do roku (włącznie)")
+
+    status = commands.add_parser(
+        "stan", help="kursory, liczba rekordów, ostatnie przebiegi, blokady, problemy"
+    )
+    status.add_argument(
+        "--problemy", dest="list_problems", action="store_true", help="wypisz otwarte problemy"
+    )
     return parser
 
 
@@ -119,7 +144,9 @@ def main(project, argv=None, settings=None):
             return _fetch(project, settings, args)
         if args.command == "przetworz":
             return _derive(project, settings, args)
-        return _status(project, settings)
+        if args.command == "sprawdz":
+            return _verify(project, settings, args)
+        return _status(project, settings, args)
     except db.LockedError as e:
         log.info("%s Kończę.", e)  # zwykła sytuacja przy cronie, nie błąd
         return 0
@@ -138,9 +165,10 @@ def _migrate(project, settings):
     return 0
 
 
-def _make_source(project, settings):
+def _make_source(project, settings, on_event=None):
     session = CurlSession() if project.transport == "curl" else None
-    return project.make_source(settings, PoliteClient.from_settings(settings, session=session))
+    client = PoliteClient.from_settings(settings, session=session, on_event=on_event)
+    return project.make_source(settings, client)
 
 
 def _lock_name(project):
@@ -149,29 +177,92 @@ def _lock_name(project):
     return f"{project.name}:baza"
 
 
+@contextlib.contextmanager
+def _logged_run(project, settings, command, cursor_start=None):
+    """Connection, lock and a fetch_runs row; the row is closed also on errors.
+
+    Yields (store, run); the body sets run.status and run.counts.
+    """
+    with db.connect(settings.db_dsn) as conn:
+        store = db.MariaDbStore(conn)
+        with store.lock(_lock_name(project)):
+            run = RunLog(store.start_run(command, cursor_start))
+            try:
+                yield store, run
+            except BaseException as e:
+                # Ctrl+C też zostawia ślad w dzienniku.
+                run.status = "blad" if isinstance(e, Exception) else "przerwano"
+                run.counts["error"] = f"{type(e).__name__}: {e}"
+                raise
+            finally:
+                store.finish_run(run.id, run.status, **run.counts)
+
+
+@dataclass
+class RunLog:
+    id: int
+    status: str = "ok"
+    counts: dict = field(default_factory=dict)
+
+    def event_saver(self, store):
+        def save(kind, message, url, wait_s):
+            store.add_event(self.id, kind, message, url, wait_s)
+
+        return save
+
+
 def _fetch(project, settings, args):
-    source = _make_source(project, settings)
     budget = settings.time_budget_s if args.time_budget_s is None else args.time_budget_s
 
     if args.dry_run:
+        source = _make_source(project, settings)
         result = Importer(
             source, limit=args.limit, time_budget_s=budget, outputs=[_print_record]
         ).run()
         _report(result)
         return 0
 
-    with db.connect(settings.db_dsn) as conn:
-        store = db.MariaDbStore(conn)
-        with store.lock(_lock_name(project)):
-            result = Importer(
-                source,
-                store,
-                limit=args.limit,
-                time_budget_s=budget,
-                resume=not args.from_start,
-            ).run()
+    with _logged_run(project, settings, "pobierz") as (store, run):
+        source = _make_source(project, settings, run.event_saver(store))
+        if args.missing:
+            ids = store.open_problems(source.name, "pobierz", "brak_w_bazie", limit=args.limit)
+            log.info("brakujących do pobrania: %d", len(ids))
+            source = _IdsSource(source, ids)
+        importer = Importer(
+            source,
+            store,
+            limit=args.limit,
+            time_budget_s=budget,
+            resume=not args.from_start and not args.missing,
+        )
+        try:
+            result = importer.run()
+        finally:
+            r = importer.result
+            run.counts.update(
+                pages=r.pages,
+                records=r.saved,
+                records_new=r.new,
+                records_changed=r.changed,
+                cursor_end=r.cursor,
+            )
+        run.status = _status_of(result)
     _report(result)
     return 0
+
+
+class _IdsSource:
+    """Pages of chosen records (source.fetch_ids), without a cursor."""
+
+    def __init__(self, source, ids):
+        if not hasattr(source, "fetch_ids"):
+            raise NotImplementedError(f"źródło {source.name} nie umie pobierać po identyfikatorach")
+        self.name = source.name
+        self.source = source
+        self.ids = ids
+
+    def iter_pages(self, cursor):
+        return self.source.fetch_ids(self.ids)
 
 
 def _derive(project, settings, args):
@@ -179,20 +270,58 @@ def _derive(project, settings, args):
         raise NotImplementedError(f"projekt {project.name} nie ma jeszcze parsera")
     source = _make_source(project, settings)
     budget = settings.time_budget_s if args.time_budget_s is None else args.time_budget_s
-    with db.connect(settings.db_dsn) as conn:
-        store = db.MariaDbStore(conn)
-        with store.lock(_lock_name(project)):
-            result = Deriver(
-                store,
-                source.name,
-                project.derive,
-                from_start=args.from_start,
-                limit=args.limit,
-                time_budget_s=budget,
-            ).run()
+    with _logged_run(project, settings, "przetworz") as (store, run):
+        deriver = Deriver(
+            store,
+            source.name,
+            project.derive,
+            from_start=args.from_start,
+            limit=args.limit,
+            time_budget_s=budget,
+        )
+        try:
+            result = deriver.run()
+        finally:
+            r = deriver.result
+            run.counts.update(pages=r.batches, records=r.records, problems=r.problems)
+        run.status = _status_of(result)
     end = "wszystko przetworzone" if result.finished else f"przerwano ({result.stopped_by})"
-    log.info("Gotowe: %d porcji, %d rekordów; %s.", result.batches, result.records, end)
+    log.info(
+        "Gotowe: %d porcji, %d rekordów, problemów %d; %s.",
+        result.batches,
+        result.records,
+        result.problems,
+        end,
+    )
     return 0
+
+
+def _verify(project, settings, args):
+    if project.verify is None:
+        raise NotImplementedError(f"projekt {project.name} nie ma jeszcze sprawdzania")
+    with _logged_run(project, settings, "sprawdz") as (store, run):
+        source = _make_source(project, settings, run.event_saver(store))
+        years = None
+        if args.year_from or args.year_to:
+            years = range(args.year_from or 1900, (args.year_to or source.now().year) + 1)
+        checks = project.verify(store, source, years)
+        missing = sum(c.missing for c in checks)
+        extra = sum(c.extra for c in checks)
+        run.counts.update(pages=len(checks), records=missing + extra, problems=missing + extra)
+    differ = [c for c in checks if c.hudoc != c.ours]
+    log.info(
+        "Gotowe: %d lat, zgodnych %d; brakuje %d, nadmiarowych %d.%s",
+        len(checks),
+        len(checks) - len(differ),
+        missing,
+        extra,
+        " Braki pobierze: pobierz --brakujace" if missing else "",
+    )
+    return 0
+
+
+def _status_of(result):
+    return "ok" if result.finished else (result.stopped_by or "ok")
 
 
 def _print_record(record):
@@ -202,20 +331,69 @@ def _print_record(record):
 def _report(result):
     end = "źródło nie ma więcej stron" if result.finished else f"przerwano ({result.stopped_by})"
     log.info(
-        "Gotowe: %d stron, zapisano %d, odrzucono %d; %s.",
+        "Gotowe: %d stron, zapisano %d (nowych %d, zmienionych %d), odrzucono %d; %s.",
         result.pages,
         result.saved,
+        result.new,
+        result.changed,
         result.rejected,
         end,
     )
 
 
-def _status(project, settings):
+def _status(project, settings, args):
     with db.connect(settings.db_dsn) as conn, conn.cursor() as cur:
+        print("Kursory:")
         cur.execute("SELECT `key`, value, updated_at FROM sync_state ORDER BY `key`")
         for key, value, updated in cur.fetchall():
-            print(f"{key} = {value}  ({updated:%Y-%m-%d %H:%M})")
+            print(f"  {key} = {value}  ({updated:%Y-%m-%d %H:%M})")
         cur.execute("SELECT source, COUNT(*), MAX(fetched_at) FROM raw_records GROUP BY source")
         for source, count, last in cur.fetchall():
             print(f"raw_records[{source}]: {count} rekordów, ostatni pobrany {last}")
+
+        print("\nOstatnie przebiegi (czas UTC):")
+        cur.execute(
+            "SELECT id, command, started_at, finished_at, status, pages, records,"
+            " records_new, records_changed, problems, events, error"
+            " FROM fetch_runs ORDER BY id DESC LIMIT 10"
+        )
+        for row in cur.fetchall():
+            run_id, command, started, finished, status, pages, records = row[:7]
+            new, changed, problems, events, error = row[7:]
+            took = f"{(finished - started).total_seconds():.0f}s" if finished else "trwa/zabity"
+            print(
+                f"  #{run_id} {command:9} {started:%Y-%m-%d %H:%M} {took:>8} {status:7}"
+                f" stron {pages}, rekordów {records} (nowych {new}, zmienionych {changed}),"
+                f" problemów {problems}, zdarzeń {events}"
+                + (f"\n      błąd: {error}" if error else "")
+            )
+
+        print("\nBlokady i błędy źródła, ostatnie 7 dni:")
+        cur.execute(
+            "SELECT kind, COUNT(*), MIN(at), MAX(at) FROM fetch_events"
+            " WHERE at >= UTC_TIMESTAMP() - INTERVAL 7 DAY GROUP BY kind ORDER BY 2 DESC"
+        )
+        events = cur.fetchall()
+        for kind, count, first, last in events:
+            print(f"  {kind:12} {count:>5}x  od {first:%Y-%m-%d %H:%M} do {last:%Y-%m-%d %H:%M}")
+        if not events:
+            print("  brak")
+
+        print("\nOtwarte problemy rekordów:")
+        cur.execute(
+            "SELECT stage, problem, COUNT(*) FROM record_problems WHERE resolved_at IS NULL"
+            " GROUP BY stage, problem ORDER BY stage, problem"
+        )
+        problems = cur.fetchall()
+        for stage, problem, count in problems:
+            print(f"  {stage:10} {problem:16} {count:>6}")
+        if not problems:
+            print("  brak")
+        if args.list_problems and problems:
+            cur.execute(
+                "SELECT source_id, stage, problem, details, times, last_seen FROM record_problems"
+                " WHERE resolved_at IS NULL ORDER BY stage, problem, source_id LIMIT 500"
+            )
+            for source_id, stage, problem, details, times, last in cur.fetchall():
+                print(f"  {source_id} {stage}/{problem} x{times} ({last:%Y-%m-%d}): {details}")
     return 0

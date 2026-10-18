@@ -43,3 +43,12 @@ Judgments and decisions of the European Court of Human Rights from HUDOC, https:
 2. ~~**Parser**~~ done (see State): `raw_records` -> tables, grouped by ECLI; a command to re-run it over stored raw records (incremental by `raw_records.changed_at`, state in `sync_state`). Tests on `tests/fixtures/etpc/`.
 3. **First import** locally for a small slice, check data and sizes, then the whole set; then the hosting with cron.
 4. Later: search page (filters + FULLTEXT + Polish->EN/FR translation), RAG (chunks of `ruling_documents.body`, multilingual embeddings, vector store from the core notes).
+
+## Work in progress (2026-10-18, stopped by the user before the live test)
+- Per-year counts in HUDOC (judgments / decisions, no placeholders): decisions from 1955 (Commission), judgments from 1960; hundreds per year until the 1990s, 3-5k per year after 2000; max 2009 = 5,383 < the 10,000 window. Total ~127k. 1 Cloudflare challenge in 144 requests. **`sort` parameter is required** (without it HUDOC answers 404; may be empty).
+- Written and unit-tested (53 tests pass), **not yet run against HUDOC**:
+  - `HudocSource`: first download year by year from 1955 (`{"mode": "lata", "year", "start", "since"}`, sort `itemid`), then changes by `updateddate` from the download start minus 1 day (`{"mode": "zmiany", ...}`); `fetch_ids`, `count_year`, `itemids_of_year`.
+  - Core migration `002_logs.sql`: `fetch_runs` (every pobierz/przetworz/sprawdz pass), `fetch_events` (Cloudflare, 429, 5xx, network, rejected, given up - with time, URL, wait), `record_problems` (brak_w_bazie, nie_ma_w_hudoc, blad_parsera, pusty_tekst; resolved automatically when fixed).
+  - `python -m etpc sprawdz [--od ROK] [--do ROK]` (`etpc/verify.py`): HUDOC vs raw_records per year, missing itemids -> problems; `pobierz --brakujace` fetches them; `stan [--problemy]` shows cursors, last runs, blocks (7 days), open problems.
+  - Parser: one bad document no longer stops a batch (SAVEPOINT per document, problem recorded).
+- Next: `python -m etpc migracje` (applies core/002), `pobierz --limit 150` (years 1955-...), `sprawdz --od 1955 --do 1960`, `stan`; then the full local download.

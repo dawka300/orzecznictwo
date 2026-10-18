@@ -38,7 +38,10 @@ class PoliteClient:
         session=None,
         sleep=time.sleep,
         clock=time.monotonic,
+        on_event=None,
     ):
+        # on_event(kind, message, url, wait_s): blokady i błędy, np. do fetch_events
+        self.on_event = on_event
         self.session = session or requests.Session()
         self.session.headers["User-Agent"] = user_agent
         self.pause_s = pause_s
@@ -60,29 +63,33 @@ class PoliteClient:
 
     def get(self, url, params=None, **kwargs):
         """Return the response; retries 429/5xx and network errors, raises SourceError."""
+        full_url = _full_url(url, params)
         error = None
         for attempt in range(1, self.max_retries + 1):
             self._wait_for_turn()
             try:
                 r = self.session.get(url, params=params, timeout=self.timeout_s, **kwargs)
             except requests.RequestException as e:
-                error, wait_s = e, None
+                kind, error, wait_s = "siec", str(e), None
             else:
                 challenged = _cloudflare_challenge(r)
                 if r.status_code not in RETRY_STATUSES and not challenged:
                     if r.status_code >= 400:
                         # 400, 403, 404 ... nie znikną po ponowieniu.
-                        raise SourceError(
-                            f"Źródło odrzuciło zapytanie (HTTP {r.status_code}): {r.url}"
-                        )
+                        error = f"Źródło odrzuciło zapytanie (HTTP {r.status_code})"
+                        self._event("odrzucone", error, full_url)
+                        raise SourceError(f"{error}: {r.url}")
                     return r
                 if challenged:
                     # Cloudflare ocenia klienta i część zapytań zatrzymuje -
                     # po dłuższej przerwie zwykle przepuszcza.
-                    error, wait_s = "Cloudflare challenge", CHALLENGE_WAIT_S * attempt
+                    kind, error = "cloudflare", "Cloudflare challenge (HTTP 403)"
+                    wait_s = CHALLENGE_WAIT_S * attempt
                 else:
+                    kind = "http_429" if r.status_code == 429 else "http_5xx"
                     error, wait_s = f"HTTP {r.status_code}", _retry_after(r)
             if attempt == self.max_retries:
+                self._event(kind, f"{error}; próba {attempt}/{self.max_retries}", full_url)
                 break
             wait_s = min(wait_s or 2**attempt, MAX_WAIT_S)
             log.warning(
@@ -92,8 +99,14 @@ class PoliteClient:
                 self.max_retries,
                 wait_s,
             )
+            self._event(kind, f"{error}; próba {attempt}/{self.max_retries}", full_url, wait_s)
             self._sleep(wait_s)
+        self._event("przerwano", f"źródło nie odpowiada po {self.max_retries} próbach", full_url)
         raise SourceError(f"Źródło nie odpowiada ({error}) - przerwano: {url}")
+
+    def _event(self, kind, message, url, wait_s=None):
+        if self.on_event is not None:
+            self.on_event(kind, message, url, wait_s)
 
     def get_json(self, url, params=None, **kwargs):
         r = self.get(url, params, **kwargs)
@@ -145,8 +158,7 @@ class CurlSession:
         self._run = run
 
     def get(self, url, params=None, timeout=60.0):
-        if params:
-            url = f"{url}{'&' if '?' in url else '?'}{urlencode(params)}"
+        url = _full_url(url, params)
         # Bez --compressed: Cloudflare HUDOC zatrzymywał z nim curl z Windows.
         command = [self.curl, "--silent", "--show-error", "--include"]
         command += ["--max-time", str(timeout)]
@@ -174,6 +186,13 @@ def _parse_curl_output(output, url):
         name, _, value = line.partition(":")
         headers[name.strip()] = value.strip()
     return CurlResponse(int(lines[0].split(" ")[1]), headers, body, url)
+
+
+def _full_url(url, params):
+    """URL with the query string, for the event log."""
+    if not params:
+        return url
+    return f"{url}{'&' if '?' in url else '?'}{urlencode(params)}"
 
 
 def _cloudflare_challenge(response):

@@ -1,7 +1,9 @@
 """Project tables from raw_records, batch by batch, resumable like the Importer.
 
 A project gives a function derive(cursor, records) that writes its tables
-from raw records (judgments_core.db.StoredRecord). The Deriver feeds it the
+from raw records (judgments_core.db.StoredRecord) and returns problems
+[(source_id, problem, details)] for records it could not (fully) use; they
+land in record_problems instead of stopping the pass. The Deriver feeds it the
 records changed since the last pass, oldest first, and saves how far it got
 in sync_state together with each batch. After a parser change, a pass with
 from_start re-derives everything without downloading anything again.
@@ -26,6 +28,7 @@ TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 class DeriveResult:
     batches: int = 0
     records: int = 0
+    problems: int = 0
     finished: bool = False  # nie ma więcej zmienionych rekordów
     stopped_by: str = ""  # "limit" / "czas" przy wcześniejszym końcu
 
@@ -57,7 +60,7 @@ class Deriver:
 
     def run(self):
         started = self.clock()
-        result = DeriveResult()
+        result = self.result = DeriveResult()
         after = None if self.from_start else _load(self.store.get_state(self.state_key))
         # Tylko rekordy sprzed bieżącej sekundy (utc_now ucina mikrosekundy):
         # zapisane później mają changed_at >= tej granicy, więc nie mogą
@@ -73,14 +76,20 @@ class Deriver:
                 return result
             last = records[-1]
             after = (last.changed_at, last.source_id)
-            self.store.derive_batch(self.derive, records, self.state_key, _dump(after))
+            problems = self.store.derive_batch(
+                self.source_name, self.derive, records, self.state_key, _dump(after)
+            )
             result.batches += 1
             result.records += len(records)
+            result.problems += len(problems)
+            for source_id, problem, details in problems:
+                log.warning("problem %s: %s (%s)", source_id, problem, details)
             log.info(
-                "porcja %d: %d rekordów (łącznie %d), do %s %s",
+                "porcja %d: %d rekordów (łącznie %d, problemów %d), do %s %s",
                 result.batches,
                 len(records),
                 result.records,
+                result.problems,
                 *after,
             )
             if self.limit and result.records >= self.limit:

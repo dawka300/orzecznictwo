@@ -11,12 +11,15 @@ from __future__ import annotations
 import contextlib
 import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
 from urllib.parse import parse_qs, unquote, urlparse
 
 import pymysql
+
+from judgments_core.source import utc_now
 
 CORE_MIGRATIONS = Path(__file__).parent / "migrations"
 MIGRATION_RE = re.compile(r"^\d{3}_\w+\.sql$")
@@ -26,6 +29,23 @@ log = logging.getLogger(__name__)
 
 class LockedError(RuntimeError):
     """Another pass of the same project is still running."""
+
+
+RUN_COLUMNS = (
+    "pages",
+    "records",
+    "records_new",
+    "records_changed",
+    "problems",
+    "cursor_end",
+    "error",
+)
+
+
+@dataclass
+class SaveStats:
+    new: int = 0
+    changed: int = 0
 
 
 class StoredRecord(NamedTuple):
@@ -140,10 +160,20 @@ class MariaDbStore:
         self.conn.commit()
 
     def save_page(self, source, records, state_key, cursor):
-        """Upsert records and move the cursor in one transaction."""
+        """Upsert records and move the cursor in one transaction; returns SaveStats.
+
+        Saved records also resolve their open "pobierz" problems (e.g. missing).
+        """
+        stats = SaveStats()
         try:
             with self.conn.cursor() as cur:
                 if records:
+                    known = self._known_hashes(cur, source, [r.source_id for r in records])
+                    for r in records:
+                        if r.source_id not in known:
+                            stats.new += 1
+                        elif known[r.source_id] != r.sha256:
+                            stats.changed += 1
                     cur.executemany(
                         "INSERT INTO raw_records"
                         " (source, source_id, url, content_type, body, sha256,"
@@ -171,12 +201,16 @@ class MariaDbStore:
                             for r in records
                         ],
                     )
+                    self._resolve_problems(
+                        cur, source, [r.source_id for r in records], "pobierz", utc_now()
+                    )
                 if cursor is not None:
                     self._set_state(cur, state_key, cursor)
             self.conn.commit()
         except Exception:
             self.conn.rollback()
             raise
+        return stats
 
     def raw_records_after(self, source, after, before, limit):
         """Up to `limit` raw records changed after `after` and before `before`, oldest first.
@@ -197,16 +231,132 @@ class MariaDbStore:
         self.conn.commit()
         return [StoredRecord(*row) for row in rows]
 
-    def derive_batch(self, derive, records, state_key, state):
-        """Run a project's derive(cursor, records) and save its state in one transaction."""
+    def derive_batch(self, source, derive, records, state_key, state):
+        """Run a project's derive(cursor, records) and save its state in one transaction.
+
+        derive returns problems [(source_id, problem, details)]; they are
+        recorded (stage "przetworz"), the other records' problems resolved.
+        Returns the problems.
+        """
+        now = utc_now()
         try:
             with self.conn.cursor() as cur:
-                derive(cur, records)
+                problems = list(derive(cur, records) or [])
+                failed = {p[0] for p in problems}
+                self._resolve_problems(
+                    cur,
+                    source,
+                    [r.source_id for r in records if r.source_id not in failed],
+                    "przetworz",
+                    now,
+                )
+                self._add_problems(cur, source, "przetworz", problems, now)
                 self._set_state(cur, state_key, state)
             self.conn.commit()
         except Exception:
             self.conn.rollback()
             raise
+        return problems
+
+    # --- dziennik: przebiegi, zdarzenia, problemy (migracja core/002) ---
+
+    def start_run(self, command, cursor_start=None):
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO fetch_runs (command, started_at, cursor_start) VALUES (%s, %s, %s)",
+                (command, _naive_utc(utc_now()), cursor_start),
+            )
+            run_id = cur.lastrowid
+        self.conn.commit()
+        return run_id
+
+    def finish_run(self, run_id, status, **counts):
+        """counts: pages, records, records_new, records_changed, problems, cursor_end, error."""
+        columns = ["finished_at = %s", "status = %s"]
+        values = [_naive_utc(utc_now()), status]
+        for name, value in counts.items():
+            if name not in RUN_COLUMNS:
+                raise ValueError(f"nieznana kolumna fetch_runs: {name}")
+            columns.append(f"{name} = %s")
+            values.append(value)
+        with self.conn.cursor() as cur:
+            cur.execute(
+                f"UPDATE fetch_runs SET {', '.join(columns)},"
+                " events = (SELECT COUNT(*) FROM fetch_events WHERE run_id = %s)"
+                " WHERE id = %s",
+                values + [run_id, run_id],
+            )
+        self.conn.commit()
+
+    def add_event(self, run_id, kind, message=None, url=None, wait_s=None):
+        """Saved and committed at once, also when the pass fails afterwards."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO fetch_events (run_id, at, kind, message, url, wait_s)"
+                " VALUES (%s, %s, %s, %s, %s, %s)",
+                (run_id, _naive_utc(utc_now()), kind, message, url, wait_s),
+            )
+        self.conn.commit()
+
+    def add_problems(self, source, stage, problems):
+        """problems: [(source_id, problem, details)]."""
+        with self.conn.cursor() as cur:
+            self._add_problems(cur, source, stage, problems, utc_now())
+        self.conn.commit()
+
+    def open_problems(self, source, stage, problem, limit=None):
+        sql = (
+            "SELECT source_id FROM record_problems WHERE source = %s AND stage = %s"
+            " AND problem = %s AND resolved_at IS NULL ORDER BY source_id"
+        )
+        params = [source, stage, problem]
+        if limit:
+            sql += " LIMIT %s"
+            params.append(limit)
+        with self.conn.cursor() as cur:
+            cur.execute(sql, params)
+            ids = [row[0] for row in cur.fetchall()]
+        self.conn.commit()
+        return ids
+
+    @staticmethod
+    def _add_problems(cur, source, stage, problems, now):
+        if problems:
+            cur.executemany(
+                "INSERT INTO record_problems"
+                " (source, source_id, stage, problem, details, first_seen, last_seen)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s)"
+                # times/first_seen przed resolved_at: MariaDB liczy SET po kolei.
+                " ON DUPLICATE KEY UPDATE"
+                "  times = IF(resolved_at IS NULL, times + 1, 1),"
+                "  first_seen = IF(resolved_at IS NULL, first_seen, VALUES(first_seen)),"
+                "  problem = VALUES(problem), details = VALUES(details),"
+                "  last_seen = VALUES(last_seen), resolved_at = NULL",
+                [
+                    (source, sid, stage, problem, details, _naive_utc(now), _naive_utc(now))
+                    for sid, problem, details in problems
+                ],
+            )
+
+    @staticmethod
+    def _resolve_problems(cur, source, source_ids, stage, now):
+        for start in range(0, len(source_ids), 500):
+            chunk = source_ids[start : start + 500]
+            cur.execute(
+                "UPDATE record_problems SET resolved_at = %s"
+                " WHERE source = %s AND stage = %s AND resolved_at IS NULL"
+                f" AND source_id IN ({', '.join(['%s'] * len(chunk))})",
+                [_naive_utc(now), source, stage, *chunk],
+            )
+
+    @staticmethod
+    def _known_hashes(cur, source, source_ids):
+        cur.execute(
+            "SELECT source_id, sha256 FROM raw_records WHERE source = %s"
+            f" AND source_id IN ({', '.join(['%s'] * len(source_ids))})",
+            [source, *source_ids],
+        )
+        return dict(cur.fetchall())
 
     @contextlib.contextmanager
     def lock(self, name):

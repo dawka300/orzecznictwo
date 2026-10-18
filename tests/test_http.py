@@ -87,6 +87,21 @@ def test_cloudflare_challenge_is_retried_after_a_long_wait():
     assert sleeps == [30, 60]
 
 
+def test_events_report_blocks_and_rejections():
+    events = []
+    challenge = FakeResponse(403, "<html>", {"cf-mitigated": "challenge"})
+    c, _ = client([challenge, FakeResponse(503), FakeResponse(404)], pause_s=0)
+    c.on_event = lambda *e: events.append(e)
+    with pytest.raises(SourceError):
+        c.get("https://example.test/q", params={"a": "b c"})
+    url = "https://example.test/q?a=b+c"
+    assert events == [
+        ("cloudflare", "Cloudflare challenge (HTTP 403); próba 1/6", url, 30),
+        ("http_5xx", "HTTP 503; próba 2/6", url, 4),
+        ("odrzucone", "Źródło odrzuciło zapytanie (HTTP 404)", url, None),
+    ]
+
+
 def test_gives_up_after_max_retries():
     c, sleeps = client([FakeResponse(500)] * 3, max_retries=3, pause_s=0)
     with pytest.raises(SourceError, match="nie odpowiada"):
