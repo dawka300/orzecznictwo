@@ -24,3 +24,7 @@ def test_dry_run_prints_records_without_database(tmp_path, capsys):
 
 def test_unwritten_source_exits_with_2(tmp_path):
     assert main(NSA, ["pobierz", "--na-sucho"], settings(tmp_path)) == 2
+
+
+def test_project_without_parser_exits_with_2(tmp_path):
+    assert main(NSA, ["przetworz"], settings(tmp_path)) == 2

@@ -11,7 +11,9 @@ from __future__ import annotations
 import contextlib
 import logging
 import re
+from datetime import datetime
 from pathlib import Path
+from typing import NamedTuple
 from urllib.parse import parse_qs, unquote, urlparse
 
 import pymysql
@@ -24,6 +26,14 @@ log = logging.getLogger(__name__)
 
 class LockedError(RuntimeError):
     """Another pass of the same project is still running."""
+
+
+class StoredRecord(NamedTuple):
+    """A raw record as read back from raw_records for a project's parser."""
+
+    source_id: str
+    body: str
+    changed_at: datetime
 
 
 def parse_dsn(dsn):
@@ -163,6 +173,36 @@ class MariaDbStore:
                     )
                 if cursor is not None:
                     self._set_state(cur, state_key, cursor)
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    def raw_records_after(self, source, after, before, limit):
+        """Up to `limit` raw records changed after `after` and before `before`, oldest first.
+
+        `after` is (changed_at, source_id) of the last record processed, or
+        None for all; source_id breaks ties within the same second.
+        """
+        sql = "SELECT source_id, body, changed_at FROM raw_records WHERE source = %s"
+        sql += " AND changed_at < %s"
+        params = [source, _naive_utc(before)]
+        if after is not None:
+            sql += " AND (changed_at > %s OR (changed_at = %s AND source_id > %s))"
+            params += [after[0], after[0], after[1]]
+        sql += " ORDER BY changed_at, source_id LIMIT %s"
+        with self.conn.cursor() as cur:
+            cur.execute(sql, params + [limit])
+            rows = cur.fetchall()
+        self.conn.commit()
+        return [StoredRecord(*row) for row in rows]
+
+    def derive_batch(self, derive, records, state_key, state):
+        """Run a project's derive(cursor, records) and save its state in one transaction."""
+        try:
+            with self.conn.cursor() as cur:
+                derive(cur, records)
+                self._set_state(cur, state_key, state)
             self.conn.commit()
         except Exception:
             self.conn.rollback()

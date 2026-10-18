@@ -1,20 +1,12 @@
-"""db.py: pure helpers always; MariaDB parts on a scratch database, skipped without it.
+"""db.py: pure helpers always; MariaDB parts on a scratch database (conftest.conn)."""
 
-The scratch database comes from TEST_DB_DSN (default: the docker-compose
-MariaDB's szkielet_test, created by docker/mariadb-init.sql). Never point it
-at a real database: the tests drop all its tables.
-"""
-
-import os
 from datetime import datetime, timezone
 
-import pymysql
 import pytest
+from conftest import TEST_DSN
 
 from judgments_core import db
 from judgments_core.source import RawRecord
-
-TEST_DSN = os.environ.get("TEST_DB_DSN", "mysql://szkielet:szkielet@127.0.0.1:3306/szkielet_test")
 
 
 def test_parse_dsn():
@@ -45,21 +37,6 @@ def test_migration_files_order(tmp_path):
     (tmp_path / "README.md").write_text("")
     names = [n for n, _ in db.migration_files(("core", db.CORE_MIGRATIONS), ("p", tmp_path))]
     assert names == ["core/001_core.sql", "p/001_a.sql", "p/002_b.sql"]
-
-
-@pytest.fixture
-def conn():
-    try:
-        c = db.connect(TEST_DSN, connect_timeout=2)
-    except pymysql.err.OperationalError as e:
-        pytest.skip(f"brak testowej MariaDB ({e})")
-    with c.cursor() as cur:
-        cur.execute("SHOW TABLES")
-        for (table,) in cur.fetchall():
-            cur.execute(f"DROP TABLE `{table}`")
-    c.commit()
-    yield c
-    c.close()
 
 
 def test_migrate_once(conn, tmp_path):
@@ -106,9 +83,9 @@ def test_lock_blocks_second_connection(conn):
     store = db.MariaDbStore(conn)
     other = db.MariaDbStore(db.connect(TEST_DSN))
     try:
-        with store.lock("test:pobierz"), pytest.raises(db.LockedError):
-            with other.lock("test:pobierz"):
-                pass
+        lock, other_lock = store.lock("test:pobierz"), other.lock("test:pobierz")
+        with lock, pytest.raises(db.LockedError), other_lock:
+            pass
         with other.lock("test:pobierz"):
             pass
     finally:

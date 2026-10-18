@@ -4,7 +4,9 @@ Judgments and decisions of the European Court of Human Rights from HUDOC, https:
 
 ## 1. State (2026-10-18)
 - `etpc/migrations/001_rulings.sql` applied locally. `HudocSource` written (`etpc/source.py`): judgments + decisions, all languages, no placeholders, `select=*`, pages of 50, keyset cursor `{"since": updateddate, "seen": [itemids at that timestamp]}` (stable order `updateddate, itemid`; `>=` with ms doesn't work, the range `updateddate:[... TO *]` does).
-- First test: `python -m etpc pobierz --limit 10` saved 10 documents to `raw_records` (ENG/FRE/TUR, 2.6-62 KB of text each). No parser yet, so the project tables are still empty.
+- First test: `python -m etpc pobierz --limit 10` saved 10 documents to `raw_records` (ENG/FRE/TUR, 2.6-62 KB of text each).
+- **Parser** done: `python -m etpc przetworz [--od-poczatku] [--limit N] [--budzet S]` (core `Deriver` + `etpc/parser.py` pure DTOs + `etpc/tables.py` SQL). Processes raw records changed since the last pass (`hudoc:derived` in `sync_state`), oldest first, only those from before the current second (no record can slip behind the mark). Each document is upserted into `ruling_documents` under its ECLI; each touched ruling is rebuilt from its best version (ENG > FRE > any): `rulings` row + side tables replaced. A document that changed ECLI moves; a ruling left without documents is deleted. The 10 test documents -> 10 rulings locally.
+- `pobierz` and `przetworz` share one lock (`etpc:baza`). Cron: `python -m etpc pobierz --budzet 240 && python -m etpc przetworz --budzet 60` (to tune on the hosting).
 - **Cloudflare:** Python's TLS (requests/urllib, Windows and Linux) gets `403` + `cf-mitigated: challenge` for every request; curl (Windows Schannel and Linux OpenSSL) passes, but part of its requests are challenged too, seemingly at random (more after a burst of test requests). Hence: the ETPC project uses `transport="curl"` (`CurlSession` in `judgments_core/http.py`, system curl through subprocess), and `PoliteClient` retries a challenge after 30 s, 60 s, ... **To check on the hosting:** curl present and passing from its IP; pace (`ETPC_PAUSE_S`) maybe higher.
 - Test queries done 2026-10-18 (~100 requests overall). Samples in `tests/fixtures/etpc/`.
 
@@ -38,6 +40,6 @@ Judgments and decisions of the European Court of Human Rights from HUDOC, https:
 
 ## Next steps
 1. ~~**`HudocSource`**~~ done (see State): query `(documentcollectionid="JUDGMENTS" OR documentcollectionid="DECISIONS")`, `select=*`, `sort=updateddate Ascending`, keyset cursor `{"since": "<updateddate>", "seen": [itemids at that timestamp]}`, page ~200-500 (texts are large). One `RawRecord` per document (`source_id` = itemid, body = the `columns` JSON). Detect the Cloudflare challenge (non-JSON) -> back off/stop the pass.
-2. **Parser:** `raw_records` -> tables, grouped by ECLI; a command to re-run it over stored raw records (incremental by `raw_records.changed_at`, state in `sync_state`). Tests on `tests/fixtures/etpc/`.
+2. ~~**Parser**~~ done (see State): `raw_records` -> tables, grouped by ECLI; a command to re-run it over stored raw records (incremental by `raw_records.changed_at`, state in `sync_state`). Tests on `tests/fixtures/etpc/`.
 3. **First import** locally for a small slice, check data and sizes, then the whole set; then the hosting with cron.
 4. Later: search page (filters + FULLTEXT + Polish->EN/FR translation), RAG (chunks of `ruling_documents.body`, multilingual embeddings, vector store from the core notes).

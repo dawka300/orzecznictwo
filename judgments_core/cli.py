@@ -3,6 +3,7 @@
 python -m nsa migracje
 python -m nsa pobierz --limit 10 --na-sucho
 python -m nsa pobierz --budzet 240      # z crona na hostingu
+python -m nsa przetworz                 # raw_records -> tabele projektu
 python -m nsa stan
 """
 
@@ -17,6 +18,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from judgments_core import db
+from judgments_core.deriver import Deriver
 from judgments_core.http import CurlSession, PoliteClient, SourceError
 from judgments_core.importer import Importer
 from judgments_core.settings import Settings
@@ -32,6 +34,8 @@ class Project:
     migrations: Path  # katalog NNN_*.sql projektu (po migracjach rdzenia)
     # "requests" albo "curl" - gdy źródło za Cloudflare blokuje TLS Pythona
     transport: str = "requests"
+    # derive(cursor, records): tabele projektu z raw_records; None = brak parsera
+    derive: Callable | None = None
 
 
 def build_parser(project):
@@ -55,6 +59,23 @@ def build_parser(project):
         help="zignoruj zapisany kursor (nowy kursor i tak się zapisze)",
     )
     fetch.add_argument(
+        "--budzet",
+        dest="time_budget_s",
+        type=int,
+        help="zakończ po tylu sekundach (domyślnie z ustawień, 0 = bez limitu)",
+    )
+
+    derive = commands.add_parser(
+        "przetworz", help="wypełnij tabele projektu z raw_records (tylko zmienione)"
+    )
+    derive.add_argument("--limit", type=int, help="zakończ po N rekordach")
+    derive.add_argument(
+        "--od-poczatku",
+        dest="from_start",
+        action="store_true",
+        help="przetwórz wszystkie rekordy od nowa (np. po zmianie parsera)",
+    )
+    derive.add_argument(
         "--budzet",
         dest="time_budget_s",
         type=int,
@@ -96,6 +117,8 @@ def main(project, argv=None, settings=None):
             return _migrate(project, settings)
         if args.command == "pobierz":
             return _fetch(project, settings, args)
+        if args.command == "przetworz":
+            return _derive(project, settings, args)
         return _status(project, settings)
     except db.LockedError as e:
         log.info("%s Kończę.", e)  # zwykła sytuacja przy cronie, nie błąd
@@ -115,10 +138,19 @@ def _migrate(project, settings):
     return 0
 
 
-def _fetch(project, settings, args):
+def _make_source(project, settings):
     session = CurlSession() if project.transport == "curl" else None
-    client = PoliteClient.from_settings(settings, session=session)
-    source = project.make_source(settings, client)
+    return project.make_source(settings, PoliteClient.from_settings(settings, session=session))
+
+
+def _lock_name(project):
+    # Jedna blokada dla pobierania i przetwarzania: przetwarzanie w trakcie
+    # pobierania mogłoby minąć rekord zapisany z wcześniejszym fetched_at.
+    return f"{project.name}:baza"
+
+
+def _fetch(project, settings, args):
+    source = _make_source(project, settings)
     budget = settings.time_budget_s if args.time_budget_s is None else args.time_budget_s
 
     if args.dry_run:
@@ -130,7 +162,7 @@ def _fetch(project, settings, args):
 
     with db.connect(settings.db_dsn) as conn:
         store = db.MariaDbStore(conn)
-        with store.lock(f"{project.name}:pobierz"):
+        with store.lock(_lock_name(project)):
             result = Importer(
                 source,
                 store,
@@ -139,6 +171,27 @@ def _fetch(project, settings, args):
                 resume=not args.from_start,
             ).run()
     _report(result)
+    return 0
+
+
+def _derive(project, settings, args):
+    if project.derive is None:
+        raise NotImplementedError(f"projekt {project.name} nie ma jeszcze parsera")
+    source = _make_source(project, settings)
+    budget = settings.time_budget_s if args.time_budget_s is None else args.time_budget_s
+    with db.connect(settings.db_dsn) as conn:
+        store = db.MariaDbStore(conn)
+        with store.lock(_lock_name(project)):
+            result = Deriver(
+                store,
+                source.name,
+                project.derive,
+                from_start=args.from_start,
+                limit=args.limit,
+                time_budget_s=budget,
+            ).run()
+    end = "wszystko przetworzone" if result.finished else f"przerwano ({result.stopped_by})"
+    log.info("Gotowe: %d porcji, %d rekordów; %s.", result.batches, result.records, end)
     return 0
 
 
