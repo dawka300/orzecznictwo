@@ -1,3 +1,6 @@
 -r requirements.txt
 pytest
 ruff
+# Tylko lokalnie: transport "playwright" (ETPC_TRANSPORT=playwright), gdy
+# Cloudflare blokuje curl. Po instalacji: python -m playwright install chromium
+playwright

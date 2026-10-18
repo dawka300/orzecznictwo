@@ -48,6 +48,8 @@ class Settings:
     # długie procesy - przebieg kończy się sam, a następny wznawia od kursora.
     time_budget_s: int = 0
     log_dir: str = "logs"
+    # requests / curl / playwright; puste = domyślny transport projektu
+    transport: str = ""
 
     @classmethod
     def from_env(cls, prefix, environ=None, dotenv_path=DOTENV_PATH):

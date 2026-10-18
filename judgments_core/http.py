@@ -173,6 +173,9 @@ class CurlSession:
             raise requests.ConnectionError(f"curl (kod {done.returncode}): {stderr}")
         return _parse_curl_output(done.stdout, url)
 
+    def close(self):
+        pass  # każde zapytanie to osobny proces curl
+
 
 def _parse_curl_output(output, url):
     """Split `curl --include` output into status, headers and body."""

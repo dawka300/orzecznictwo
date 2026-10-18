@@ -24,8 +24,9 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from judgments_core import db
+from judgments_core.browser import PlaywrightSession
 from judgments_core.deriver import Deriver
-from judgments_core.http import CurlSession, PoliteClient, SourceError
+from judgments_core.http import CurlSession, PoliteClient
 from judgments_core.importer import Importer
 from judgments_core.settings import Settings
 
@@ -38,7 +39,8 @@ class Project:
     title: str
     make_source: Callable  # (settings, client) -> Source
     migrations: Path  # katalog NNN_*.sql projektu (po migracjach rdzenia)
-    # "requests" albo "curl" - gdy źródło za Cloudflare blokuje TLS Pythona
+    # requests / curl (Cloudflare blokuje TLS Pythona) / playwright (prawdziwa
+    # przeglądarka, tylko lokalnie); ustawienie <PREFIKS>_TRANSPORT ma pierwszeństwo
     transport: str = "requests"
     # derive(cursor, records) -> problemy: tabele projektu z raw_records; None = brak parsera
     derive: Callable | None = None
@@ -153,7 +155,7 @@ def main(project, argv=None, settings=None):
     except NotImplementedError as e:
         log.error("Jeszcze nie zrobione: %s", e)
         return 2
-    except SourceError as e:
+    except RuntimeError as e:  # SourceError, brak Playwrighta ...
         log.error("%s", e)
         return 1
 
@@ -165,8 +167,20 @@ def _migrate(project, settings):
     return 0
 
 
-def _make_source(project, settings, on_event=None):
-    session = CurlSession() if project.transport == "curl" else None
+def _make_source(project, settings, closer, on_event=None):
+    """The project's source over the chosen transport; closer closes the session at the end."""
+    transport = settings.transport or project.transport
+    if transport == "curl":
+        session = CurlSession()
+    elif transport == "playwright":
+        session = PlaywrightSession()
+    elif transport == "requests":
+        session = None
+    else:
+        raise ValueError(f"nieznany transport: {transport} (requests / curl / playwright)")
+    if session is not None:
+        closer.callback(session.close)
+    log.info("transport: %s", transport)
     client = PoliteClient.from_settings(settings, session=session, on_event=on_event)
     return project.make_source(settings, client)
 
@@ -215,15 +229,19 @@ def _fetch(project, settings, args):
     budget = settings.time_budget_s if args.time_budget_s is None else args.time_budget_s
 
     if args.dry_run:
-        source = _make_source(project, settings)
-        result = Importer(
-            source, limit=args.limit, time_budget_s=budget, outputs=[_print_record]
-        ).run()
+        with contextlib.ExitStack() as closer:
+            source = _make_source(project, settings, closer)
+            result = Importer(
+                source, limit=args.limit, time_budget_s=budget, outputs=[_print_record]
+            ).run()
         _report(result)
         return 0
 
-    with _logged_run(project, settings, "pobierz") as (store, run):
-        source = _make_source(project, settings, run.event_saver(store))
+    with (
+        _logged_run(project, settings, "pobierz") as (store, run),
+        contextlib.ExitStack() as closer,
+    ):
+        source = _make_source(project, settings, closer, run.event_saver(store))
         if args.missing:
             ids = store.open_problems(source.name, "pobierz", "brak_w_bazie", limit=args.limit)
             log.info("brakujących do pobrania: %d", len(ids))
@@ -268,7 +286,8 @@ class _IdsSource:
 def _derive(project, settings, args):
     if project.derive is None:
         raise NotImplementedError(f"projekt {project.name} nie ma jeszcze parsera")
-    source = _make_source(project, settings)
+    with contextlib.ExitStack() as closer:
+        source = _make_source(project, settings, closer)  # tylko nazwa źródła
     budget = settings.time_budget_s if args.time_budget_s is None else args.time_budget_s
     with _logged_run(project, settings, "przetworz") as (store, run):
         deriver = Deriver(
@@ -299,8 +318,11 @@ def _derive(project, settings, args):
 def _verify(project, settings, args):
     if project.verify is None:
         raise NotImplementedError(f"projekt {project.name} nie ma jeszcze sprawdzania")
-    with _logged_run(project, settings, "sprawdz") as (store, run):
-        source = _make_source(project, settings, run.event_saver(store))
+    with (
+        _logged_run(project, settings, "sprawdz") as (store, run),
+        contextlib.ExitStack() as closer,
+    ):
+        source = _make_source(project, settings, closer, run.event_saver(store))
         years = None
         if args.year_from or args.year_to:
             years = range(args.year_from or 1900, (args.year_to or source.now().year) + 1)

@@ -52,3 +52,10 @@ Judgments and decisions of the European Court of Human Rights from HUDOC, https:
   - `python -m etpc sprawdz [--od ROK] [--do ROK]` (`etpc/verify.py`): HUDOC vs raw_records per year, missing itemids -> problems; `pobierz --brakujace` fetches them; `stan [--problemy]` shows cursors, last runs, blocks (7 days), open problems.
   - Parser: one bad document no longer stops a batch (SAVEPOINT per document, problem recorded).
 - Next: `python -m etpc migracje` (applies core/002), `pobierz --limit 150` (years 1955-...), `sprawdz --od 1955 --do 1960`, `stan`; then the full local download.
+
+## Playwright (2026-10-18)
+- After ~250 requests in one evening Cloudflare challenged **every** curl request (5 challenges in a row, 30-120 s waits, the user's pass stalled at 1957). Headless Chromium via Playwright from the same IP: 40/40 full-text requests OK (65 MB in 72 s), then the live run below without a single challenge.
+- New transport `playwright` (`judgments_core/browser.py`, `PlaywrightSession`): opens the source's home page in headless Chromium, then `fetch()` from inside the page (like the site's own scripts); after a Cloudflare 403 it reopens the page. Optional dependency (requirements-dev.txt + `python -m playwright install chromium`), imported only when used. Chosen by `ETPC_TRANSPORT=playwright` (setting `transport` overrides the project default `curl`). Locally: put `ETPC_TRANSPORT=playwright` in `.env`.
+- Live run OK: `pobierz --limit 200` (years 1955-1967, 14 s), `sprawdz --od 1955 --do 1967` (12 years equal; 1967 short by the 10 cut off by --limit -> problems), `pobierz --brakujace` fetched them and closed the problems, `przetworz` filled the tables, `stan` shows runs, the 5 earlier Cloudflare blocks and open problems.
+- **PDF documents:** `application = ACROBAT` (old Commission decisions, translations). HUDOC gives text for some; 30 of 64 so far have an empty `contentbody` (scans?) -> problem `pusty_tekst`. Later: download the PDF (`/app/conversion/pdf/?library=ECHR&id=<itemid>`, to verify) and OCR if needed.
+- Next: full local download with `ETPC_TRANSPORT=playwright python -m etpc pobierz --budzet 0`, then `sprawdz`, `przetworz`.
