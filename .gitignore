@@ -1,0 +1,10 @@
+.idea/
+.venv/
+venv/
+.ruff_cache/
+.pytest_cache/
+__pycache__/
+.env
+logs/
+backups/
+.claude/settings.local.json

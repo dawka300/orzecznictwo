@@ -1,0 +1,22 @@
+# Lokalna MariaDB do pracy i testów (na hostingu jest MariaDB hostingu).
+# Wersję warto ustawić taką jak na seohost (sprawdzić w panelu: SELECT VERSION()).
+services:
+  db:
+    image: mariadb:10.11
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_USER: szkielet
+      MARIADB_PASSWORD: szkielet
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - dbdata:/var/lib/mysql
+      - ./docker/mariadb-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+
+volumes:
+  dbdata:

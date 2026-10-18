@@ -1,0 +1,13 @@
+[project]
+name = "orzecznictwo-szkielet"
+version = "0.1.0"
+description = "Wspólny szkielet projektów pobierających orzeczenia do MariaDB (NSA/CBOSA, ETPC/HUDOC)"
+requires-python = ">=3.9"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"  # hosting może mieć starszego Pythona niż lokalny 3.13
+
+[tool.pytest.ini_options]
+pythonpath = [".", "tests"]
+testpaths = ["tests"]
