@@ -7,6 +7,7 @@ python -m nsa przetworz                 # raw_records -> tabele projektu
 python -m nsa sprawdz                   # porównaj źródło z bazą, zapisz braki
 python -m nsa pobierz --brakujace       # dociągnij braki znalezione przez sprawdz
 python -m nsa stan                      # kursory, ostatnie przebiegi, blokady, problemy
+python -m nsa kopia                     # zrzut bazy do <NSA_BACKUP_DIR>/nsa.sql.gz
 
 Każdy przebieg pobierz/przetworz/sprawdz zapisuje się w fetch_runs, blokady
 i błędy źródła w fetch_events, rekordy z problemem w record_problems.
@@ -17,6 +18,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import logging
+import shlex
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -24,11 +26,12 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from judgments_core import db
+from judgments_core.backup import dump_database
 from judgments_core.browser import PlaywrightSession
 from judgments_core.deriver import Deriver
 from judgments_core.http import CurlSession, PoliteClient
 from judgments_core.importer import Importer
-from judgments_core.settings import Settings
+from judgments_core.settings import DOTENV_PATH, Settings
 
 log = logging.getLogger(__name__)
 
@@ -110,6 +113,9 @@ def build_parser(project):
     status.add_argument(
         "--problemy", dest="list_problems", action="store_true", help="wypisz otwarte problemy"
     )
+    commands.add_parser(
+        "kopia", help="zrzut bazy do <PREFIKS>_BACKUP_DIR (też sam po pobierz/przetworz)"
+    )
     return parser
 
 
@@ -148,6 +154,8 @@ def main(project, argv=None, settings=None):
             return _derive(project, settings, args)
         if args.command == "sprawdz":
             return _verify(project, settings, args)
+        if args.command == "kopia":
+            return _backup(project, settings, required=True)
         return _status(project, settings, args)
     except db.LockedError as e:
         log.info("%s Kończę.", e)  # zwykła sytuacja przy cronie, nie błąd
@@ -266,6 +274,8 @@ def _fetch(project, settings, args):
             )
         run.status = _status_of(result)
     _report(result)
+    if r.new or r.changed:
+        return _backup(project, settings)
     return 0
 
 
@@ -312,6 +322,8 @@ def _derive(project, settings, args):
         result.problems,
         end,
     )
+    if result.records:
+        return _backup(project, settings)
     return 0
 
 
@@ -339,6 +351,20 @@ def _verify(project, settings, args):
         extra,
         " Braki pobierze: pobierz --brakujace" if missing else "",
     )
+    return 0
+
+
+def _backup(project, settings, required=False):
+    """Dump the database into the backup directory, if one is set."""
+    if not settings.backup_dir:
+        if required:
+            log.error("Brak katalogu kopii: ustaw %s_BACKUP_DIR", project.name.upper())
+            return 2
+        return 0
+    path = DOTENV_PATH.parent / settings.backup_dir / f"{project.name}.sql.gz"
+    # Pod blokadą: kopia nie wypada w połowie pobierania z innego procesu.
+    with db.connect(settings.db_dsn) as conn, db.MariaDbStore(conn).lock(_lock_name(project)):
+        dump_database(settings.db_dsn, path, shlex.split(settings.dump_command))
     return 0
 
 

@@ -50,6 +50,12 @@ class Settings:
     log_dir: str = "logs"
     # requests / curl / playwright; puste = domyślny transport projektu
     transport: str = ""
+    # Katalog kopii bazy (względem katalogu repozytorium); puste = bez kopii.
+    # Ustawiony: po pobierz/przetworz, które coś zmieniły, kopia jest odświeżana.
+    backup_dir: str = ""
+    # Program zrzutu z argumentami; lokalnie z dockera, np.
+    # docker exec -i -e MYSQL_PWD orzecznictwo-szkielet-db-1 mariadb-dump
+    dump_command: str = "mysqldump"
 
     @classmethod
     def from_env(cls, prefix, environ=None, dotenv_path=DOTENV_PATH):
