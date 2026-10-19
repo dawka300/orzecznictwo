@@ -3,6 +3,8 @@
 services:
   db:
     image: mariadb:10.11
+    # Wstaje sam razem z dockerem (bez ręcznego docker compose up).
+    restart: unless-stopped
     environment:
       MARIADB_ROOT_PASSWORD: root
       MARIADB_USER: szkielet
@@ -27,12 +29,38 @@ services:
   # jej nie ma). REST na 6333, panel: http://127.0.0.1:6333/dashboard
   qdrant:
     image: qdrant/qdrant:v1.19.2
+    restart: unless-stopped
     ports:
       - "127.0.0.1:6333:6333"
     volumes:
       - qdrantdata:/qdrant/storage
     environment:
       QDRANT__TELEMETRY_DISABLED: "true"
+
+  # Wyszukiwarka ETPC na http://127.0.0.1:8080 (python -m etpc www w kontenerze).
+  # Zapytania semantyczne liczy LM Studio na komputerze (host.docker.internal);
+  # gdy jest wyłączone, strona działa dalej na samym wyszukiwaniu pełnotekstowym.
+  www:
+    build:
+      context: .
+      dockerfile: docker/www.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - .:/app
+    environment:
+      ETPC_DB_DSN: mysql://szkielet:szkielet@db:3306/etpc
+      ETPC_QDRANT_URL: http://qdrant:6333
+      ETPC_EMBED_URL: http://host.docker.internal:1234/v1/embeddings
+      ETPC_LOG_DIR: logs/www
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
 
 volumes:
   dbdata:

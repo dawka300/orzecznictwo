@@ -10,12 +10,14 @@ Judgments go first (key cases first, newest first), then decisions.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass
 from datetime import date
 
 from etpc.chunker import chunk_document, embedding_input
+from judgments_core.db import MariaDbStore
 from judgments_core.source import utc_now
 
 log = logging.getLogger(__name__)
@@ -37,9 +39,11 @@ PAYLOAD_INDEXES = {
 # Tyle fragmentów naraz idzie do bazy wektorów i do ruling_vectors (jedna transakcja).
 GROUP_CHUNKS = 256
 PROGRESS_EVERY_S = 60
+# Postęp w sync_state (strona /statystyki, python -m etpc stan).
+PROGRESS_KEY = "etpc:wektory"
 
 CANDIDATES_SQL = """
-SELECT c.ruling_id, c.document_id, d.body_sha256 FROM (
+SELECT c.ruling_id, c.document_id, d.body_sha256, d.body_length FROM (
     SELECT ruling_id, COALESCE(MIN(CASE WHEN language = 'ENG' THEN id END), MIN(id)) AS document_id
     FROM ruling_documents
     WHERE language IN ('ENG', 'FRE') AND body_length > 0
@@ -97,45 +101,71 @@ class EmbedJob:
         with self.conn.cursor() as cur:
             cur.execute(CANDIDATES_SQL, (self.embedder.model,))
             todo = cur.fetchall()
+            cur.execute(
+                "SELECT COUNT(*), COALESCE(SUM(chunks), 0) FROM ruling_vectors WHERE model = %s",
+                (self.embedder.model,),
+            )
+            done_before, chunks_before = cur.fetchone()
+        self.conn.commit()
         log.info("orzeczeń do policzenia: %d (model %s)", len(todo), self.embedder.model)
+        progress = Progress(
+            self.conn,
+            self.embedder.model,
+            total=int(done_before) + len(todo),
+            done=int(done_before),
+            chunks=int(chunks_before),
+            remaining_chars=int(sum(row[3] for row in todo)),
+        )
         if self.limit is not None:
             todo = todo[: self.limit]
 
         r = self.result
-        position, last_report, chars = 0, started, 0
-        while position < len(todo):
-            if self.time_budget_s and self.clock() - started >= self.time_budget_s:
-                r.stopped_by = "czas"
-                break
-            rulings, position = self._load_group(todo, position)
-            chunks = [c for _, _, _, cs in rulings for c in cs]
-            texts = [embedding_input(c) for c in chunks]
-            for i in range(0, len(texts), self.batch_size):
-                for chunk, vector in zip(
-                    chunks[i : i + self.batch_size],
-                    self.embedder.embed(texts[i : i + self.batch_size]),
-                ):
-                    chunk.vector = vector
-            self._save(rulings, chunks)
-            r.rulings += len(rulings)
-            r.chunks += len(chunks)
-            r.groups += 1
-            chars += sum(len(t) for t in texts)
-            now = self.clock()
-            if now - last_report >= PROGRESS_EVERY_S:
-                took = now - started
-                log.info(
-                    "postęp: %d/%d orzeczeń, %d fragmentów, ~%.0f tokenów/s",
-                    position,
-                    len(todo),
-                    r.chunks,
-                    chars / 4 / took if took else 0,
+        position, last_report, chars, body_chars = 0, started, 0, 0
+        try:
+            progress.save("liczy")
+            while position < len(todo):
+                if self.time_budget_s and self.clock() - started >= self.time_budget_s:
+                    r.stopped_by = "czas"
+                    break
+                group_start = position
+                rulings, position = self._load_group(todo, position)
+                group_chars = int(sum(row[3] for row in todo[group_start:position]))
+                body_chars += group_chars
+                chunks = [c for _, _, _, cs in rulings for c in cs]
+                texts = [embedding_input(c) for c in chunks]
+                for i in range(0, len(texts), self.batch_size):
+                    for chunk, vector in zip(
+                        chunks[i : i + self.batch_size],
+                        self.embedder.embed(texts[i : i + self.batch_size]),
+                    ):
+                        chunk.vector = vector
+                self._save(rulings, chunks)
+                r.rulings += len(rulings)
+                r.chunks += len(chunks)
+                r.groups += 1
+                chars += sum(len(t) for t in texts)
+                now = self.clock()
+                # Tempo w znakach całych tekstów, jak remaining_chars (bez nagłówków itp.).
+                progress.advance(
+                    len(rulings), len(chunks), group_chars, body_chars / (now - started or 1)
                 )
-                last_report = now
-        r.remaining = len(todo) - position
-        if self.limit is not None and not r.stopped_by:
-            r.stopped_by = "limit" if r.rulings >= self.limit else ""
-        r.finished = not r.stopped_by and r.remaining == 0
+                progress.save("liczy")
+                if now - last_report >= PROGRESS_EVERY_S:
+                    log.info(
+                        "postęp: %d/%d orzeczeń, %d fragmentów, ~%.0f tokenów/s",
+                        position,
+                        len(todo),
+                        r.chunks,
+                        chars / 4 / (now - started or 1),
+                    )
+                    last_report = now
+            r.remaining = len(todo) - position
+            if self.limit is not None and not r.stopped_by:
+                r.stopped_by = "limit" if r.rulings >= self.limit else ""
+            r.finished = not r.stopped_by and r.remaining == 0
+        finally:
+            done = progress.done >= progress.total
+            progress.save("gotowe" if done else "przerwano")
         return r
 
     def _remove_deleted(self):
@@ -156,7 +186,7 @@ class EmbedJob:
         """Rulings from todo[position:] until GROUP_CHUNKS chunks: [(id, itemid, sha, chunks)]."""
         group, size = [], 0
         while position < len(todo) and size < GROUP_CHUNKS:
-            batch = todo[position : position + 20]
+            batch = todo[position : position + 5]
             position += len(batch)
             for ruling_id, itemid, sha, chunks in self._chunk_rulings(batch):
                 group.append((ruling_id, itemid, sha, chunks))
@@ -175,7 +205,7 @@ class EmbedJob:
             )
             documents = {row[0]: row for row in cur.fetchall()}
             respondents, articles, violations = _lists(cur, ruling_ids)
-        for ruling_id, document_id, _ in batch:
+        for ruling_id, document_id, *_ in batch:
             _, _, itemid, language, title, body, sha, kind, formation, ruling_date, importance = (
                 documents[document_id]
             )
@@ -214,6 +244,56 @@ class EmbedJob:
                 ],
             )
         self.conn.commit()
+
+
+class Progress:
+    """How far the embedding is, as JSON in sync_state (read by read_progress)."""
+
+    def __init__(self, conn, model, *, total, done, chunks, remaining_chars):
+        self.store = MariaDbStore(conn)
+        self.model = model
+        self.total = total
+        self.done = done
+        self.chunks = chunks
+        self.remaining_chars = remaining_chars
+        self.chars_per_s = 0.0
+        self.pass_started = _now_text()
+
+    def advance(self, rulings, chunks, chars, chars_per_s):
+        self.done += rulings
+        self.chunks += chunks
+        self.remaining_chars = max(0, self.remaining_chars - chars)
+        self.chars_per_s = chars_per_s
+
+    def save(self, status):
+        value = {
+            "status": status,
+            "model": self.model,
+            "total": self.total,
+            "done": self.done,
+            "chunks": self.chunks,
+            "remaining_chars": self.remaining_chars,
+            "chars_per_s": round(self.chars_per_s),
+            "pass_started": self.pass_started,
+            "updated": _now_text(),
+        }
+        self.store.set_state(PROGRESS_KEY, json.dumps(value))
+
+
+def read_progress(cur):
+    """The last saved progress (dict) or None; "eta_s" = seconds left at the last pace."""
+    cur.execute("SELECT value FROM sync_state WHERE `key` = %s", (PROGRESS_KEY,))
+    row = cur.fetchone()
+    if not row:
+        return None
+    progress = json.loads(row[0])
+    rate = progress.get("chars_per_s") or 0
+    progress["eta_s"] = progress["remaining_chars"] / rate if rate else None
+    return progress
+
+
+def _now_text():
+    return utc_now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _lists(cur, ruling_ids):

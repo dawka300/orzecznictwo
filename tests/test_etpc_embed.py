@@ -99,3 +99,24 @@ def test_time_budget_stops_before_work(conn):
         1,
         [],
     )
+
+
+def test_progress_saved(conn):
+    from etpc.embed import read_progress
+
+    prepared(conn)
+    run(conn)
+    with conn.cursor() as cur:
+        progress = read_progress(cur)
+    assert (
+        progress["status"],
+        progress["total"],
+        progress["done"],
+        progress["remaining_chars"],
+    ) == (
+        "gotowe",
+        1,
+        1,
+        0,
+    )
+    assert progress["chunks"] > 1 and progress["model"] == "fake-model"

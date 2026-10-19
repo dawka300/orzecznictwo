@@ -11,6 +11,7 @@ import logging
 import re
 
 from etpc import labels, search
+from etpc.embed import read_progress
 from etpc.labels import label
 from etpc.stats import read_stats
 from judgments_core import db
@@ -123,7 +124,21 @@ def _search(cur, request):
     else:
         body = _results(q, result)
     title = f"{q.text} - wyszukiwanie" if q.text else "Wyszukiwanie"
+    body = _vectors_line(read_progress(cur)) + body
     return Response(_layout(title, f"<div class=search>{form}<section>{body}</section></div>"))
+
+
+def _vectors_line(progress):
+    """One line about the embedding while it is not finished."""
+    if not progress or progress["done"] >= progress["total"]:
+        return ""
+    percent = 100 * progress["done"] / progress["total"] if progress["total"] else 0
+    return (
+        f"<p class=progress-line>Wyszukiwanie znaczeniowe: policzono {_n(progress['done'])}"
+        f" z {_n(progress['total'])} orzeczeń ({percent:.1f}%)"
+        f"{' - trwa' if progress['status'] == 'liczy' else ' - wstrzymane'}."
+        ' <a href="/statystyki#wektory">szczegóły</a></p>'
+    )
 
 
 def _options(rows, names, selected, all_label):
@@ -531,8 +546,46 @@ def _stats(cur):
     body = f"""<h1>Statystyki</h1>
 <p class=hint>Przeliczone {e(updated)} UTC, po ostatnim przetworz. Orzeczenie = jedno ECLI ze wszystkimi wersjami językowymi.</p>
 <div class=cards>{cards}</div>
+{_vectors_card(read_progress(cur))}
 <div class=tables>{tables}</div>"""
     return Response(_layout("Statystyki", body))
+
+
+VECTOR_STATUS = {
+    "liczy": "trwa liczenie",
+    "przerwano": "wstrzymane - dokończy następne: python -m etpc wektory",
+    "gotowe": "wszystko policzone",
+}
+
+
+def _vectors_card(progress):
+    """Embedding progress (python -m etpc wektory), from sync_state."""
+    if not progress:
+        return ""
+    total, done = progress["total"], progress["done"]
+    percent = 100 * done / total if total else 100
+    status = VECTOR_STATUS.get(progress["status"], progress["status"])
+    if progress["status"] == "liczy" and progress.get("eta_s"):
+        status += f", zostało ok. {_duration(progress['eta_s'])}"
+    pace = progress.get("chars_per_s") or 0
+    facts = [
+        f"<b>{_n(done)}</b> z <b>{_n(total)}</b> orzeczeń ({percent:.1f}%)",
+        f"{_n(progress['chunks'])} fragmentów w bazie wektorów",
+        f"tempo ~{_n(round(pace / 4))} tokenów/s" if pace else "",
+        f"model {e(progress['model'])}",
+        f"ostatni zapis {e(progress['updated'])} UTC",
+    ]
+    return f"""<section id=wektory class=vectors><h2>Wyszukiwanie znaczeniowe (wektory)</h2>
+<div class=progress><div style="width:{percent:.2f}%"></div></div>
+<p><b>{e(status)}</b></p><p class=hint>{" · ".join(f for f in facts if f)}</p>
+<p class=hint>Najpierw wyroki (od kluczowych i najnowszych), potem decyzje. Odśwież stronę, żeby zobaczyć postęp.</p></section>"""
+
+
+def _duration(seconds):
+    minutes = int(seconds // 60)
+    if minutes < 60:
+        return f"{minutes} min"
+    return f"{minutes // 60} h {minutes % 60} min"
 
 
 def _most_cited(cur, limit=50):
@@ -618,6 +671,10 @@ def _layout(title, body):
 
 
 CSS = """
+.vectors{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:4px 16px 8px;margin:16px 0}
+.progress{height:12px;border-radius:6px;background:var(--line);overflow:hidden}
+.progress div{height:100%;background:var(--accent)}
+.progress-line{margin:0 0 10px;padding:6px 10px;border-radius:7px;background:var(--accent-soft);font-size:13px}
 :root{--bg:#f6f7f9;--panel:#fff;--text:#1d2330;--muted:#5d6678;--line:#dfe3ea;
 --accent:#1f4fa3;--accent-soft:#e8eefb;--mark:#ffe58a;--judgment:#e6f3ea;--judgment-t:#1e6b3a;
 --decision:#f3ede4;--decision-t:#7a5216;--key:#fbe4e4;--key-t:#9b2121;--bar:#d9e3f7}
