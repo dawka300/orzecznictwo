@@ -44,17 +44,20 @@ class Session:
 
 
 def sse(*pieces):
-    lines = [f"data: {json.dumps({'choices': [{'delta': {'content': p}}]})}" for p in pieces]
-    return [": ping", "", *lines, "data: [DONE]", "data: never"]
+    lines = [
+        f"data: {json.dumps({'choices': [{'delta': {'content': p}}]}, ensure_ascii=False)}"
+        for p in pieces
+    ]
+    return [line.encode("utf-8") for line in (": ping", "", *lines, "data: [DONE]", "data: never")]
 
 
 def test_http_chat_streams_pieces_and_finds_the_loaded_model():
     session = Session(
-        post=Response(lines=sse("Dzień ", "dobry")),
+        post=Response(lines=sse("Dzień ", "dobry", " [1]")),
         get=Response(data={"data": [{"id": "text-embedding-bge-m3"}, {"id": "qwen3-14b"}]}),
     )
     chat = HttpChat("http://h:1234/v1/chat/completions", session=session)
-    assert chat.complete([{"role": "user", "content": "hej"}]) == "Dzień dobry"
+    assert chat.complete([{"role": "user", "content": "hej"}]) == "Dzień dobry [1]"
     assert session.got == "http://h:1234/v1/models"
     url, body = session.posted[0]
     assert url == "http://h:1234/v1/chat/completions"
@@ -117,7 +120,14 @@ def test_pipeline_prompt_and_answer():
     assert (
         system["content"].startswith("Źródła to orzeczenia testowe.") and "[1]" in system["content"]
     )
-    assert user["content"].startswith("Źródła:\n\n[1] A v. Poland (id 5)")
+    assert user["content"].startswith("Źródła:\n\n[1] A v. Poland\nwyrok")  # bez id z bazy
+    assert "pola WYNIK" in system["content"]
     assert user["content"].endswith("Pytanie: Czy naruszono?")
     assert answer.text == "Naruszenie art. 6 [1], zob. [4]."
     assert (answer.cited, answer.unknown) == ([1], [4])
+
+
+def test_suffix_goes_after_the_question():
+    chat = FakeChat(["Odp."])
+    Pipeline(retriever=None, chat=chat, suffix="/no_think").answer("Pytanie?", retrieval())
+    assert chat.messages[1]["content"].endswith("Pytanie: Pytanie?\n\n/no_think")

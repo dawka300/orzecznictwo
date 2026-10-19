@@ -95,6 +95,7 @@ class _Candidate:
     heading: str
     core: tuple = ()  # (start, end) samego fragmentu bez poszerzenia: to ocenia reranker
     score: float = 0.0  # ocena rerankera
+    part: str = ""  # część orzeczenia (last_parts)
 
 
 class Retriever(ABC):
@@ -107,6 +108,9 @@ class Retriever(ABC):
     # zapytanie z własnym trybem (filtr mode) wygrywa.
     mode = ""
     semantic_class = None  # SemanticSearch projektu (from_settings)
+    # Części orzeczenia, których fragmenty idą na koniec kolejki w orzeczeniu (np. zdania
+    # odrębne: nie mogą wypierać uzasadnienia sądu); zostają, gdy innych nie ma.
+    last_parts = ()
 
     def __init__(self, semantic=None, reranker=None):
         self.semantic = semantic
@@ -216,9 +220,12 @@ class Retriever(ABC):
                     *widen(body, p.start, p.start + p.length, self.widen_chars),
                     heading=_heading(p.context, p.part),
                     core=(p.start, p.start + p.length),
+                    part=p.part,
                 )
                 for p in passages
             ]
+            if self.last_parts:  # sort stabilny: kolejność trafności w grupach zostaje
+                spans.sort(key=lambda c: c.part in self.last_parts)
             return spans[: self.per_judgment]
         match = pattern.search(body) if pattern is not None else None
         at = match.start() if match else 0
@@ -279,13 +286,17 @@ def pack(judgments, budget):
     return [(i, chosen[i]) for i, _ in judgments if i in chosen]
 
 
-def render(retrieval, empty="Nic nie znaleziono."):
-    """The sources as text for a model: [n] title, details, link, then passages."""
+def render(retrieval, empty="Nic nie znaleziono.", ids=True):
+    """The sources as text for a model: [n] title, details, link, then passages.
+
+    ids=False: without the database ids (a local model copies them into its
+    answer; Claude needs them for the tool orzeczenie)."""
     if not retrieval.sources:
         return empty
     parts = []
     for s in retrieval.sources:
-        lines = [f"[{s.number}] {s.title} (id {s.judgment_id})", s.details, s.url]
+        head = f"[{s.number}] {s.title} (id {s.judgment_id})" if ids else f"[{s.number}] {s.title}"
+        lines = [head, s.details, s.url]
         for f in s.fragments:
             where = f"{f.heading}, " if f.heading else ""
             language = f" ({s.language})" if s.language else ""

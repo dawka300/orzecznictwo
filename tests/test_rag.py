@@ -3,6 +3,7 @@
 import re
 from dataclasses import dataclass
 
+from etpc.rag import outcome
 from judgments_core import evaluation
 from judgments_core.rag import Ranking, Retriever, merge, pack, render, widen
 from judgments_core.rerank import LocalReranker, RerankError
@@ -198,3 +199,34 @@ def test_local_reranker_loads_lazily_and_scores_pairs():
         assert "no such model" in str(e)
     else:
         raise AssertionError("brak RerankError")
+
+
+def test_separate_opinions_go_last_within_a_judgment():
+    start = BODY_A.index("Paragraph 30")
+    opinion = Passage(1, 0.95, "001-1", "ENG", 0, 60, "A | OPINION", "opinia")
+    semantic = FakeSemantic({1: [opinion, passage(1, start, 120)]})
+
+    class Opinions(FakeRetriever):
+        last_parts = ("opinia",)
+
+    one = Opinions(semantic).retrieve(None, Query("x"), budget_chars=200)
+    assert [f.heading for f in one.sources[0].fragments] == ["THE LAW > I."]  # uzasadnienie
+    plain = FakeRetriever(semantic).retrieve(None, Query("x"), budget_chars=200)
+    assert [f.heading for f in plain.sources[0].fragments] == ["OPINION"]
+
+
+def test_outcome_keeps_findings_without_damages():
+    conclusion = (
+        "Violation of Article 10 - Freedom of expression-{general} (Article 10-1 - Freedom of"
+        " expression);Pecuniary damage - claim dismissed (Article 41 - Pecuniary damage;Just"
+        " satisfaction);Non-pecuniary damage - award (Article 41 - Non-pecuniary damage;Just"
+        " satisfaction)"
+    )
+    assert outcome(conclusion) == (
+        "Violation of Article 10 - Freedom of expression-{general}"
+        " (Article 10-1 - Freedom of expression)"
+    )
+    assert outcome("Remainder inadmissible;No violation of Art. 6-1;Costs and expenses award") == (
+        "Remainder inadmissible; No violation of Art. 6-1"
+    )
+    assert outcome("") == "" and outcome(None) == ""

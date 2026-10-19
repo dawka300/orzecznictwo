@@ -26,6 +26,9 @@ Zasady:
 - Każde twierdzenie oznacz numerem źródła w nawiasie kwadratowym, np. [1] albo [2][3].
 - Jeśli źródła nie wystarczają, napisz to wprost; nie uzupełniaj odpowiedzi z pamięci.
 - Nie wymyślaj nazw spraw, sygnatur, numerów skarg, dat ani cytatów.
+- O wyniku sprawy (naruszenie, brak naruszenia, oddalenie, uchylenie, odrzucenie) pisz
+  wyłącznie na podstawie pola WYNIK w opisie źródła.
+- Nazwy spraw, państw, sądów i organów przepisuj dokładnie tak, jak są w źródle.
 - Najpierw krótka odpowiedź wprost (2-4 zdania), potem uzasadnienie ze źródłami."""
 
 _CITATION = re.compile(r"\[(\d+(?:\s*[,;]\s*\d+)*)\]")
@@ -42,22 +45,31 @@ class Answer:
 class RagPipeline(ABC):
     domain = ""  # dla modelu: czym są źródła i jak je cytować
 
-    def __init__(self, retriever, chat):
+    def __init__(self, retriever, chat, suffix=""):
         self.retriever = retriever
         self.chat = chat
+        self.suffix = suffix  # dopisek na końcu pytania, np. /no_think (Qwen3)
 
     @classmethod
     def from_settings(cls, settings, project, retriever_class):
-        return cls(retriever_class.from_settings(settings, project), make_chat(settings))
+        return cls(
+            retriever_class.from_settings(settings, project),
+            make_chat(settings),
+            settings.chat_suffix,
+        )
 
     def system_prompt(self):
         return f"{self.domain}\n\n{RULES}"
 
     def messages(self, question, retrieval):
-        sources = render(retrieval, empty="(brak źródeł)")
+        # Bez id z bazy: model lokalny przepisuje je do odpowiedzi.
+        sources = render(retrieval, empty="(brak źródeł)", ids=False)
+        user = f"Źródła:\n\n{sources}\n\nPytanie: {question}"
+        if self.suffix:
+            user += f"\n\n{self.suffix}"
         return [
             {"role": "system", "content": self.system_prompt()},
-            {"role": "user", "content": f"Źródła:\n\n{sources}\n\nPytanie: {question}"},
+            {"role": "user", "content": user},
         ]
 
     def retrieve(self, cur, question, budget_chars=None, **filters):

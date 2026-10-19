@@ -82,8 +82,11 @@ class HttpChat(ChatModel):
                     f"serwer modelu: HTTP {response.status_code}: {response.text[:300]}"
                 )
             try:
-                for line in response.iter_lines(decode_unicode=True):
-                    if not line or not line.startswith("data:"):
+                # Bajty, nie tekst: iter_lines(decode_unicode=True) dzieli też na U+2028,
+                # U+0085 ... wewnątrz treści i ucina wiersz JSON-u.
+                for raw in response.iter_lines():
+                    line = raw.decode("utf-8")
+                    if not line.startswith("data:"):
                         continue
                     data = line[5:].strip()
                     if data == "[DONE]":

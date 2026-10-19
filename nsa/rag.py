@@ -45,7 +45,7 @@ class NsaRetriever(Retriever):
                 FINAL.get(hit.is_final, ""),
                 f"symbole {', '.join(hit.symbols)}" if hit.symbols else "",
                 f"organ: {hit.challenged_authority}" if hit.challenged_authority else "",
-                f"wynik: {hit.result}" if hit.result else "",
+                f"WYNIK: {hit.result}" if hit.result else "",
             )
             if x
         )

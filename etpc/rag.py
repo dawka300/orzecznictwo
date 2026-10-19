@@ -22,11 +22,14 @@ from judgments_core.rag import Ranking, Retriever
 HUDOC_URL = "https://hudoc.echr.coe.int/eng?i={}"
 # Wersja do czytania, gdy orzeczenie nie ma wektorów (tak jak przy liczeniu wektorów).
 LANGUAGES = ("ENG", "FRE")
+# Części wniosków HUDOC pomijane w wyniku sprawy (zadośćuczynienie, koszty).
+DAMAGES = ("pecuniary", "non-pecuniary", "costs", "just satisfaction", "dommage", "frais")
 
 
 class EtpcRetriever(Retriever):
     query_class = search.SearchQuery
     mode = "znaczeniowe"
+    last_parts = ("opinia",)  # zdania odrębne/zbieżne sędziów
     semantic_class = EtpcSemantic
 
     def ranking(self, cur, query):
@@ -64,7 +67,7 @@ class EtpcRetriever(Retriever):
                 f"{label(labels.KINDS, hit.kind)} z {hit.ruling_date}",
                 f"skargi {', '.join(hit.appnos)}" if hit.appnos else "",
                 f"przeciwko {', '.join(hit.states)}" if hit.states else "",
-                f"naruszenia {', '.join(hit.violations)}" if hit.violations else "",
+                f"WYNIK: {outcome(hit.conclusion)}" if outcome(hit.conclusion) else "",
                 f"ważność {label(labels.IMPORTANCE, hit.importance)}",
                 f"cytowane {hit.cited_by} razy" if hit.cited_by else "",
             )
@@ -81,6 +84,22 @@ class EtpcRetriever(Retriever):
             for appno, ruling_id in cur.fetchall():
                 found[appno].add(ruling_id)
         return found
+
+
+def outcome(conclusion):
+    """HUDOC's conclusion without damages and costs: violations, no violations,
+    inadmissibility, striking out ("Violation of Art. 6-1; No violation of Art. 3")."""
+    items, depth, current = [], 0, ""
+    for char in conclusion or "":
+        depth += (char == "(") - (char == ")")
+        if char == ";" and depth == 0:
+            items.append(current.strip())
+            current = ""
+        else:
+            current += char
+    items.append(current.strip())
+    kept = [i for i in items if i and not i.lower().startswith(DAMAGES)]
+    return "; ".join(kept)
 
 
 def _language_rank(language):

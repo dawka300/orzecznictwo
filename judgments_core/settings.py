@@ -80,6 +80,8 @@ class Settings:
     chat_temperature: float = 0.2
     chat_max_tokens: int = 2000
     chat_timeout_s: float = 600.0
+    # Dopisek na końcu pytania do modelu, np. /no_think (Qwen3 bez „myślenia”: szybciej).
+    chat_suffix: str = ""
 
     @classmethod
     def from_env(cls, prefix, environ=None, dotenv_path=DOTENV_PATH):
