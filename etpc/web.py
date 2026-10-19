@@ -73,6 +73,10 @@ def _query(request):
         year_to=request.get_int("do"),
         appno=request.get("skarga"),
         cites=request.get("cytuje"),
+        min_cited=request.get_int("cytowan"),
+        citing=request.get_int("cytujace"),
+        cited_by=request.get_int("cytowane_przez"),
+        translate=not request.get("bez_tlumaczenia"),
         sort=request.get("sort"),
         page=request.get_int("strona", 1),
     )
@@ -94,6 +98,10 @@ def _params(q, **changes):
         "do": q.year_to,
         "skarga": q.appno,
         "cytuje": q.cites,
+        "cytowan": q.min_cited,
+        "cytujace": q.citing,
+        "cytowane_przez": q.cited_by,
+        "bez_tlumaczenia": "" if q.translate else "1",
         "sort": q.sort,
         "strona": q.page if q.page > 1 else 0,
     }
@@ -161,7 +169,8 @@ def _search_form(q, stats):
   <button type=submit>Szukaj</button>
 </div>
 <div class=field>{field_radio}</div>
-<p class=hint>Wszystkie słowa muszą wystąpić; „fraza w cudzysłowie”, -słowo wyklucza, słowo* = początek słowa. Teksty są po angielsku, francusku i w tłumaczeniach.</p>
+<label class=check><input type=checkbox name=bez_tlumaczenia value=1{"" if q.translate else " checked"}> bez tłumaczenia polskich zwrotów</label>
+<p class=hint>Wszystkie słowa muszą wystąpić; „fraza w cudzysłowie”, -słowo wyklucza, słowo* = początek słowa. Teksty są po angielsku i francusku - znane polskie zwroty (prawo do sądu, przewlekłość, tymczasowe aresztowanie …) są tłumaczone.</p>
 <div class=grid>
 {_select("rodzaj", _plain_options([("", "wyroki i decyzje"), ("judgment", "wyroki"), ("decision", "decyzje")], q.kind), "Rodzaj")}
 {_select("sklad", _options(formations, labels.FORMATIONS, q.formation, "wszystkie"), "Skład")}
@@ -174,7 +183,9 @@ def _search_form(q, stats):
 <label>Rok do<input name=do value="{e(q.year_to or "")}" inputmode=numeric placeholder="2026"></label>
 <label>Nr skargi<input name=skarga value="{e(q.appno)}" placeholder="np. 22716/12"></label>
 <label>Cytuje skargę<input name=cytuje value="{e(q.cites)}" placeholder="np. 30210/96"></label>
-{_select("sort", _plain_options([("", "trafność / najnowsze"), ("data", "najnowsze"), ("najstarsze", "najstarsze")], q.sort), "Kolejność")}
+{_select("cytowan", _plain_options([(0, "dowolnie"), (10, "co najmniej 10 razy"), (50, "co najmniej 50 razy"), (100, "co najmniej 100 razy"), (500, "co najmniej 500 razy")], q.min_cited), "Cytowane")}
+{_select("sort", _plain_options([("", "trafność / najnowsze"), ("cytowane", "najczęściej cytowane"), ("data", "najnowsze"), ("najstarsze", "najstarsze")], q.sort), "Kolejność")}
+{_hidden(q)}
 </div>
 <div class=actions><button type=submit>Szukaj</button> <a href="/">wyczyść</a></div>
 </form>"""
@@ -182,7 +193,12 @@ def _search_form(q, stats):
 
 def _results(q, result):
     if result.total == 0:
-        return "<p class=empty>Nic nie znaleziono. Spróbuj innych słów albo mniej filtrów.</p>"
+        return (
+            _translations(q, result)
+            + "<p class=empty>Nic nie znaleziono. Spróbuj innych słów albo mniej filtrów."
+            " Teksty są głównie po angielsku i francusku - polskie słowa spoza słownika"
+            " znajdą się tylko w tłumaczeniach.</p>"
+        )
     first = (max(q.page, 1) - 1) * search.PAGE_SIZE + 1
     last = first + len(result.hits) - 1
     head = (
@@ -191,12 +207,43 @@ def _results(q, result):
     )
     pattern = search.highlight_pattern(result.terms.highlight) if result.terms else None
     items = "".join(_hit(q, h, pattern) for h in result.hits)
-    return head + f"<ol class=hits start={first}>{items}</ol>" + _pages(q, result.total)
+    return (
+        _translations(q, result)
+        + head
+        + f"<ol class=hits start={first}>{items}</ol>"
+        + _pages(q, result.total)
+    )
+
+
+def _translations(q, result):
+    if result is None or result.terms is None or not result.terms.translations:
+        return ""
+    items = "; ".join(
+        f"<b>{e(polish)}</b> → {e(' | '.join(alternatives))}"
+        for polish, alternatives in result.terms.translations
+    )
+    off = url("/", **_params(q, bez_tlumaczenia="1", strona=0))
+    return (
+        f"<p class=translated>Przetłumaczone: {items}."
+        f' <a href="{e(off)}">Szukaj bez tłumaczenia</a></p>'
+    )
+
+
+def _hidden(q):
+    """Filters from links (cited by / citing) kept when the form is sent again."""
+    return "".join(
+        f'<input type=hidden name="{name}" value="{value}">'
+        for name, value in (("cytujace", q.citing), ("cytowane_przez", q.cited_by))
+        if value
+    )
 
 
 def _hit(q, h, pattern):
     link = url(
-        f"/orzeczenie/{h.id}", jezyk=h.snippet_language, q=q.text if q.field == "tresc" else ""
+        f"/orzeczenie/{h.id}",
+        jezyk=h.snippet_language,
+        q=q.text if q.field == "tresc" else "",
+        bez_tlumaczenia="" if q.translate else "1",
     )
     states = ", ".join(label(labels.STATES, s) for s in h.states)
     appnos = ", ".join(h.appnos)
@@ -205,6 +252,11 @@ def _hit(q, h, pattern):
     badges = f'<span class="badge {e(h.kind)}">{e(label(labels.KINDS, h.kind))}</span>'
     if h.importance == 1:
         badges += "<span class='badge key'>kluczowe</span>"
+    if h.cited_by:
+        badges += (
+            f"<span class='badge cited' title='miejsce {_n(h.rank)} w rankingu cytowań'>"
+            f"cytowane {_n(h.cited_by)}×</span>"
+        )
     meta = " · ".join(
         x
         for x in (
@@ -267,7 +319,8 @@ def _ruling(cur, request, ruling_id):
     pattern = None
     if query:
         try:
-            pattern = search.highlight_pattern(search.parse_query(query).highlight)
+            terms = search.parse_query(query, translate=not request.get("bez_tlumaczenia"))
+            pattern = search.highlight_pattern(terms.highlight)
         except search.QueryError:
             pattern = None
 
@@ -296,6 +349,12 @@ def _ruling(cur, request, ruling_id):
             row("Rodzaj", e(label(labels.KINDS, r["kind"]))),
             row("Skład", e(label(labels.FORMATIONS, r["formation"]))),
             row("Ważność", e(label(labels.IMPORTANCE, r["importance"] or 0))),
+            row(
+                "Cytowania",
+                f"w {_n(page.cited_by_count)} orzeczeniach, miejsce {_n(page.rank)} w rankingu"
+                if page.cited_by_count
+                else "",
+            ),
             row("Państwo", states),
             row("Skargi", apps),
             row("Naruszenie", article_links("violation")),
@@ -320,7 +379,7 @@ def _ruling(cur, request, ruling_id):
             f"<b>{e(label(labels.LANGUAGES, d['language']))}"
             f"{' (tłum.)' if d['is_translation'] else ''}</b>"
             if doc and d["itemid"] == doc["itemid"]
-            else f'<a href="{e(url(f"/orzeczenie/{ruling_id}", jezyk=d["language"], q=query))}">'
+            else f'<a href="{e(url(f"/orzeczenie/{ruling_id}", jezyk=d["language"], q=query, bez_tlumaczenia=request.get("bez_tlumaczenia")))}">'
             f"{e(label(labels.LANGUAGES, d['language']))}{' (tłum.)' if d['is_translation'] else ''}</a>"
         )
         for d in page.documents
@@ -355,18 +414,31 @@ def _ruling(cur, request, ruling_id):
 def _citations(page):
     out = ""
     if page.cited_by:
-        items = "".join(
-            f'<li><a href="/orzeczenie/{i}">{e(t)}</a> <span>{_date(d)}</span></li>'
-            for i, t, d in page.cited_by
+        out += _linked_list(
+            "Cytowane w", page.cited_by, page.cited_by_count, cytujace=page.ruling["id"]
         )
-        more = ""
-        if page.cited_by_count > len(page.cited_by) and page.applications:
-            more = f'<p><a href="{e(url("/", cytuje=page.applications[0], sort="data"))}">wszystkie ({_n(page.cited_by_count)})</a></p>'
-        out += f"<h2>Cytowane w ({_n(page.cited_by_count)})</h2><ul class=cites>{items}</ul>{more}"
+    if page.cites_rulings:
+        out += _linked_list(
+            "Cytuje", page.cites_rulings, page.cites_count, cytowane_przez=page.ruling["id"]
+        )
     if page.cites:
         links = ", ".join(f'<a href="{e(url("/", skarga=a))}">{e(a)}</a>' for a in page.cites)
-        out += f"<h2>Przywołane skargi ({_n(len(page.cites))})</h2><p class=cited>{links}</p>"
+        out += (
+            f"<details class=cited><summary>Przywołane numery skarg ({_n(len(page.cites))})"
+            f"</summary>{links}</details>"
+        )
     return out
+
+
+def _linked_list(caption, rows, count, **search_params):
+    items = "".join(
+        f'<li><a href="/orzeczenie/{i}">{e(t)}</a> <span>{_date(d)}</span></li>' for i, t, d in rows
+    )
+    more = ""
+    if count > len(rows):
+        link = url("/", sort="cytowane", **search_params)
+        more = f'<p><a href="{e(link)}">wszystkie ({_n(count)}), od najczęściej cytowanych</a></p>'
+    return f"<h2>{caption} ({_n(count)})</h2><ul class=cites>{items}</ul>{more}"
 
 
 def _body(text, pattern):
@@ -448,6 +520,7 @@ def _stats(cur):
             table("formation", "Składy", labels.FORMATIONS, "sklad"),
             table("importance", "Ważność", labels.IMPORTANCE, "waznosc", order=lambda r: int(r[0])),
             table("violation", "Najczęściej naruszone artykuły (30)", None, "", limit=30),
+            _most_cited(cur),
             (
                 "<section class=card-table><h2>Lata</h2><table><tr><th></th><th>orzeczeń</th>"
                 f"<th>wyroków</th><th>decyzji</th></tr>{year_rows}</table></section>"
@@ -460,6 +533,30 @@ def _stats(cur):
 <div class=cards>{cards}</div>
 <div class=tables>{tables}</div>"""
     return Response(_layout("Statystyki", body))
+
+
+def _most_cited(cur, limit=50):
+    cur.execute(
+        """SELECT r.id, r.title, r.ruling_date, k.cited_by
+        FROM ruling_ranks k JOIN rulings r ON r.id = k.ruling_id
+        ORDER BY k.position LIMIT %s""",
+        (limit,),
+    )
+    rows = cur.fetchall()
+    if not rows:
+        return ""
+    top = rows[0][3] or 1
+    body = "".join(
+        f'<tr><td><a href="/orzeczenie/{i}">{e(t)}</a></td><td class=num>{_date(d)}</td>'
+        f"<td class=num{_bar(n, top)}>{_n(n)}</td></tr>"
+        for i, t, d, n in rows
+    )
+    more = url("/", sort="cytowane")
+    return (
+        f"<section class=card-table><h2>Najczęściej cytowane ({limit})"
+        f' <a href="{e(more)}">wszystkie</a></h2>'
+        f"<table><tr><th></th><th>data</th><th>cytowań</th></tr>{body}</table></section>"
+    )
 
 
 # --- wspólne ----------------------------------------------------------------
@@ -553,6 +650,10 @@ button{padding:7px 14px;border:0;border-radius:7px;background:var(--accent);colo
 .badge{display:inline-block;padding:0 7px;border-radius:9px;font-size:12px;font-weight:600;margin-right:6px}
 .badge.judgment{background:var(--judgment);color:var(--judgment-t)}.badge.decision{background:var(--decision);color:var(--decision-t)}
 .badge.key{background:var(--key);color:var(--key-t)}
+.badge.cited{background:var(--accent-soft);color:var(--accent)}
+.check{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px;margin:2px 0}
+.check input{width:auto}
+.translated{background:var(--accent-soft);border-radius:8px;padding:8px 12px;font-size:13px;margin:0 0 12px}
 .viol{font-size:13px;margin:2px 0}.snip{margin:6px 0 0;font-size:14px}
 .lang,.langs span{font-size:11px;font-weight:600;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 4px;margin-right:3px}
 .langs{margin:6px 0 0}

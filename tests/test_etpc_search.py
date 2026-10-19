@@ -6,7 +6,8 @@ import pytest
 from conftest import TEST_DSN
 from test_etpc_tables import derive, english, polish, save, setup
 
-from etpc import search
+from etpc import glossary, search
+from etpc.ranks import refresh_ranks
 from etpc.stats import read_stats, refresh_stats
 from etpc.web import make_app
 from judgments_core.settings import Settings
@@ -21,7 +22,30 @@ def test_query_words_are_all_required():
         ("right to life", False),
         ("detent", True),
     ]
-    assert terms.locate == "detention"
+    assert terms.locate[:2] == ["pre trial", "right to life"]  # najpierw całe frazy
+    assert "detention" in terms.locate
+    assert terms.translations == []
+
+
+def test_polish_phrases_become_groups_of_english_and_french():
+    terms = search.parse_query("naruszenie prawa do sądu w Polsce postępowania")
+    assert terms.boolean == (
+        '+(violation) +("right to a court" "access to a court" "droit à un tribunal"'
+        ' "accès à un tribunal") +(Poland Pologne) postępowania'
+    )  # "w" pominięte, nieznane polskie słowo nieobowiązkowe
+    assert [polish for polish, _ in terms.translations] == ["naruszenie", "prawa do sądu", "Polsce"]
+    assert search.parse_query("tymczasowego aresztowania").translations[0][1][0] == (
+        "pre-trial detention"
+    )
+
+
+def test_translation_can_be_switched_off():
+    assert search.parse_query("prawo do sądu", translate=False).boolean == "+prawo +sądu"
+
+
+def test_glossary_matches_inflected_forms_only():
+    assert glossary.translate(["Przewlekłości", "postępowania"])[0][1][0] == "length of proceedings"
+    assert glossary.translate(["sadzonki"])[0][1] is None  # sad* + za długa końcówka
 
 
 def test_query_without_searchable_words_is_an_error():
@@ -43,6 +67,7 @@ def ruling_db(conn):
     derive(store)
     with conn.cursor() as cur:
         refresh_stats(cur)
+        refresh_ranks(cur)
     conn.commit()
     return conn
 
@@ -64,6 +89,9 @@ def test_fulltext_search_with_filters(ruling_db):
     assert run(ruling_db, text="satisfaction", respondent="TUR").total == 0
     assert run(ruling_db, text="satisfaction -poland").total == 0
     assert run(ruling_db, text="rucinski", field="tytul").total == 1
+    assert run(ruling_db, text="słuszne zadośćuczynienie").total == 1  # just satisfaction
+    assert run(ruling_db, text="satisfaction", min_cited=1).total == 0
+    assert run(ruling_db, text="satisfaction", sort="cytowane").hits[0].cited_by == 0
 
 
 def test_listing_without_text_filters_rulings(ruling_db):

@@ -1,12 +1,20 @@
 import sys
 from pathlib import Path
 
+from etpc.ranks import refresh_ranks
 from etpc.source import HudocSource
 from etpc.stats import refresh_stats
 from etpc.tables import derive
 from etpc.verify import verify
 from etpc.web import make_app
 from judgments_core.cli import Project, main
+
+
+def refresh_derived(cur):
+    """After przetworz: statistics and the citation ranking (a few seconds)."""
+    refresh_stats(cur)
+    refresh_ranks(cur)
+
 
 PROJECT = Project(
     name="etpc",
@@ -17,7 +25,7 @@ PROJECT = Project(
     transport="curl",
     derive=derive,
     verify=verify,
-    after_derive=refresh_stats,
+    after_derive=refresh_derived,
     web=make_app,
 )
 

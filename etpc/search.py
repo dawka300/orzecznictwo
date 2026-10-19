@@ -2,7 +2,8 @@
 
 A query is typed as words and "phrases"; every word must occur, -word
 excludes, word* matches a prefix. MariaDB FULLTEXT indexes words of 3+
-letters minus a short English stopword list, so those are left out.
+letters minus a short English stopword list, so those are left out. Known
+Polish phrases are translated to English/French (etpc/glossary.py).
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ import time
 from dataclasses import dataclass, field
 
 import pymysql
+
+from etpc import glossary
 
 PAGE_SIZE = 20
 # Zapytanie dłuższe niż tyle sekund jest przerywane (bardzo ogólne słowa
@@ -27,6 +30,7 @@ STOPWORDS = frozenset(_STOPWORDS.split())
 SNIPPET_BEFORE = 160
 SNIPPET_LENGTH = 480
 MAX_STATEMENT_TIME_ERROR = 1969
+LOCATE_WORDS = 8
 
 _TOKEN = re.compile(r'(-?)"([^"]*)"|(\S+)')
 _WORD_PARTS = re.compile(r"[^\W_]+")
@@ -40,47 +44,96 @@ class QueryError(ValueError):
 class Terms:
     boolean: str  # dla MATCH ... AGAINST (... IN BOOLEAN MODE)
     highlight: list = field(default_factory=list)  # [(tekst, prefiks?)] do zaznaczania
-    # najdłuższe szukane słowo: wokół niego wycinek tekstu (LOCATE); fraza
-    # się nie nadaje - w tekście bywa z łącznikiem albo złamana wierszem
-    locate: str = ""
+    # czego szukać w tekście dla wycinka (LOCATE), w kolejności: najpierw całe
+    # frazy, potem najdłuższe słowo każdego terminu (fraza w tekście bywa
+    # z łącznikiem albo złamana wierszem)
+    locate: list = field(default_factory=list)
+    # [(polski zwrot, [odpowiedniki EN/FR])] przetłumaczone słownikiem
+    translations: list = field(default_factory=list)
 
 
-def parse_query(text):
-    """User text -> Terms; raises QueryError when nothing searchable is left."""
-    parts, highlight = [], []
+def parse_query(text, translate=True):
+    """User text -> Terms; raises QueryError when nothing searchable is left.
+
+    With translate, known Polish phrases (etpc/glossary.py) become required
+    groups of their English/French wordings; the remaining plain words are
+    then optional (they raise the score, but a Polish word missing from an
+    English text doesn't drop it) and Polish stopwords are left out.
+    """
+    items = []  # ("group", polski zwrot, odpowiedniki) | ("token", wyklucz?, słowa, prefiks?)
+    run = []  # kolejne zwykłe słowa - do tłumaczenia razem ("prawo do sądu")
+
+    def flush():
+        pieces = glossary.translate(run) if translate else [([w], None) for w in run]
+        for words, alternatives in pieces:
+            if alternatives:
+                items.append(("group", " ".join(words), alternatives))
+            else:
+                items.append(("token", False, words, False))
+        run.clear()
+
     for match in _TOKEN.finditer(text):
         exclude, phrase, word = match.groups()
         if phrase is not None:
-            words = _WORD_PARTS.findall(phrase)
-            prefix = False
+            flush()
+            items.append(("token", bool(exclude), _WORD_PARTS.findall(phrase), False))
+            continue
+        exclude, prefix = word.startswith("-"), word.endswith("*")
+        words = _WORD_PARTS.findall(word)
+        if not exclude and not prefix and len(words) == 1:
+            run.append(words[0])
         else:
-            exclude = word.startswith("-")
-            prefix = word.endswith("*")
-            words = _WORD_PARTS.findall(word)
+            flush()
+            items.append(("token", exclude, words, prefix))
+    flush()
+
+    translated = any(item[0] == "group" for item in items)
+    parts, highlight, translations = [], [], []
+    for item in items:
+        if item[0] == "group":
+            _, polish, alternatives = item
+            options = []
+            for alternative in alternatives:
+                words = _WORD_PARTS.findall(alternative)
+                if not any(_indexed(w) for w in words):
+                    continue
+                options.append(f'"{" ".join(words)}"' if len(words) > 1 else words[0])
+                highlight.append((" ".join(words), False))
+            if options:
+                parts.append(f"+({' '.join(options)})")
+                translations.append((polish, alternatives))
+            continue
+        _, exclude, words, prefix = item
         if not words:
             continue
+        plain = not exclude and not prefix and len(words) == 1
+        if translated and plain and glossary.normalize(words[0]) in glossary.POLISH_STOPWORDS:
+            continue
+        operator = "-" if exclude else ("" if translated and plain else "+")
         if len(words) > 1:
             # Fraza (także słowo z łącznikiem: pre-trial = "pre trial"); musi
             # mieć choć jedno słowo z indeksu, inaczej FULLTEXT nic nie znajdzie.
             if not any(_indexed(w) for w in words):
                 continue
             term = " ".join(words)
-            parts.append(f'{"-" if exclude else "+"}"{term}"')
+            parts.append(f'{operator}"{term}"')
         else:
             term = words[0]
             if not _indexed(term) and not prefix:
                 continue
             if prefix and len(term) < MIN_WORD:
                 continue
-            parts.append(f"{'-' if exclude else '+'}{term}{'*' if prefix else ''}")
+            parts.append(f"{operator}{term}{'*' if prefix else ''}")
         if not exclude:
             highlight.append((term, prefix))
     if not highlight:
         raise QueryError(
             "Podaj co najmniej jedno słowo do wyszukania (min. 3 litery, bez słów typu the, of, to)."
         )
-    words = [w for text, _ in highlight for w in text.split()]
-    return Terms(" ".join(parts), highlight, max(words, key=len))
+    locate = [term for term, _ in highlight if " " in term]
+    locate += [max(term.split(), key=len) for term, _ in highlight]
+    unique = list({w.lower(): w for w in reversed(locate)}.values())[::-1]
+    return Terms(" ".join(parts), highlight, unique[:LOCATE_WORDS], translations)
 
 
 def _indexed(word):
@@ -113,8 +166,13 @@ class SearchQuery:
     year_from: int = 0
     year_to: int = 0
     appno: str = ""
+    translate: bool = True  # polskie zwroty -> angielskie/francuskie (tylko w treści)
     cites: str = ""  # orzeczenia cytujące skargę o tym numerze
-    sort: str = ""  # "" = trafność przy tekście, data przy jego braku; data / najstarsze
+    min_cited: int = 0  # cytowane w co najmniej tylu orzeczeniach
+    citing: int = 0  # orzeczenia cytujące orzeczenie o tym id (ruling_links)
+    cited_by: int = 0  # orzeczenia cytowane przez orzeczenie o tym id
+    # "" = trafność przy tekście, data przy jego braku; data / najstarsze / cytowane
+    sort: str = ""
     page: int = 1
 
 
@@ -133,6 +191,8 @@ class Hit:
     appno_count: int
     languages: list
     violations: list
+    cited_by: int
+    rank: int  # miejsce w rankingu cytowań, 0 = brak
     score: float = 0.0
     itemid: str = ""  # dokument z wycinkiem
     snippet_language: str = ""
@@ -150,7 +210,9 @@ class SearchResult:
 def search(cur, q):
     """Run the query; raises QueryError for unsearchable or too slow queries."""
     started = time.monotonic()
-    terms = parse_query(q.text) if q.text.strip() else None
+    terms = None
+    if q.text.strip():
+        terms = parse_query(q.text, translate=q.translate and q.field == "tresc")
     sql, args = _ids_query(q, terms)
     try:
         cur.execute(f"SET STATEMENT max_statement_time={MAX_STATEMENT_S} FOR {sql}", args)
@@ -197,6 +259,11 @@ def _ids_query(q, terms):
                 " WHERE d.ruling_id = r.id AND d.language = %s)"
             )
             args.append(q.language)
+    if q.min_cited or q.sort == "cytowane":
+        source += " LEFT JOIN ruling_ranks k ON k.ruling_id = r.id"
+    if q.min_cited:
+        where.append("k.cited_by >= %s")
+        args.append(q.min_cited)
     for column, value in (("r.kind", q.kind), ("r.formation", q.formation)):
         if value:
             where.append(f"{column} = %s")
@@ -233,9 +300,20 @@ def _ids_query(q, terms):
             " WHERE c.ruling_id = r.id AND c.cited_appno = %s)"
         )
         args.append(q.cites)
+    if q.citing:
+        where.append(
+            "EXISTS (SELECT 1 FROM ruling_links l WHERE l.citing_id = r.id AND l.cited_id = %s)"
+        )
+        args.append(q.citing)
+    if q.cited_by:
+        where.append(
+            "EXISTS (SELECT 1 FROM ruling_links l WHERE l.cited_id = r.id AND l.citing_id = %s)"
+        )
+        args.append(q.cited_by)
     order = {
         "data": "r.ruling_date DESC, r.id DESC",
         "najstarsze": "r.ruling_date, r.id",
+        "cytowane": "COALESCE(k.position, 4294967295), r.ruling_date DESC",
     }.get(q.sort, "score DESC, r.ruling_date DESC" if terms else "r.ruling_date DESC, r.id DESC")
     sql = f"""SELECT SQL_CALC_FOUND_ROWS r.id, {score} score FROM {source}
         {"WHERE " + " AND ".join(where) if where else ""}
@@ -264,13 +342,15 @@ def _hits(cur, ids):
             (SELECT GROUP_CONCAT(DISTINCT language ORDER BY language)
              FROM ruling_documents WHERE ruling_id = r.id),
             (SELECT GROUP_CONCAT(article ORDER BY article)
-             FROM ruling_articles WHERE ruling_id = r.id AND relation = 'violation')
-        FROM rulings r WHERE r.id IN ({marks})""",
+             FROM ruling_articles WHERE ruling_id = r.id AND relation = 'violation'),
+            COALESCE(k.cited_by, 0), COALESCE(k.position, 0)
+        FROM rulings r LEFT JOIN ruling_ranks k ON k.ruling_id = r.id
+        WHERE r.id IN ({marks})""",
         ids,
     )
     by_id = {}
     for row in cur.fetchall():
-        *head, states, appnos, appno_count, languages, violations = row
+        *head, states, appnos, appno_count, languages, violations, cited_by, rank = row
         by_id[row[0]] = Hit(
             *head,
             states=_split(states),
@@ -278,6 +358,8 @@ def _hits(cur, ids):
             appno_count=appno_count,
             languages=_split(languages),
             violations=_split(violations),
+            cited_by=cited_by,
+            rank=rank,
         )
     return [by_id[i] for i in ids if i in by_id]
 
@@ -287,25 +369,38 @@ def _split(value):
 
 
 def _add_snippets(cur, hits, terms, language):
-    """Each hit gets a piece of text around the first term, from its best document."""
+    """Each hit gets a piece of text around a query term, from its best document."""
     if not hits:
         return
     marks = ", ".join(["%s"] * len(hits))
+    locates = ", ".join(["LOCATE(%s, body)"] * len(terms.locate))
     cur.execute(
-        f"""SELECT ruling_id, itemid, language, LOCATE(%s, body) pos,
-            SUBSTRING(body, GREATEST(1, LOCATE(%s, body) - %s), %s)
+        f"""SELECT ruling_id, itemid, language, {locates}
         FROM ruling_documents WHERE ruling_id IN ({marks})""",
-        [terms.locate, terms.locate, SNIPPET_BEFORE, SNIPPET_LENGTH] + [h.id for h in hits],
+        list(terms.locate) + [h.id for h in hits],
     )
     best = {}
-    for ruling_id, itemid, lang, pos, snippet in cur.fetchall():
+    for ruling_id, itemid, lang, *positions in cur.fetchall():
+        pos = next((p for p in positions if p), 0)  # pierwszy znaleziony w kolejności locate
         rank = (lang != language if language else True, pos == 0, _language_rank(lang))
         if ruling_id not in best or rank < best[ruling_id][0]:
-            best[ruling_id] = (rank, itemid, lang, pos, snippet)
+            best[ruling_id] = (rank, itemid, lang, pos)
+    if not best:
+        return
+    piece = (
+        "SELECT %s, SUBSTRING(body, GREATEST(1, %s - %s), %s) FROM ruling_documents"
+        " WHERE itemid = %s"
+    )
+    pieces = " UNION ALL ".join([piece] * len(best))
+    args = []
+    for _, itemid, _, pos in best.values():
+        args += [itemid, pos, SNIPPET_BEFORE, SNIPPET_LENGTH, itemid]
+    cur.execute(pieces, args)
+    snippets = dict(cur.fetchall())
     for hit in hits:
         if hit.id in best:
-            _, hit.itemid, hit.snippet_language, pos, snippet = best[hit.id]
-            hit.snippet = _trim(snippet, pos > SNIPPET_BEFORE)
+            _, hit.itemid, hit.snippet_language, pos = best[hit.id]
+            hit.snippet = _trim(snippets.get(hit.itemid, ""), pos > SNIPPET_BEFORE)
 
 
 def _language_rank(language):
@@ -332,8 +427,11 @@ class RulingPage:
     documents: list  # [dict] bez treści
     document: dict | None  # wybrany dokument z treścią
     cites: list  # numery skarg przywołanych
-    cited_by: list  # [(id, title, date)]
+    cites_rulings: list  # [(id, title, date)] orzeczenia cytowane (ruling_links)
+    cites_count: int
+    cited_by: list  # [(id, title, date)] orzeczenia cytujące
     cited_by_count: int
+    rank: int  # miejsce w rankingu cytowań, 0 = brak
 
 
 def ruling_page(cur, ruling_id, language=""):
@@ -389,20 +487,9 @@ def ruling_page(cur, ruling_id, language=""):
         "SELECT cited_appno FROM ruling_citations WHERE ruling_id = %s ORDER BY cited_appno",
         ruling_id,
     )
-    cur.execute(
-        """SELECT SQL_CALC_FOUND_ROWS r.id, r.title, r.ruling_date
-        FROM (SELECT DISTINCT c.ruling_id
-              FROM ruling_applications a
-              JOIN ruling_citations c ON c.cited_appno = a.appno
-              WHERE a.ruling_id = %s) x
-        JOIN rulings r ON r.id = x.ruling_id
-        WHERE r.id <> %s
-        ORDER BY r.ruling_date DESC LIMIT 30""",
-        (ruling_id, ruling_id),
-    )
-    cited_by = list(cur.fetchall())
-    cur.execute("SELECT FOUND_ROWS()")
-    cited_by_count = cur.fetchone()[0]
+    cites_rulings, cites_count = _linked(cur, "l.citing_id = %s", "l.cited_id", ruling_id)
+    cited_by, cited_by_count = _linked(cur, "l.cited_id = %s", "l.citing_id", ruling_id)
+    rank = _column(cur, "SELECT position FROM ruling_ranks WHERE ruling_id = %s", ruling_id)
     return RulingPage(
         ruling,
         states,
@@ -412,9 +499,26 @@ def ruling_page(cur, ruling_id, language=""):
         documents,
         document,
         cites,
+        cites_rulings,
+        cites_count,
         cited_by,
         cited_by_count,
+        rank[0] if rank else 0,
     )
+
+
+def _linked(cur, condition, other, ruling_id, limit=30):
+    """Newest linked rulings (ruling_links) and how many there are."""
+    cur.execute(
+        f"""SELECT SQL_CALC_FOUND_ROWS r.id, r.title, r.ruling_date
+        FROM ruling_links l JOIN rulings r ON r.id = {other}
+        WHERE {condition}
+        ORDER BY r.ruling_date DESC LIMIT {int(limit)}""",
+        (ruling_id,),
+    )
+    rows = list(cur.fetchall())
+    cur.execute("SELECT FOUND_ROWS()")
+    return rows, cur.fetchone()[0]
 
 
 def _column(cur, sql, *args):
