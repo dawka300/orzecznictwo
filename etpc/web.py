@@ -103,8 +103,25 @@ def _query(request):
         translate=not request.get("bez_tlumaczenia"),
         sort=request.get("sort"),
         page=request.get_int("strona", 1),
-        mode=request.get("tryb") if request.get("tryb") in search.MODES else "",
+        mode=_PAGE_MODES.get(request.get("tryb"), DEFAULT_MODE),
     )
+
+
+# Tryb na stronie: domyślnie samo znaczenie - hybryda z FULLTEXT-em bywa bardzo wolna
+# (polskie zwroty -> grupy częstych fraz, 1-4 min) przy tej samej trafności na pytaniach
+# wzorcowych (notepad.md, „Czas pytania RAG”). W adresie: tryb=hybrydowe / pelnotekstowe.
+DEFAULT_MODE = "znaczeniowe"
+_PAGE_MODES = {
+    "": DEFAULT_MODE,
+    "znaczeniowe": "znaczeniowe",
+    "hybrydowe": "",  # "" = hybryda w etpc.search
+    "pelnotekstowe": "pelnotekstowe",
+}
+
+
+def _mode_param(mode):
+    """The page's tryb parameter for a search mode ("" when it is the default)."""
+    return {DEFAULT_MODE: "", "": "hybrydowe"}.get(mode, mode)
 
 
 def _params(q, **changes):
@@ -129,7 +146,7 @@ def _params(q, **changes):
         "bez_tlumaczenia": "" if q.translate else "1",
         "sort": q.sort,
         "strona": q.page if q.page > 1 else 0,
-        "tryb": q.mode,
+        "tryb": _mode_param(q.mode),
     }
     params.update(changes)
     return params
@@ -196,7 +213,7 @@ def _search_form(q, stats):
   <button type=submit>Szukaj</button>
 </div>
 <div class=field>{field_radio}</div>
-{_select("tryb", _plain_options([("", "hybrydowo: słowa + znaczenie"), ("znaczeniowe", "tylko znaczenie"), ("pelnotekstowe", "tylko słowa")], q.mode), "Tryb wyszukiwania")}
+{_select("tryb", _plain_options([("", "znaczenie (szybko)"), ("hybrydowe", "słowa + znaczenie (wolniej)"), ("pelnotekstowe", "tylko słowa")], _mode_param(q.mode)), "Tryb wyszukiwania")}
 <label class=check><input type=checkbox name=bez_tlumaczenia value=1{"" if q.translate else " checked"}> bez tłumaczenia polskich zwrotów</label>
 <p class=hint>Hybrydowo: orzeczenia z szukanymi słowami i orzeczenia o podobnym znaczeniu (pytanie można zadać zwyczajnie, po polsku), razem w jednej kolejności. Słowa: „fraza w cudzysłowie”, -słowo wyklucza, słowo* = początek słowa; znane polskie zwroty (prawo do sądu, przewlekłość …) są tłumaczone.</p>
 <div class=grid>

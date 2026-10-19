@@ -185,7 +185,11 @@ def test_pages_with_meaning(ruling_db):
     up = Up(ruling_db)
     app = EtpcWebApp(Settings(db_dsn=TEST_DSN), semantic=up)
     status, html = get(app, "/", "q=zzzzz")
-    assert status.startswith("200") and "wg słów i znaczenia" in html
+    assert status.startswith("200") and "najbliższych znaczeniowo" in html  # domyślnie znaczenie
+    assert '<option value="" selected>znaczenie' in html
+    _, hybrid = get(app, "/", "q=zzzzz&tryb=hybrydowe")
+    assert "wg słów i znaczenia" in hybrid
+    assert '<option value="hybrydowe" selected>' in hybrid
     link = html.split('href="/orzeczenie/')[1].split('"')[0].replace("&amp;", "&")
     assert f"fragment={up.start}-300" in link and link.endswith("#fragment")
     path, query = link.split("#")[0].split("?")
