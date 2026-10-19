@@ -63,3 +63,7 @@ Judgments of the Supreme Administrative Court (NSA) and the voivodeship administ
 
 ## RAG (2026-10-19)
 - `nsa/rag.py` (retriever, potomek `Retriever`), narzędzie MCP `fragmenty`, `python -m nsa fragmenty "pytanie"`, `python -m nsa ocen` na `nsa/pytania.json`. Pierwszy pomiar: NSA 6 pytań o uchwały: MRR 0.667, 4 z 6 w kontekście (wektory tylko 5). Plan i następne kroki: główny [`../notepad.md`](../notepad.md), sekcja RAG.
+
+## Pobieranie skończone (2026-10-19, 21:32 lokalnie)
+- `pobierz` przeszedł wszystkie 46 plików parquet (data_0..data_45, ostatni 52 MB): przebieg #8 = 2,057 stron, 1,017,392 nowych rekordów w 9,485 s, 0 odrzuconych, 0 problemów. Razem **raw_records[juddges] = 2,254,392** (więcej niż szacowane z karty ~1.82M). Kursor `{"file": 46, "row": 0}` = źródło nie ma więcej stron.
+- Tabele orzeczeń nadal z 50,299 (pliki 0 i część 1): **następne `python -m nsa przetworz`** (decyzja użytkownika: następnego dnia; ~8 min na 50k -> ~6 h na 2.25M, wznawialne), potem liczby per rok 2023-2025 i luka po 2025-03.
