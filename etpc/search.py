@@ -1,5 +1,10 @@
 """Search over the ETPC tables: FULLTEXT in the texts or titles plus filters.
 
+Hybrid mode (default when vectors are available, etpc/semantic.py): the
+best rulings by FULLTEXT and by meaning are merged by reciprocal rank fusion
+(RRF), so a ruling high in both lists wins; filters Qdrant does not know are
+applied by SQL to the semantic candidates.
+
 A query is typed as words and "phrases"; every word must occur, -word
 excludes, word* matches a prefix. MariaDB FULLTEXT indexes words of 3+
 letters minus a short English stopword list, so those are left out. Known
@@ -15,6 +20,7 @@ from dataclasses import dataclass, field
 import pymysql
 
 from etpc import glossary
+from etpc.semantic import SemanticUnavailable
 
 PAGE_SIZE = 20
 # Zapytanie dłuższe niż tyle sekund jest przerywane (bardzo ogólne słowa
@@ -31,6 +37,12 @@ SNIPPET_BEFORE = 160
 SNIPPET_LENGTH = 480
 MAX_STATEMENT_TIME_ERROR = 1969
 LOCATE_WORDS = 8
+# Tryb hybrydowy: tyle najlepszych orzeczeń z każdej listy, stała k w RRF.
+CANDIDATES = 200
+RRF_K = 60
+# W trybie hybrydowym słowa mogą trwać krócej: jest jeszcze wynik znaczeniowy.
+HYBRID_STATEMENT_S = 10
+MODES = ("", "pelnotekstowe", "znaczeniowe")  # "" = hybrydowe
 
 _TOKEN = re.compile(r'(-?)"([^"]*)"|(\S+)')
 _WORD_PARTS = re.compile(r"[^\W_]+")
@@ -186,6 +198,7 @@ class SearchQuery:
     # "" = trafność przy tekście, data przy jego braku; data / najstarsze / cytowane
     sort: str = ""
     page: int = 1
+    mode: str = ""  # "" hybrydowe / pelnotekstowe / znaczeniowe
 
 
 @dataclass
@@ -209,6 +222,10 @@ class Hit:
     itemid: str = ""  # dokument z wycinkiem
     snippet_language: str = ""
     snippet: str = ""
+    # fragment znaleziony znaczeniowo: ścieżka nagłówków, położenie w tekście
+    passage: str = ""
+    passage_start: int = -1
+    passage_length: int = 0
 
 
 @dataclass
@@ -217,25 +234,32 @@ class SearchResult:
     hits: list
     seconds: float
     terms: Terms | None = None
+    mode: str = "pelnotekstowe"  # jak naprawdę szukano
+    notice: str = ""  # np. wyszukiwanie znaczeniowe niedostępne
 
 
-def search(cur, q):
-    """Run the query; raises QueryError for unsearchable or too slow queries."""
+def search(cur, q, semantic=None):
+    """Run the query; raises QueryError for unsearchable or too slow queries.
+
+    semantic (etpc.semantic.Semantic) enables the hybrid and semantic modes;
+    without it, or when LM Studio/Qdrant is down, the search is FULLTEXT only.
+    """
+    if semantic is not None and q.text.strip() and q.field == "tresc" and q.mode != "pelnotekstowe":
+        try:
+            return _hybrid(cur, q, semantic)
+        except SemanticUnavailable as e:
+            result = _fulltext(cur, q)
+            result.notice = str(e)
+            return result
+    return _fulltext(cur, q)
+
+
+def _fulltext(cur, q):
     started = time.monotonic()
     terms = None
     if q.text.strip():
         terms = parse_query(q.text, translate=q.translate and q.field == "tresc")
-    sql, args = _ids_query(q, terms)
-    try:
-        cur.execute(f"SET STATEMENT max_statement_time={MAX_STATEMENT_S} FOR {sql}", args)
-    except pymysql.err.OperationalError as e:
-        if e.args[0] == MAX_STATEMENT_TIME_ERROR:
-            raise QueryError(
-                f"Wyszukiwanie trwało ponad {MAX_STATEMENT_S} s - zawęź zapytanie"
-                " (więcej słów, filtr lat, państwa lub języka)."
-            ) from e
-        raise
-    ranked = cur.fetchall()
+    ranked = _run(cur, *_ids_query(q, terms))
     cur.execute("SELECT FOUND_ROWS()")
     total = cur.fetchone()[0]
     hits = _hits(cur, [row[0] for row in ranked])
@@ -246,8 +270,83 @@ def search(cur, q):
     return SearchResult(total, hits, time.monotonic() - started, terms)
 
 
-def _ids_query(q, terms):
-    """SQL for one page of ruling ids with their score, counting all hits."""
+def _hybrid(cur, q, semantic):
+    started = time.monotonic()
+    passages = {p.ruling_id: p for p in semantic.rulings(q.text, q, k=CANDIDATES)}
+    terms, by_words, notice = None, [], ""
+    if q.mode != "znaczeniowe":
+        try:
+            terms = parse_query(q.text, translate=q.translate)
+        except QueryError:
+            terms = None  # same krótkie/polskie słowa: zostaje samo znaczenie
+        if terms is not None:
+            sql, args = _ids_query(q, terms, top=CANDIDATES)
+            try:
+                by_words = [row[0] for row in _run(cur, sql, args, HYBRID_STATEMENT_S)]
+            except QueryError:
+                notice = (
+                    f"Wyszukiwanie słów trwało ponad {HYBRID_STATEMENT_S} s (bardzo ogólne słowa)"
+                    " - pokazuję wyniki znaczeniowe."
+                )
+    # Filtry, których nie ma w Qdrancie (artykuł, skargi, cytowania ...), przez SQL.
+    allowed = set()
+    if passages:
+        sql, args = _ids_query(q, None, only_ids=list(passages), top=len(passages))
+        allowed = {row[0] for row in _run(cur, sql, args)}
+    by_meaning = [i for i in passages if i in allowed]
+    scores = {}
+    for ranking in (by_meaning, by_words):
+        for rank, ruling_id in enumerate(ranking):
+            scores[ruling_id] = scores.get(ruling_id, 0.0) + 1 / (RRF_K + rank + 1)
+    ids = sorted(scores, key=lambda i: -scores[i])
+    if q.sort and ids:
+        ids = [row[0] for row in _run(cur, *_ids_query(q, None, only_ids=ids, top=len(ids)))]
+    page = max(q.page, 1)
+    hits = _hits(cur, ids[(page - 1) * PAGE_SIZE : page * PAGE_SIZE])
+    for hit in hits:
+        hit.score = scores[hit.id]
+    found_by_meaning = set(by_meaning)
+    _add_passages(cur, [h for h in hits if h.id in found_by_meaning], passages)
+    if terms is not None:
+        _add_snippets(cur, [h for h in hits if h.id not in found_by_meaning], terms, q.language)
+    mode = "znaczeniowe" if q.mode == "znaczeniowe" or terms is None or notice else "hybrydowe"
+    return SearchResult(len(ids), hits, time.monotonic() - started, terms, mode, notice)
+
+
+def _run(cur, sql, args, limit_s=MAX_STATEMENT_S):
+    try:
+        cur.execute(f"SET STATEMENT max_statement_time={limit_s} FOR {sql}", args)
+    except pymysql.err.OperationalError as e:
+        if e.args[0] == MAX_STATEMENT_TIME_ERROR:
+            raise QueryError(
+                f"Wyszukiwanie trwało ponad {limit_s} s - zawęź zapytanie"
+                " (więcej słów, filtr lat, państwa lub języka)."
+            ) from e
+        raise
+    return cur.fetchall()
+
+
+def _add_passages(cur, hits, passages):
+    """Hits found by meaning show the start of their best passage."""
+    if not hits:
+        return
+    piece = "SELECT %s, SUBSTRING(body, %s, %s) FROM ruling_documents WHERE itemid = %s"
+    args = []
+    for hit in hits:
+        p = passages[hit.id]
+        args += [p.itemid, p.start + 1, SNIPPET_LENGTH, p.itemid]
+    cur.execute(" UNION ALL ".join([piece] * len(hits)), args)
+    texts = dict(cur.fetchall())
+    for hit in hits:
+        p = passages[hit.id]
+        hit.itemid, hit.snippet_language = p.itemid, p.language
+        hit.snippet = _trim(texts.get(p.itemid, ""), False)
+        hit.passage = p.context.split(" | ", 1)[1] if " | " in p.context else ""
+        hit.passage_start, hit.passage_length = p.start, p.length
+
+
+def _ids_query(q, terms, only_ids=None, top=None):
+    """SQL for one page (or the top N) of ruling ids with their score, counting all hits."""
     where, args = [], []
     if terms is not None and q.field == "tresc":
         language = "AND d.language = %s" if q.language else ""
@@ -322,6 +421,9 @@ def _ids_query(q, terms):
             "EXISTS (SELECT 1 FROM ruling_links l WHERE l.cited_id = r.id AND l.citing_id = %s)"
         )
         args.append(q.cited_by)
+    if only_ids is not None:
+        where.append(f"r.id IN ({', '.join(['%s'] * len(only_ids))})")
+        args += only_ids
     order = {
         "data": "r.ruling_date DESC, r.id DESC",
         "najstarsze": "r.ruling_date, r.id",
@@ -330,6 +432,8 @@ def _ids_query(q, terms):
     sql = f"""SELECT SQL_CALC_FOUND_ROWS r.id, {score} score FROM {source}
         {"WHERE " + " AND ".join(where) if where else ""}
         ORDER BY {order} LIMIT %s OFFSET %s"""
+    if top is not None:
+        return sql, args + [top, 0]
     page = max(q.page, 1)
     return sql, args + [PAGE_SIZE, (page - 1) * PAGE_SIZE]
 

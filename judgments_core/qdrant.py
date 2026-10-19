@@ -119,30 +119,62 @@ class QdrantStore:
         info = self._call("GET", "", missing_ok=True)
         return 0 if info is None else self._call("POST", "/points/count", {"exact": True})["count"]
 
-    def search(self, vector, k=10, filters=None):
-        """filters = {field: value | [values] | {"gte": .., "lte": ..}}; text is not stored (start/length)."""
+    def search(self, vector, k=10, filters=None, exclude=None):
+        """Best chunks. filters = {field: value | [values] | {"gte": .., "lte": ..}};
+        exclude = the same for conditions that must not hold. Text is not stored
+        (start/length point into the judgment's text)."""
+        result = self._call("POST", "/points/query", self._query(vector, k, filters, exclude))
+        return [_hit(p) for p in result["points"]]
+
+    def search_judgments(self, vector, k=10, filters=None, exclude=None):
+        """Best chunk of each of the k best judgments (Qdrant groups by judgment_id)."""
+        body = {**self._query(vector, k, filters, exclude), "group_by": "judgment_id", "group_size": 1}
+        result = self._call("POST", "/points/query/groups", body)
+        return [_hit(group["hits"][0]) for group in result["groups"] if group["hits"]]
+
+    def vectors_of(self, judgment_id, limit=2000):
+        """[(part, vector)] of one judgment's chunks."""
+        result = self._call(
+            "POST",
+            "/points/scroll",
+            {
+                "filter": {"must": [_condition("judgment_id", str(judgment_id))]},
+                "limit": limit,
+                "with_payload": ["part"],
+                "with_vector": True,
+            },
+        )
+        return [(p["payload"].get("part", ""), p["vector"]) for p in result["points"]]
+
+    @staticmethod
+    def _query(vector, k, filters, exclude):
         body = {
             "query": vector,
             "limit": k,
             "with_payload": True,
             "params": {"quantization": {"rescore": True}},
         }
+        conditions = {}
         if filters:
-            body["filter"] = {"must": [_condition(f, v) for f, v in filters.items()]}
-        result = self._call("POST", "/points/query", body)
-        hits = []
-        for p in result["points"]:
-            payload = dict(p["payload"])
-            chunk = Chunk(
-                judgment_id=payload.pop("judgment_id"),
-                number=payload.pop("number"),
-                text="",
-                start=payload.pop("start"),
-                part=payload.pop("part", ""),
-                meta=payload,
-            )
-            hits.append(Hit(chunk, p["score"]))
-        return hits
+            conditions["must"] = [_condition(f, v) for f, v in filters.items()]
+        if exclude:
+            conditions["must_not"] = [_condition(f, v) for f, v in exclude.items()]
+        if conditions:
+            body["filter"] = conditions
+        return body
+
+
+def _hit(point):
+    payload = dict(point["payload"])
+    chunk = Chunk(
+        judgment_id=payload.pop("judgment_id"),
+        number=payload.pop("number"),
+        text="",
+        start=payload.pop("start"),
+        part=payload.pop("part", ""),
+        meta=payload,
+    )
+    return Hit(chunk, point["score"])
 
 
 def _condition(field, value):

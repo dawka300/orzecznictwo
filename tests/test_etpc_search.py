@@ -8,6 +8,7 @@ from test_etpc_tables import derive, english, polish, save, setup
 
 from etpc import glossary, search
 from etpc.ranks import refresh_ranks
+from etpc.semantic import Passage, SemanticUnavailable
 from etpc.stats import read_stats, refresh_stats
 from etpc.web import make_app
 from judgments_core.settings import Settings
@@ -125,8 +126,75 @@ def get(app, path, query=""):
     return status[0], body.decode("utf-8")
 
 
+class Down:
+    """Semantic search with LM Studio/Qdrant switched off."""
+
+    def rulings(self, text, q, k=200):
+        raise SemanticUnavailable("niedostępne")
+
+    def similar(self, ruling_id, k=10):
+        raise SemanticUnavailable("niedostępne")
+
+
+class Up:
+    """Semantic search finding the only ruling at its "THE LAW" passage."""
+
+    def __init__(self, conn):
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT ruling_id, itemid, LOCATE('THE LAW', body) - 1 FROM ruling_documents WHERE language = 'ENG'"
+            )
+            self.ruling_id, self.itemid, self.start = cur.fetchone()
+        conn.commit()
+        self.queries = []
+
+    def rulings(self, text, q, k=200):
+        self.queries.append((text, q.respondent))
+        return [
+            Passage(
+                self.ruling_id, 0.8, self.itemid, "ENG", self.start, 300, "TITLE | THE LAW", "prawo"
+            )
+        ]
+
+    def similar(self, ruling_id, k=10):
+        return [Passage(self.ruling_id, 0.9, self.itemid, "ENG", 0, 10, "", "prawo")]
+
+
+def test_hybrid_merges_meaning_and_words(ruling_db):
+    up = Up(ruling_db)
+    with ruling_db.cursor() as cur:
+        result = search.search(cur, search.SearchQuery(text="satisfaction", respondent="POL"), up)
+        assert (result.mode, result.total) == ("hybrydowe", 1)
+        hit = result.hits[0]
+        assert hit.passage == "THE LAW" and hit.snippet.startswith("THE LAW")
+        assert hit.score == pytest.approx(2 / 61)  # pierwsze miejsce na obu listach
+        # słowo, którego nie ma, i tak daje wynik znaczeniowy
+        assert search.search(cur, search.SearchQuery(text="zzzzz"), up).total == 1
+        # filtr nieznany Qdrantowi odsiewa w SQL
+        assert search.search(cur, search.SearchQuery(text="zzzzz", appno="1/99"), up).total == 0
+        assert (
+            search.search(cur, search.SearchQuery(text="zzzzz", mode="pelnotekstowe"), up).total
+            == 0
+        )
+        down = search.search(cur, search.SearchQuery(text="satisfaction"), Down())
+        assert (down.mode, down.total, down.notice) == ("pelnotekstowe", 1, "niedostępne")
+    assert up.queries[0] == ("satisfaction", "POL")
+
+
+def test_pages_with_meaning(ruling_db):
+    up = Up(ruling_db)
+    app = make_app(Settings(db_dsn=TEST_DSN), semantic=up)
+    status, html = get(app, "/", "q=zzzzz")
+    assert status.startswith("200") and "wg słów i znaczenia" in html
+    link = html.split('href="/orzeczenie/')[1].split('"')[0].replace("&amp;", "&")
+    assert f"fragment={up.start}-300" in link and link.endswith("#fragment")
+    path, query = link.split("#")[0].split("?")
+    status, html = get(app, f"/orzeczenie/{path}", query)
+    assert "id=fragment" in html and "Podobne orzeczenia" in html
+
+
 def test_pages(ruling_db):
-    app = make_app(Settings(db_dsn=TEST_DSN))
+    app = make_app(Settings(db_dsn=TEST_DSN), semantic=Down())
     status, html = get(app, "/", "q=satisfaction")
     assert status.startswith("200") and "<mark>satisfaction</mark>" in html.lower()
     ruling_id = html.split('href="/orzeczenie/')[1].split("?")[0]

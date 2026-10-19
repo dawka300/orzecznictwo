@@ -13,22 +13,41 @@ import re
 from etpc import labels, search
 from etpc.embed import read_progress
 from etpc.labels import label
+from etpc.semantic import Semantic, SemanticUnavailable
 from etpc.stats import read_stats
 from judgments_core import db
+from judgments_core.embeddings import Embedder
+from judgments_core.qdrant import QdrantStore, collection_name
 from judgments_core.web import Request, Response, e, url
 
 log = logging.getLogger(__name__)
 
 _RULING_PATH = re.compile(r"^/orzeczenie/(\d+)$")
+_FRAGMENT = re.compile(r"^(\d+)-(\d+)$")
+# Zapytanie z przeglądarki nie czeka długo na LM Studio/Qdranta.
+SEMANTIC_TIMEOUT_S = 20
+SIMILAR = 10
 
 
-def make_app(settings):
-    """WSGI application reading the project's database."""
+def make_app(settings, semantic=None):
+    """WSGI application reading the project's database (and Qdrant for meaning).
+
+    semantic: etpc.semantic.Semantic; by default LM Studio + Qdrant from settings.
+    """
+    semantic = semantic or Semantic(
+        Embedder(settings.embed_url, settings.embed_model, timeout_s=SEMANTIC_TIMEOUT_S, retries=0),
+        QdrantStore(
+            settings.qdrant_url,
+            settings.qdrant_collection or collection_name("etpc", settings.embed_model),
+            settings.embed_model,
+            timeout_s=SEMANTIC_TIMEOUT_S,
+        ),
+    )
 
     def app(environ, start_response):
         request = Request(environ)
         try:
-            response = _route(settings, request)
+            response = _route(settings, request, semantic)
         except Exception:
             log.exception("www: błąd strony %s", request.path)
             response = Response(
@@ -40,7 +59,7 @@ def make_app(settings):
     return app
 
 
-def _route(settings, request):
+def _route(settings, request, semantic=None):
     if request.path == "/favicon.ico":
         return Response(b"", "204 No Content", "image/x-icon")
     match = _RULING_PATH.match(request.path)
@@ -50,10 +69,10 @@ def _route(settings, request):
         )
     with db.connect(settings.db_dsn, autocommit=True) as conn, conn.cursor() as cur:
         if match:
-            return _ruling(cur, request, int(match.group(1)))
+            return _ruling(cur, request, int(match.group(1)), semantic)
         if request.path == "/statystyki":
             return _stats(cur)
-        return _search(cur, request)
+        return _search(cur, request, semantic)
 
 
 # --- wyszukiwanie ---------------------------------------------------------
@@ -80,6 +99,7 @@ def _query(request):
         translate=not request.get("bez_tlumaczenia"),
         sort=request.get("sort"),
         page=request.get_int("strona", 1),
+        mode=request.get("tryb") if request.get("tryb") in search.MODES else "",
     )
 
 
@@ -105,17 +125,18 @@ def _params(q, **changes):
         "bez_tlumaczenia": "" if q.translate else "1",
         "sort": q.sort,
         "strona": q.page if q.page > 1 else 0,
+        "tryb": q.mode,
     }
     params.update(changes)
     return params
 
 
-def _search(cur, request):
+def _search(cur, request, semantic=None):
     q = _query(request)
     stats = read_stats(cur)
     error, result = "", None
     try:
-        result = search.search(cur, q)
+        result = search.search(cur, q, semantic)
     except search.QueryError as err:
         error = str(err)
     form = _search_form(q, stats)
@@ -184,8 +205,9 @@ def _search_form(q, stats):
   <button type=submit>Szukaj</button>
 </div>
 <div class=field>{field_radio}</div>
+{_select("tryb", _plain_options([("", "hybrydowo: słowa + znaczenie"), ("znaczeniowe", "tylko znaczenie"), ("pelnotekstowe", "tylko słowa")], q.mode), "Tryb wyszukiwania")}
 <label class=check><input type=checkbox name=bez_tlumaczenia value=1{"" if q.translate else " checked"}> bez tłumaczenia polskich zwrotów</label>
-<p class=hint>Wszystkie słowa muszą wystąpić; „fraza w cudzysłowie”, -słowo wyklucza, słowo* = początek słowa. Teksty są po angielsku i francusku - znane polskie zwroty (prawo do sądu, przewlekłość, tymczasowe aresztowanie …) są tłumaczone.</p>
+<p class=hint>Hybrydowo: orzeczenia z szukanymi słowami i orzeczenia o podobnym znaczeniu (pytanie można zadać zwyczajnie, po polsku), razem w jednej kolejności. Słowa: „fraza w cudzysłowie”, -słowo wyklucza, słowo* = początek słowa; znane polskie zwroty (prawo do sądu, przewlekłość …) są tłumaczone.</p>
 <div class=grid>
 {_select("rodzaj", _plain_options([("", "wyroki i decyzje"), ("judgment", "wyroki"), ("decision", "decyzje")], q.kind), "Rodzaj")}
 {_select("sklad", _options(formations, labels.FORMATIONS, q.formation, "wszystkie"), "Skład")}
@@ -207,23 +229,30 @@ def _search_form(q, stats):
 
 
 def _results(q, result):
+    notice = f"<p class=notice>{e(result.notice)}</p>" if result.notice else ""
     if result.total == 0:
         return (
-            _translations(q, result)
+            notice
+            + _translations(q, result)
             + "<p class=empty>Nic nie znaleziono. Spróbuj innych słów albo mniej filtrów."
             " Teksty są głównie po angielsku i francusku - polskie słowa spoza słownika"
             " znajdą się tylko w tłumaczeniach.</p>"
         )
     first = (max(q.page, 1) - 1) * search.PAGE_SIZE + 1
     last = first + len(result.hits) - 1
+    how = {
+        "hybrydowe": f"najlepszych wg słów i znaczenia (do {search.CANDIDATES} z każdego)",
+        "znaczeniowe": f"najbliższych znaczeniowo (do {search.CANDIDATES})",
+    }.get(result.mode, "")
     head = (
         f"<p class=count>Orzeczenia {_n(first)}-{_n(last)} z <b>{_n(result.total)}</b>"
-        f" <span>({result.seconds:.2f} s)</span></p>"
+        f"{' ' + how if how else ''} <span>({result.seconds:.2f} s)</span></p>"
     )
     pattern = search.highlight_pattern(result.terms.highlight) if result.terms else None
     items = "".join(_hit(q, h, pattern) for h in result.hits)
     return (
-        _translations(q, result)
+        notice
+        + _translations(q, result)
         + head
         + f"<ol class=hits start={first}>{items}</ol>"
         + _pages(q, result.total)
@@ -259,7 +288,10 @@ def _hit(q, h, pattern):
         jezyk=h.snippet_language,
         q=q.text if q.field == "tresc" else "",
         bez_tlumaczenia="" if q.translate else "1",
+        fragment=f"{h.passage_start}-{h.passage_length}" if h.passage_start >= 0 else "",
     )
+    if h.passage_start >= 0:
+        link += "#fragment"
     states = ", ".join(label(labels.STATES, s) for s in h.states)
     appnos = ", ".join(h.appnos)
     if h.appno_count > len(h.appnos):
@@ -289,7 +321,8 @@ def _hit(q, h, pattern):
         f"<p class=viol>Naruszenie: {e(', '.join(h.violations))}</p>" if h.violations else ""
     )
     if h.snippet:
-        text = f"<p class=snip><span class=lang>{e(h.snippet_language)}</span> {_highlight(h.snippet, pattern)}</p>"
+        where = f"<span class=passage-path>{e(h.passage)}</span>" if h.passage else ""
+        text = f"<p class=snip><span class=lang>{e(h.snippet_language)}</span> {where}{_highlight(h.snippet, pattern)}</p>"
     elif h.conclusion:
         text = f"<p class=snip>{e(_shorten(h.conclusion, 300))}</p>"
     else:
@@ -323,7 +356,7 @@ def _pages(q, total):
 # --- orzeczenie -----------------------------------------------------------
 
 
-def _ruling(cur, request, ruling_id):
+def _ruling(cur, request, ruling_id, semantic=None):
     page = search.ruling_page(cur, ruling_id, request.get("jezyk"))
     if page is None:
         return Response(
@@ -399,7 +432,11 @@ def _ruling(cur, request, ruling_id):
         )
         for d in page.documents
     )
-    text, marks = _body(doc["body"], pattern) if doc else ("", 0)
+    fragment = _FRAGMENT.match(request.get("fragment"))
+    passage = None
+    if fragment:
+        passage = (int(fragment.group(1)), int(fragment.group(1)) + int(fragment.group(2)))
+    text, marks = _body(doc["body"], pattern, passage) if doc else ("", 0)
     if doc and not doc["body"].strip():
         text = (
             "<p class=empty>HUDOC nie ma tekstu tego dokumentu (zapewne skan PDF) -"
@@ -412,7 +449,7 @@ def _ruling(cur, request, ruling_id):
             if marks
             else "<p class=found>Szukane słowa nie występują w tej wersji językowej.</p>"
         )
-    side = _citations(page)
+    side = _similar(cur, semantic, ruling_id) + _citations(page)
     body = f"""<p class=back><a href="/" onclick="if(history.length>1){{history.back();return false}}">« wróć</a></p>
 <h1>{e(r["title"])}</h1>
 <div class=ruling>
@@ -456,17 +493,53 @@ def _linked_list(caption, rows, count, **search_params):
     return f"<h2>{caption} ({_n(count)})</h2><ul class=cites>{items}</ul>{more}"
 
 
-def _body(text, pattern):
-    """Plain text -> paragraphs, query words marked; returns (html, marks)."""
+def _body(text, pattern, passage=None):
+    """Plain text -> paragraphs, query words marked; returns (html, marks).
+
+    passage = (start, end) in the text: its paragraphs are marked as the
+    passage found by meaning, the first one with id=fragment.
+    """
     counter = [0]
     out = []
-    for line in text.split("\n"):
-        line = line.strip()
+    position, anchored = 0, False
+    for raw in text.split("\n"):
+        start, position = position, position + len(raw) + 1
+        line = raw.strip()
         if not line:
             continue
-        css = " class=caps" if line.isupper() and len(line) < 120 else ""
-        out.append(f"<p{css}>{_highlight(line, pattern, counter)}</p>")
+        classes = ["caps"] if line.isupper() and len(line) < 120 else []
+        anchor = ""
+        if passage and start < passage[1] and position > passage[0]:
+            classes.append("passage")
+            if not anchored:
+                anchor, anchored = " id=fragment", True
+        css = f" class='{' '.join(classes)}'" if classes else ""
+        out.append(f"<p{css}{anchor}>{_highlight(line, pattern, counter)}</p>")
     return "\n".join(out), counter[0]
+
+
+def _similar(cur, semantic, ruling_id):
+    """Rulings closest in meaning (mean vector of this one's reasoning)."""
+    if semantic is None:
+        return ""
+    try:
+        passages = semantic.similar(ruling_id, SIMILAR)
+    except SemanticUnavailable:
+        return ""
+    if not passages:
+        return ""
+    ids = [p.ruling_id for p in passages]
+    cur.execute(
+        f"SELECT id, title, ruling_date FROM rulings WHERE id IN ({', '.join(['%s'] * len(ids))})",
+        ids,
+    )
+    found = {row[0]: row for row in cur.fetchall()}
+    items = "".join(
+        f'<li><a href="/orzeczenie/{i}">{e(found[i][1])}</a> <span>{_date(found[i][2])}</span></li>'
+        for i in ids
+        if i in found
+    )
+    return f"<h2>Podobne orzeczenia</h2><ul class=cites>{items}</ul>"
 
 
 # --- statystyki -----------------------------------------------------------
@@ -671,6 +744,9 @@ def _layout(title, body):
 
 
 CSS = """
+.notice{padding:8px 12px;border-radius:7px;background:var(--key);color:var(--key-t)}
+.passage-path{display:block;color:var(--muted);font-size:12px;margin:2px 0}
+.text p.passage{background:var(--accent-soft);border-left:3px solid var(--accent);padding-left:8px;margin-left:-11px}
 .vectors{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:4px 16px 8px;margin:16px 0}
 .progress{height:12px;border-radius:6px;background:var(--line);overflow:hidden}
 .progress div{height:100%;background:var(--accent)}
