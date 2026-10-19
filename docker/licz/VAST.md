@@ -40,6 +40,26 @@ Paczka 500 tys. fragmentów = ~190 MB do wysłania i ~1 GB wektorów z powrotem
   dziesiątkach GB wektorów drogi transfer zjada oszczędność; wybieraj ~0.
 - `cuda_vers>=12.8`: sterownik hosta musi obsłużyć obraz z CUDA 12.8.
 
+### Jaka karta
+bge-m3 jest mały (~570 mln parametrów, 2-4 GB pamięci karty): liczy się moc fp16 na dolara,
+nie ilość VRAM. Szacunkowo (do sprawdzenia testem):
+
+| karta | szybkość | kiedy brać |
+|---|---|---|
+| **RTX 4090** | punkt odniesienia | zwykle najlepsza cena za token, dużo ofert |
+| RTX 5090 | ~1.3-1.6x 4090 | gdy nie jest dużo droższa od 4090 |
+| RTX 3090 | ~0.5-0.6x 4090 | tylko za mniej niż połowę ceny 4090 |
+| A100 / H100 | szybkie | zwykle drożej za token - tylko przy wyjątkowo niskiej cenie |
+
+Sortowanie po wydajności na dolara: `-o 'dlperf_usd-'` (te same filtry; zamień `gpu_name`).
+Najpewniej: wynajmij na ~10 minut najtańszą 4090 i najtańszą 5090, na każdej
+`vast_start.sh test` (krok 6), i weź tę z niższym kosztem miliona tokenów:
+
+    $ za 1M tokenów = cena_za_godzinę / (tokenów_na_s * 3600 / 1 000 000)
+
+Np. 4090 za $0.40/h liczy 40 tys. tokenów/s -> 144 mln tokenów/h -> ~$0.003 za 1M tokenów.
+Oba testy razem kosztują kilkanaście centów (pamiętaj o `destroy` po teście).
+
 ## 4. Start instancji
 ```powershell
 .venv\Scripts\vastai.exe create instance ID_OFERTY --image pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime --disk 40 --ssh --direct
