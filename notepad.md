@@ -92,6 +92,18 @@ Cel: RAG nie tylko przez MCP (Claude sam szuka i czyta), ale też dla **modeli l
   | 64 | 2 | 33.4 s | 5,667 |
   | 32 (powtórka) | 1 | 54.4 s | 3,477 |
 
-- Wniosek wstępny: większy batch wyraźnie pomaga (128 vs 32 ~1.65x), dwa żądania naraz dają podobny zysk co podwojenie batcha. Część zysku mogła wziąć się z zabrania karty działającemu `wektory` - **powtórzyć przy zatrzymanym `wektory`** (Ctrl+C w jego terminalu; wznawia się bez strat poza bieżącą grupą).
-- Następnie: `ETPC_EMBED_BATCH=128` w `.env` i ponowne uruchomienie `python -m etpc wektory`; porównać „tokenów/s” w logu z ~6,600 przy 32. Sprawdzić też w LM Studio ustawienie modelu „Evaluation Batch Size” (n_batch/n_ubatch llama.cpp): jeśli jest małe, ono, nie batch żądania, ogranicza. Fragmenty mają do ~3,200 znaków, więc batch 128 to jedno żądanie ~100k tokenów - pamięć VRAM obserwować.
-- Później, jeśli karta dalej czeka na Qdranta/MariaDB: liczyć następną grupę w wątku, gdy poprzednia się zapisuje (pipelining w `EmbedJob`).
+- ~~Wniosek wstępny: większy batch pomaga~~ - **błędny**: zysk brał się z zabierania karty działającemu `wektory`.
+- **Czysty pomiar** (`wektory` zatrzymane, tylko `nsa pobierz` w tle; 512 fragmentów / 189k tokenów, potem 1024 / 384k):
+
+  | batch | równolegle | ~tok/s |
+  |---|---|---|
+  | 32 | 1 | 6,955 / 6,996 (powtórka) |
+  | 64 | 1 | 6,928 |
+  | 128 | 1 | 7,008 |
+  | 256 | 1 | 6,933 / 6,996 |
+  | 512 | 1 | 7,025 |
+  | 1024 | 1 | 6,937 |
+  | 64 / 128 | 2 | 7,030 / 7,008 |
+
+- **Wniosek:** batch żądania i równoległość nie zmieniają nic - karta jest ograniczona mocą obliczeniową (bge-m3 F16), nie pamięcią; 2.6 GB VRAM to po prostu mały model. `wektory` w logu robiło ~6,600 tok/s = ~95% tego maksimum, więc zapis do Qdranta/MariaDB kosztuje tylko ~5% (pipelining w `EmbedJob` dałby najwyżej tyle). `ETPC_EMBED_BATCH` zostaje 32.
+- **Co może realnie przyspieszyć (do sprawdzenia):** (1) bge-m3 w **Q8_0** zamiast F16 (na AMD często 1.3-1.8x; sprawdzić jakość: cos z F16 ~0.999, `ocen` bez zmian - uwaga: nowy model = nowa kolekcja, wektory nie mieszają się z F16, więc decyzja przed dalszym liczeniem albo liczenie od nowa); (2) silnik LM Studio **ROCm vs Vulkan** (Settings -> Runtime) na RX 6750 XT; (3) flash attention w ustawieniach modelu; (4) zakres: najpierw wyroki, decyzje później.
