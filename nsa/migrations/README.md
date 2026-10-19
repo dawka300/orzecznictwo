@@ -2,4 +2,4 @@ Migracje projektu NSA: `001_opis.sql`, `002_...` (trzy cyfry, podkreślnik, nazw
 
 Uruchamiane po migracjach rdzenia (`judgments_core/migrations/`) przez `python -m nsa migracje`; zapisane w `schema_migrations` jako `nsa/001_opis.sql`.
 
-Pusto, dopóki próbne zapytania nie pokażą, jakie dane daje CBOSA (zob. `nsa/notepad.md`).
+`001_judgments.sql`: orzeczenia (klucz: identyfikator CBOSA) i tabele do filtrów (sędziowie, symbole, hasła, wynik, przepisy, powiązane, publikacje).

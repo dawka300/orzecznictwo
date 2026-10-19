@@ -1,0 +1,242 @@
+[
+ {
+  "country": "Poland",
+  "court_type": "administrative court",
+  "source": "nsa",
+  "judgment_id": "/doc/B51A16D504",
+  "docket_number": "I OSK 1769/12",
+  "judgment_type": "Wyrok NSA",
+  "finality": "orzeczenie prawomocne",
+  "judgment_date": "2013-04-04T00:00:00+02:00",
+  "submission_date": "2012-07-17T00:00:00+02:00",
+  "court_name": "Naczelny Sąd Administracyjny",
+  "judges": [
+   "Janina Antosiewicz",
+   "Janusz Furmanek",
+   "Marek Stojanowski"
+  ],
+  "presiding_judge": "Janina Antosiewicz",
+  "judge_rapporteur": "Janina Antosiewicz",
+  "case_type_description": [
+   "6076 Sprawy objęte dekretem o gruntach warszawskich"
+  ],
+  "keywords": [
+   "Grunty warszawskie"
+  ],
+  "related_docket_numbers": [
+   {
+    "judgment_id": "/doc/8466864ADB",
+    "docket_number": "I SA/Wa 1427/11",
+    "judgment_date": "2012-03-08T00:00:00+01:00",
+    "judgment_type": "Wyrok WSA w Warszawie"
+   }
+  ],
+  "challenged_authority": "Minister Infrastruktury",
+  "decision": [
+   "Oddalono skargę kasacyjną"
+  ],
+  "extracted_legal_bases": [
+   {
+    "link": "http://isap.sejm.gov.pl/DetailsServlet?id=WDU19450500279",
+    "article": "art. 7 ust. 1, 2 ,5",
+    "journal": "Dz.U. 1945 nr 50 poz 279",
+    "law": "Dekret z dnia 26 października 1945 r. o własności i użytkowaniu gruntów na obszarze m. st. Warszawy."
+   },
+   {
+    "link": "http://isap.sejm.gov.pl/DetailsServlet?id=WDU19460570321",
+    "article": "art. XXXVI",
+    "journal": "Dz.U. 1946 nr 57 poz 321",
+    "law": "Dekret z dnia 11 października 1946 r. - Przepisy wprowadzające prawo rzeczowe i prawo o księgach wieczystych."
+   },
+   {
+    "link": "http://isap.sejm.gov.pl/DetailsServlet?id=WDU20000981071",
+    "article": "art. 156 par. 1 i 2",
+    "journal": "Dz.U. 2000 nr 98 poz 1071",
+    "law": "Ustawa z dnia 14 czerwca 1960 r.- Kodeks postępowania administracyjnego - tekst jednolity"
+   },
+   {
+    "link": "http://isap.sejm.gov.pl/DetailsServlet?id=WDU20000981071",
+    "article": "art. 153, 184",
+    "journal": "Dz.U. 2000 nr 98 poz 1071",
+    "law": "Ustawa z dnia 14 czerwca 1960 r.- Kodeks postępowania administracyjnego - tekst jednolity"
+   }
+  ],
+  "official_collection": [
+   "ONSAiWSAz2015r. nr2 poz.21"
+  ],
+  "glosa_information": null,
+  "thesis": "Przepis art. 7 ust. 1 dekretu z dnia 26 października 1945 r. o własności i użytkowaniu gruntów na obszarze m.st. Warszawy (Dz. U. Nr 50, poz. 279 ze zm.) uprawnia do przyjęcia, że właścicielowi użytkowemu gruntów emfiteutycznych przysługiwała legitymacja do złożenia wniosku o ustanowienie prawa własności czasowej lub prawa zabudowy do gruntu ze skutkiem określonym w art. 7 ust. 2 dekretu.",
+  "sentence": "Naczelny Sąd Administracyjny w składzie: Przewodniczący: sędzia NSA Janina Antosiewicz (spr.) sędzia NSA Marek Stojanowski sędzia del. NSA Janusz Furmanek Protokolant starszy asystent sędziego Andrzej Nędzarek po rozpoznaniu w dniu 4 kwietnia 2013 roku na rozprawie w Izbie Ogólnoadministracyjnej skargi kasacyjnej E. Spółki z o.o. w Warszawie od wyroku Wojewódzkiego Sądu Administracyjnego w Warszawie z dnia 8 marca 2012 r. sygn. akt I SA/Wa 1427/11 w sprawie ze skargi E. Spółki z o.o. w Warszawie i B. S.A. w Warszawie na decyzję Ministra Infrastruktury z dnia [...] maja 2011 r. nr [...] w przedmiocie stwierdzenia nieważności decyzji 1. oddala skargę kasacyjną, 2. oddala wniosek J. K. H. i K. P.-C. o zasądzenie kosztów postępowania kasacyjnego.",
+  "reasons_for_judgment": "Wyrokiem z dnia 8 marca 2012 r., sygn. akt I SA/Wa 1427/11 Wojewódzki Sąd Administracyjny w Warszawie oddalił skargę E. Sp. z o.o. w Warszawie i B. S.A. w Warszawie na decyzję Ministra Infrastruktury z dnia [...] maja 2011 r., nr [...] w przedmiocie stwierdzenia nieważności decyzji.\n\nWyrok został wydany w następujących okolicznościach sprawy.\n\nMinister Infrastruktury decyzją z [...] maja 2009 r. utrzymał w mocy decyzję własną z [...] lutego 2008 r., którą odmówił stwierdzenia nieważności decyzji Ministerstwa Gospodarki Komunalnej z 3 listopada 1967 r. nr MT-Odw/277/67 i utrzymanego nią w mocy orzeczenia administracyjnego Prezydium Rady Narodowej w m.st. Warszawie z 30 czerwca 1967 r. nr GT.III.I1-6/G/59/67 odmawiającego dotychczasowym właścicielom przyznania prawa własności czasowej do gruntu nieruchomości warszawskiej przy ul. [...], oznaczonej nr hip. 1038-J, obecny [...].\n\nSkargę na powyższe decyzje wnieśli G. S. i J. K. H. Wojewódzki Sąd Administracyjny w Warszawie wyrokiem z 29 października 2009 r., sygn. akt I SA/Wa 1136/09 uchylił decyzje Ministra Infrastruktury z [...] maja 2009 r. i z [...] lutego 2008 r. W uzasadnieniu Sąd wskazał, że art. 7 ust. 2 dekretu, jako jedyne kryterium przyznania prawa do gruntu przyjmuje brak sprzeczności w dotychczasowym korzystaniu z gruntu przez właściciela z przeznaczeniem tego gruntu według planu zabudowy. A więc tylko wykazana sprzeczność korzystania z gruntu z jego przeznaczeniem według planu zabudowania mogła stanowić podstawę nie",
+  "dissenting_opinion": null
+ },
+ {
+  "country": "Poland",
+  "court_type": "administrative court",
+  "source": "nsa",
+  "judgment_id": "/doc/21CBD4642A",
+  "docket_number": "III SA/Wa 469/14",
+  "judgment_type": "Postanowienie WSA w Warszawie",
+  "finality": null,
+  "judgment_date": "2015-05-19T00:00:00+02:00",
+  "submission_date": "2014-02-10T00:00:00+01:00",
+  "court_name": "Wojewódzki Sąd Administracyjny w Warszawie",
+  "judges": [
+   "Maciej Kurasz"
+  ],
+  "presiding_judge": "Maciej Kurasz",
+  "judge_rapporteur": "Maciej Kurasz",
+  "case_type_description": [
+   "6112 Podatek dochodowy od osób fizycznych, w tym zryczałtowane formy opodatkowania"
+  ],
+  "keywords": [
+   "Odrzucenie skargi kasacyjnej"
+  ],
+  "related_docket_numbers": null,
+  "challenged_authority": "Dyrektor Izby Skarbowej",
+  "decision": [
+   "Odrzucono skargę kasacyjną"
+  ],
+  "extracted_legal_bases": [
+   {
+    "link": "http://isap.sejm.gov.pl/DetailsServlet?id=WDU20120000270",
+    "article": "art. 178 w zw. z art. 177 par. 1, art. 230 par. 1 i 2, art. 220 par. 1 i 3, art. 83 par. 1 i 2",
+    "journal": "Dz.U. 2012 poz 270",
+    "law": "Ustawa z dnia 30 sierpnia 2002 r. Prawo o postępowaniu przed sądami administracyjnymi - tekst jednolity."
+   }
+  ],
+  "official_collection": null,
+  "glosa_information": null,
+  "thesis": null,
+  "sentence": "Dnia 19 maja 2015 r. Wojewódzki Sąd Administracyjny w Warszawie w składzie: , Przewodniczący Sędzia WSA Maciej Kurasz, po rozpoznaniu w dniu 19 maja 2015 r. na posiedzeniu niejawnym skargi kasacyjnej J. K. od wyroku Wojewódzkiego Sądu Administracyjnego w Warszawie z dnia 27 sierpnia 2014 r. sygn. akt III SA/Wa 469/14 w sprawie ze skargi J.K. na decyzję Dyrektora Izby Skarbowej w W. z dnia [...] listopada 2013 r. nr [...] w przedmiocie określenia wysokości zobowiązania podatkowego w podatku dochodowym od osób fizycznych za 2008 r. postanawia odrzucić skargę kasacyjną",
+  "reasons_for_judgment": "Wojewódzki Sąd Administracyjny w Warszawie wyrokiem z dnia 27 sierpnia 2014 r. oddalił skargę J. K. (dalej jako \"Skarżący\") na decyzję Dyrektora Izby Skarbowej w W. z dnia [...] listopada 2013 r. w przedmiocie określenia wysokości zobowiązania podatkowego w podatku dochodowym od osób fizycznych za 2008 r.\n\nOdpis wyroku wraz z uzasadnieniem doręczono pełnomocnikowi Skarżącego w dniu 25 września 2014 r.\n\nPełnomocnik Skarżącego pismem z dnia 23 października 2014 r. wniósł (z zachowaniem terminu) skargę kasacyjną od ww. wyroku, zarzucając naruszenie przepisów prawa materialnego oraz naruszenie przepisów postępowania.\n\nNa podstawie zarządzenia Przewodniczącego Wydziału III Wojewódzkiego Sądu Administracyjnego w Warszawie z dnia 29 października 2014 r. pismem z dnia 30 października 2014 r. Skarżący został wezwany do uiszczenia wpisu sądowego od skargi kasacyjnej w wysokości 650 zł.\n\nPełnomocnik Skarżącego w odpowiedzi na wezwanie do uiszczenia wpisu sądowego złożył wniosek o przyznanie prawa pomocy w zakresie obejmującym zwolnienie od uiszczenia wpisu sądowego od skargi kasacyjnej.\n\nNa podstawie zarządzenia z dnia 25 listopada 2014 r. pełnomocnik Skarżącego został wezwany do nadesłania wypełnionego formularza wniosku o przyznanie prawa pomocy (PPF), w terminie 7 dni od dnia otrzymania wezwania, pod rygorem pozostawienia wniosku bez rozpoznania oraz do udzielenia dodatkowych informacji dotyczących jego stanu majątkowego oraz osób pozostających z nim we wspólnym gospodarstwie domowym",
+  "dissenting_opinion": null
+ },
+ {
+  "country": "Poland",
+  "court_type": "administrative court",
+  "source": "nsa",
+  "judgment_id": "/doc/59F4C7289B",
+  "docket_number": "III AZP 3/82",
+  "judgment_type": "Uchwała Sądu Najwyższego",
+  "finality": "orzeczenie prawomocne",
+  "judgment_date": "1982-09-22T00:00:00+02:00",
+  "submission_date": null,
+  "court_name": "Sąd Najwyższy",
+  "judges": [
+   "Dąbrowski Henryk",
+   "Bukowski Tadeusz",
+   "Sychowicz Marek"
+  ],
+  "presiding_judge": "Dąbrowski Henryk",
+  "judge_rapporteur": "Dąbrowski Henryk",
+  "case_type_description": [
+   "621  Sprawy mieszkaniowe, w tym dodatki mieszkaniowe"
+  ],
+  "keywords": null,
+  "related_docket_numbers": null,
+  "challenged_authority": null,
+  "decision": null,
+  "extracted_legal_bases": [
+   {
+    "link": "http://isap.sejm.gov.pl/DetailsServlet?id=WDU19740140084",
+    "article": "art. 31 ust. 3",
+    "journal": "Dz.U. 1974 nr 14 poz. 84",
+    "law": "Ustawa z dnia 10 kwietnia 1974 r. Prawo lokalowe."
+   },
+   {
+    "link": "http://isap.sejm.gov.pl/DetailsServlet?id=WDU19740260152",
+    "article": "par. 7 ust. 1",
+    "journal": "Dz.U. 1974 nr 26 poz. 152",
+    "law": "Rozporządzenie Rady Ministrów z dnia 26 czerwca 1974 r. w sprawie wykonania niektórych przepisów prawa lokalowego."
+   }
+  ],
+  "official_collection": [
+   "OSN 1983 4 poz. 43"
+  ],
+  "glosa_information": [
+   "Radwański Zbigniew Nowe Prawo 1984 nr 6 str. 132"
+  ],
+  "thesis": "Najemcy zajmującemu część lokalu mieszkalnego na podstawie decyzji o przydziale pomieszczenia zastępczego przysługuje w myśl art. 31 ust. 3 ustawy z dnia 10 kwietnia 1974 r. - Prawo lokalowe /Dz.U. nr 14 poz. 84 ze zm./ prawo do opróżnionej części tego lokalu, jeżeli zajmuje powierzchnię mieszkalną mniejszą od tej, jaka przysługiwałaby mu według norm zaludnienia określonych w par. 7 ust. 1 rozporządzenia Rady Ministrów z dnia 26 czerwca 1974 r. w sprawie wykonania niektórych przepisów prawa lokalowego /Dz.U. nr 26 poz. 152/.",
+  "sentence": "Sąd Najwyższy w sprawie ze skargi Franciszka P. na decyzję Wojewody w B. z dnia 27 września 1981 r. utrzymującą w mocy decyzję Naczelnika Miasta i Gminy w M. z dnia 30 czerwca 1981 r. w przedmiocie odmowy przydziału lokalu po rozpoznaniu na posiedzeniu jawnym zagadnienia prawnego przekazanego przez Naczelny Sąd Administracyjny Ośrodek Zamiejscowy w Gdańsku postanowieniem z dnia 24 marca 1982 r. SA/Gd 585/81 do rozstrzygnięcia w trybie art. 391 Kpc i art. 211 Kpa:\n\nCzy najemcy zajmującemu część lokalu mieszkalnego na podstawie decyzji o przydziale pomieszczenia zastępczego przysługuje prawo ubiegania się o przydział opróżnionej części lokalu na tej podstawie, że zajmuje powierzchnię mieszkalną poniżej norm zaludnienia określonych w par. 7 ust. 1 rozporządzenia rady Ministrów z dnia 26 czerwca 1974 r. w sprawie wykonania niektórych przepisów prawa lokalowego /Dz.U. nr 26 poz. 152 ze zm./?\n\npodjął następującą uchwałę:",
+  "reasons_for_judgment": "Franciszek P. wraz z czteroosobową rodziną /żona i troje dzieci/ zajmuje w M. przy ul. P. W. Nr 8 część lokalu mieszkalnego, składającego się z dwóch pokoi o powierzchni 30,41 m2 oraz kuchni, przydzieloną mu jako pomieszczenie zastępcze do czasu uzyskania lokalu spółdzielczego. W związku z opróżnieniem w tym lokalu sąsiedniego pokoju złożył on wniosek o przydzielenie mu tegoż pokoju, motywując swe żądanie nadmiernym zagęszczeniem zajmowanej przez niego i jego rodzinę części lokalu.\n\nDecyzja Naczelnika Miasta i Gminy w M. z dnia 30 czerwca 1981 r., odmawiająca Franciszkowi P. uwzględnienia powyższego jego wniosku została utrzymana w mocy decyzją Wojewody w B. z dnia 27 września 1981 r. W uzasadnieniu ostatnio wymienionej decyzji wskazano, że zajmowana przez Franciszka P. i jego rodzinę część lokalu mieszkalnego została mu przydzielona jako pomieszczenie zastępcze. Zgodnie z treścią art. 7 ustawy z dnia 16 kwietnia 1974 r. - Prawo lokalowe /Dz.U. nr 14 poz. 84/ pomieszczenie zastępcze m.in. powinno zapewnić co najmniej 5 m2 powierzchni mieszkalnej na jedną osobę. W zajmowanej przez rodzinę P. części lokalu nie występuje zatem zagęszczenie, które uzasadniałoby przydzielenie mu na podstawie art. 31 par. 3 prawa lokalowego dalszej opróżnionej części /jednego pokoju/ w tymże lokalu.\n\nW związku z rozpoznaniem skargi Franciszka P. na wskazaną decyzję Wojewody w B. Naczelny Sąd Administracyjny - Ośrodek Zamiejscowy w Gdańsku przedstawił sądowi Najwyższemu w trybie art. 391 Kpc w związ",
+  "dissenting_opinion": null
+ },
+ {
+  "country": "Poland",
+  "court_type": "administrative court",
+  "source": "nsa",
+  "judgment_id": "/doc/428C626246",
+  "docket_number": null,
+  "judgment_type": "Wyrok WSA w Gliwicach",
+  "finality": "orzeczenie prawomocne",
+  "judgment_date": "2015-02-24T00:00:00+01:00",
+  "submission_date": null,
+  "court_name": "Wojewódzki Sąd Administracyjny w Gliwicach",
+  "judges": [
+   "Bożena Suleja-Klimczyk",
+   "Dorota Kozłowska",
+   "Teresa Randak"
+  ],
+  "presiding_judge": "Bożena Suleja-Klimczyk",
+  "judge_rapporteur": "Bożena Suleja-Klimczyk",
+  "case_type_description": null,
+  "keywords": [
+   "Egzekucyjne postępowanie"
+  ],
+  "related_docket_numbers": null,
+  "challenged_authority": null,
+  "decision": [
+   "Oddalono skargę"
+  ],
+  "extracted_legal_bases": [
+   {
+    "link": "http://isap.sejm.gov.pl/DetailsServlet?id=WDU20011371541",
+    "article": "art. 33 par. 1 pkt 1 i pkt 3, art. 34",
+    "journal": "Dz.U. 2001 nr 137 poz 1541",
+    "law": "Rozporządzenie Ministra Finansów z dnia 22 listopada 2001 r. w sprawie wykonania niektórych przepisów ustawy o postępowaniu egzekucyjnym w administracji."
+   }
+  ],
+  "official_collection": null,
+  "glosa_information": null,
+  "thesis": null,
+  "sentence": "Wojewódzki Sąd Administracyjny w Gliwicach w składzie następującym: Przewodniczący Sędzia WSA Bożena Suleja (spr.), del. Sędzia SO Dorota Kozłowska, Sędzia WSA Teresa Randak, Protokolant Paulina Nowak, po rozpoznaniu na rozprawie w dniu 24 lutego 2015 r. sprawy ze skargi A. L. na postanowienie Dyrektora Izby Skarbowej w K. z dnia [...] nr [...] w przedmiocie odmowy wszczęcia postępowania w sprawie zarzutów w postępowaniu egzekucyjnym oddala skargę.",
+  "reasons_for_judgment": "Postanowieniem z dnia [...] nr [...] Dyrektor Izby Skarbowej w K., działając na podstawie art. 138 § 1 pkt 1 w zw. z art. 144 oraz art. 61a § 2 ustawy z dnia 14 czerwca 1960 r. Kodeks postępowania administracyjnego (t.j. Dz. U. z 2013 r., poz. 267 z późn. zm. - dalej K.p.a.) oraz art. 17 § 1, art. 18, art. 23 § 1 i § 4 pkt 1 ustawy z dnia 17 czerwca 1966 r. o postępowaniu egzekucyjnym w administracji (t.j. Dz. U. z 2012 r., poz. 1015 z późn. zm. - obecnie t.j. Dz. U. z 2014 r., poz. 1619 - dalej u.p.e.a.) utrzymał w mocy postanowienie Naczelnika Urzędu Skarbowego w M. z dnia [...] nr [...], mocą którego odmówiono wszczęcia postępowania w przedmiocie zarzutów w sprawie prowadzenia egzekucji administracyjnej na podstawie zaktualizowanych w dniu 7 lutego 2014 r. tytułów wykonawczych z dnia [...] o nr [...] i [...].\n\nW uzasadnieniu rozstrzygnięcia organ nadzoru wyjaśnił, iż w dniu\n\n29 października 2013 r. Naczelnik Urzędu Skarbowego w M., działając jako wierzyciel, wystawił na A.L.(dalej strona lub zobowiązany) tytuły wykonawcze obejmujące zaległości z tytułu podatku od towarów i usług o nr [...] dotyczący zaległości za miesiące od marca do maja 2009 r. oraz lipiec 2009 r. w łącznej kwocie [...] zł wraz z należnymi odsetkami za zwłokę oraz nr [...] dotyczący zaległości za miesiąc styczeń 2009 r., wrzesień 2009 r., listopad 2009 r. oraz grudzień 2009 r. w łącznej kwocie [...] zł wraz z należnymi odsetkami za zwłokę.\n\nPodstawę wystawienia przedmiotowych tytułów wykonawczych stanowi",
+  "dissenting_opinion": null
+ },
+ {
+  "country": "Poland",
+  "court_type": "administrative court",
+  "source": "nsa",
+  "judgment_id": "/doc/25F1838607",
+  "docket_number": "IV SA/Po 40/06",
+  "judgment_type": "Wyrok WSA w Poznaniu",
+  "finality": "orzeczenie prawomocne",
+  "judgment_date": "2007-01-17T00:00:00+01:00",
+  "submission_date": "2006-01-16T00:00:00+01:00",
+  "court_name": "Wojewódzki Sąd Administracyjny w Poznaniu",
+  "judges": [
+   "Danuta Rzyminiak-Owczarczak",
+   "Ewa Kręcichwost-Durchowska",
+   "Ewa Makosz-Frymus"
+  ],
+  "presiding_judge": "Ewa Makosz-Frymus",
+  "judge_rapporteur": "Danuta Rzyminiak-Owczarczak",
+  "case_type_description": [
+   "6341 Pozbawienie uprawnień kombatanckich oraz pozbawienie uprawnień dla wdów /wdowców/ po kombatantach"
+  ],
+  "keywords": null,
+  "related_docket_numbers": null,
+  "challenged_authority": "Kierownik Urzędu do Spraw Kombatantów i Osób Represjonowanych",
+  "decision": [
+   "Oddalono skargę"
+  ],
+  "extracted_legal_bases": null,
+  "official_collection": null,
+  "glosa_information": null,
+  "thesis": null,
+  "sentence": null,
+  "reasons_for_judgment": null,
+  "dissenting_opinion": null
+ }
+]

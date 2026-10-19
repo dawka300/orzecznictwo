@@ -5,7 +5,6 @@ from fakes import FakeSource
 from judgments_core.cli import Project, main
 from judgments_core.http import SourceError
 from judgments_core.settings import Settings
-from nsa.__main__ import PROJECT as NSA
 
 
 def settings(tmp_path):
@@ -25,12 +24,26 @@ def test_dry_run_prints_records_without_database(tmp_path, capsys):
     assert (tmp_path / "logs" / "fake.log").exists()
 
 
+class UnwrittenSource:
+    name = "unwritten"
+
+    def __init__(self, settings, client):
+        pass
+
+    def iter_pages(self, cursor):
+        raise NotImplementedError("źródło jeszcze nie napisane")
+
+
+def unwritten_project(tmp_path):
+    return Project(name="unwritten", title="test", make_source=UnwrittenSource, migrations=tmp_path)
+
+
 def test_unwritten_source_exits_with_2(tmp_path):
-    assert main(NSA, ["pobierz", "--na-sucho"], settings(tmp_path)) == 2
+    assert main(unwritten_project(tmp_path), ["pobierz", "--na-sucho"], settings(tmp_path)) == 2
 
 
 def test_project_without_parser_exits_with_2(tmp_path):
-    assert main(NSA, ["przetworz"], settings(tmp_path)) == 2
+    assert main(unwritten_project(tmp_path), ["przetworz"], settings(tmp_path)) == 2
 
 
 class FailingSource:

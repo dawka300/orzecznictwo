@@ -7,3 +7,7 @@ playwright
 # Referencyjne embeddingi (BAAI/bge-m3) do sprawdzania LM Studio; torch tylko
 # na CPU: pip install --index-url https://download.pytorch.org/whl/cpu torch
 sentence-transformers
+# NSA: import zbioru JuDDGES/pl-nsa (parquet) - tylko lokalnie; tzdata dla
+# dat ze strefą czasową na Windows
+pyarrow
+tzdata

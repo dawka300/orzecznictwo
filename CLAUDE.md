@@ -21,6 +21,7 @@ Shared skeleton for projects that download court judgments into MariaDB and run 
 - **Be polite to sources:** keep `PoliteClient`'s pause and backoff; set a contact in `*_USER_AGENT`.
 - All MariaDB SQL of the core is in `judgments_core/db.py`. MariaDB, not MySQL 8: no `INSERT ... AS new` (use `VALUES(col)`), check features against the hosting's MariaDB version.
 - `judgments_core` must not import from projects; projects import the core.
+- **Core = common parent, projects = children.** When a project needs a core class to behave differently (another database, another save step, other paging ...), it gets a subclass in its own package (e.g. `nsa/importer.py: class NsaImporter(Importer)`, overriding only what changes) and its `__main__`/`Project` uses that child. Never put one project's case into a core file (no `if project == ...`); change the core only for what is common to all, and then keep every project working. Small per-project functions passed to `Project` (`derive`, `embed`, `web` ...) are fine; a changed core behaviour is a child class.
 
 ## Schema changes
 
