@@ -27,6 +27,9 @@ MIGRATION_RE = re.compile(r"^\d{3}_\w+\.sql$")
 log = logging.getLogger(__name__)
 
 
+NO_SUCH_TABLE = 1146
+
+
 class LockedError(RuntimeError):
     """Another pass of the same project is still running."""
 
@@ -363,6 +366,57 @@ class MariaDbStore:
                 " model = VALUES(model), chunks = VALUES(chunks), embedded_at = VALUES(embedded_at)",
                 [(*row, now) for row in rows],
             )
+        self.conn.commit()
+
+    def packages_add(self, name, model, items, chunks, chars):
+        """A new open package; items = judgment ids in it."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO vector_packages (name, model, judgments, chunks, chars, created_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s)",
+                (name, model, len(items), chunks, chars, _naive_utc(utc_now())),
+            )
+            cur.executemany(
+                "INSERT INTO vector_package_items (judgment_id, package) VALUES (%s, %s)",
+                [(i, name) for i in items],
+            )
+        self.conn.commit()
+
+    def packages_open_ids(self):
+        """Judgment ids in open packages (computed elsewhere, not by wektory)."""
+        with self.conn.cursor() as cur:
+            try:
+                cur.execute("SELECT judgment_id FROM vector_package_items")
+            except pymysql.err.ProgrammingError as e:
+                if e.args and e.args[0] == NO_SUCH_TABLE:
+                    return set()  # migracja core/003 jeszcze nie zastosowana: brak paczek
+                raise
+            ids = {row[0] for row in cur.fetchall()}
+        self.conn.commit()
+        return ids
+
+    def packages_list(self):
+        """[(name, model, judgments, chunks, chars, created_at, imported_at)], newest last."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT name, model, judgments, chunks, chars, created_at, imported_at"
+                " FROM vector_packages ORDER BY created_at, name"
+            )
+            rows = cur.fetchall()
+        self.conn.commit()
+        return rows
+
+    def packages_close(self, name, imported):
+        """Free the package's judgments; imported=True marks it done, False deletes it."""
+        with self.conn.cursor() as cur:
+            cur.execute("DELETE FROM vector_package_items WHERE package = %s", (name,))
+            if imported:
+                cur.execute(
+                    "UPDATE vector_packages SET imported_at = %s WHERE name = %s",
+                    (_naive_utc(utc_now()), name),
+                )
+            else:
+                cur.execute("DELETE FROM vector_packages WHERE name = %s", (name,))
         self.conn.commit()
 
     @staticmethod

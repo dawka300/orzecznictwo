@@ -36,7 +36,13 @@ def test_migration_files_order(tmp_path):
     (tmp_path / "001_a.sql").write_text("")
     (tmp_path / "README.md").write_text("")
     names = [n for n, _ in db.migration_files(("core", db.CORE_MIGRATIONS), ("p", tmp_path))]
-    assert names == ["core/001_core.sql", "core/002_logs.sql", "p/001_a.sql", "p/002_b.sql"]
+    assert names == [
+        "core/001_core.sql",
+        "core/002_logs.sql",
+        "core/003_packages.sql",
+        "p/001_a.sql",
+        "p/002_b.sql",
+    ]
 
 
 def test_migrate_once(conn, tmp_path):
@@ -44,6 +50,7 @@ def test_migrate_once(conn, tmp_path):
     assert db.migrate(conn, ("core", db.CORE_MIGRATIONS), ("p", tmp_path)) == [
         "core/001_core.sql",
         "core/002_logs.sql",
+        "core/003_packages.sql",
         "p/001_x.sql",
     ]
     assert db.migrate(conn, ("core", db.CORE_MIGRATIONS), ("p", tmp_path)) == []

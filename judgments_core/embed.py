@@ -106,6 +106,11 @@ class EmbedJob(ABC):
         with self.conn.cursor() as cur:
             todo = [Candidate(*row) for row in self.candidates(cur, self.embedder.model)]
         self.conn.commit()
+        elsewhere = self.store.packages_open_ids()
+        if elsewhere:
+            # liczone w paczkach na innych komputerach (judgments_core/packages.py)
+            todo = [c for c in todo if c.judgment_id not in elsewhere]
+            log.info("w otwartych paczkach (liczone gdzie indziej): %d orzeczeń", len(elsewhere))
         done, chunks = self.store.vectors_done(self.tracking_table, self.embedder.model)
         log.info("do policzenia: %d (model %s)", len(todo), self.embedder.model)
         progress = Progress(

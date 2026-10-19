@@ -14,6 +14,8 @@ python -m etpc mcp                      # baza jako narzędzia dla Claude'a (std
 python -m etpc fragmenty "pytanie"      # kontekst RAG: najlepsze fragmenty do pytania
 python -m etpc ocen                     # trafność fragmentów na pytaniach z etpc/pytania.json
 python -m etpc zapytaj "pytanie"        # odpowiedź modelu lokalnego (LM Studio) ze źródłami
+python -m nsa paczki --ile 2            # paczki fragmentów do policzenia na innym komputerze
+python -m nsa paczka-import nsa-0001    # wektory policzone gdzie indziej -> Qdrant
 
 Każdy przebieg pobierz/przetworz/sprawdz zapisuje się w fetch_runs, blokady
 i błędy źródła w fetch_events, rekordy z problemem w record_problems.
@@ -167,6 +169,36 @@ def build_parser(project):
         "ocen", help="trafność fragmentów na pytaniach wzorcowych (<projekt>/pytania.json)"
     )
     evaluate.add_argument("--plik", dest="path", help="plik z pytaniami (JSON)")
+    packages = commands.add_parser(
+        "paczki", help="paczki fragmentów do liczenia wektorów na innych komputerach"
+    )
+    packages.add_argument(
+        "--ile", dest="count", type=int, default=1, help="ile paczek (domyślnie 1)"
+    )
+    packages.add_argument(
+        "--fragmentow",
+        dest="size_chunks",
+        type=int,
+        default=200_000,
+        help="fragmentów w paczce (domyślnie 200000)",
+    )
+    packages.add_argument(
+        "--od-konca",
+        dest="from_end",
+        action="store_true",
+        help="z końca kolejki (najmniej ważne), początek zostaje dla wektory tutaj",
+    )
+    packages.add_argument("--lista", dest="list", action="store_true", help="pokaż paczki")
+    packages.add_argument(
+        "--zwolnij",
+        dest="release",
+        metavar="NAZWA",
+        help="porzuć paczkę (wektory policzy je tutaj)",
+    )
+    package_import = commands.add_parser(
+        "paczka-import", help="wczytaj wektory paczki policzonej gdzie indziej"
+    )
+    package_import.add_argument("name", metavar="nazwa", help="np. nsa-0001")
     ask = commands.add_parser(
         "zapytaj", help="odpowiedź modelu językowego (LM Studio) na podstawie fragmentów"
     )
@@ -237,6 +269,10 @@ def main(project, argv=None, settings=None):
             return _evaluate(project, settings, args)
         if args.command == "zapytaj":
             return _ask(project, settings, args)
+        if args.command == "paczki":
+            return _packages(project, settings, args)
+        if args.command == "paczka-import":
+            return _package_import(project, settings, args)
         if args.command == "kopia":
             return _backup(project, settings, required=True)
         return _status(project, settings, args)
@@ -555,6 +591,78 @@ def _ask(project, settings, args):
         print(f"[{s.number}] {s.title} - {s.details}{mark}\n    {s.url}")
     if answer.unknown:
         print(f"\nUWAGA: odpowiedź powołuje się na nieistniejące źródła: {answer.unknown}")
+    return 0
+
+
+def _package_dir(project):
+    return project.migrations.parent / "database" / "paczki"
+
+
+def _package_job(project, settings, conn):
+    if project.embed_job is None:
+        raise NotImplementedError(f"projekt {project.name} nie ma jeszcze wektorów")
+    collection = settings.qdrant_collection or collection_name(project.name, settings.embed_model)
+    return project.embed_job(
+        conn,
+        make_embedder(settings, "http"),  # tylko nazwa modelu: nic tu nie liczy
+        QdrantStore(settings.qdrant_url, collection, settings.embed_model),
+    )
+
+
+def _packages(project, settings, args):
+    from judgments_core import packages
+
+    with db.connect(settings.db_dsn) as conn:
+        store = db.MariaDbStore(conn)
+        if args.list:
+            for name, model, judgments, chunks, chars, created, imported in store.packages_list():
+                state = f"zaimportowana {imported:%Y-%m-%d %H:%M}" if imported else "u kogoś"
+                print(
+                    f"{name}  {created:%Y-%m-%d %H:%M}  {judgments:>8,} orzeczeń"
+                    f"  {chunks:>9,} fragmentów  {chars / 1e6:>7,.0f} mln znaków  {state}"
+                )
+            return 0
+        if args.release:
+            store.packages_close(args.release, imported=False)
+            log.info("Paczka %s porzucona: jej orzeczenia policzy wektory.", args.release)
+            return 0
+        job = _package_job(project, settings, conn)
+        # Wektory kontrolne liczy tutaj model zapytań (bez LM Studio, na CPU).
+        controls = make_embedder(settings)
+        with store.lock(f"{project.name}:paczki"):
+            for _ in range(args.count):
+                name = packages.next_name(store, project.name)
+                done = packages.export(
+                    job, controls, _package_dir(project), name, args.size_chunks, args.from_end
+                )
+                if done is None:
+                    log.info("Nie ma już nic do policzenia.")
+                    break
+                log.info(
+                    "Paczka %s: %d orzeczeń, %d fragmentów, %.0f mln znaków -> %s",
+                    done.name,
+                    done.judgments,
+                    done.chunks,
+                    done.chars / 1e6,
+                    done.path,
+                )
+    return 0
+
+
+def _package_import(project, settings, args):
+    from judgments_core import packages
+
+    with db.connect(settings.db_dsn) as conn:
+        store = db.MariaDbStore(conn)
+        job = _package_job(project, settings, conn)
+        with store.lock(f"{project.name}:paczki"):
+            saved, skipped = packages.import_package(job, _package_dir(project), args.name)
+    log.info(
+        "Paczka %s: zapisano wektory %d orzeczeń, pominięto %d (tekst zmieniony albo już policzone).",
+        args.name,
+        saved,
+        skipped,
+    )
     return 0
 
 

@@ -100,7 +100,7 @@ class QdrantStore:
                     "number": c.number,
                     "part": c.part,
                     "start": c.start,
-                    "length": len(c.text),
+                    "length": c.text_length,
                 },
             }
             for c in chunks

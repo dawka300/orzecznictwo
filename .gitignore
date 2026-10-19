@@ -10,3 +10,4 @@ backups/
 .claude/settings.local.json
 /*/database/
 .mcp.json
+/docker/licz/paczki/
