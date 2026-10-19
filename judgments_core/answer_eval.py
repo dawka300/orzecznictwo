@@ -65,7 +65,9 @@ ABBREVIATIONS = frozenset(
     ]
 )
 _CITED = re.compile(r"\[(\d+(?:\s*[,;]\s*\d+)*)\]")
-_JSON_LIST = re.compile(r"\[\s*\{.*\}\s*\]", re.DOTALL)
+# Jedna ocena = płaski obiekt JSON (bez zagnieżdżeń): urwana lista (limit tokenów)
+# i tak oddaje kompletne oceny sprzed urwania.
+_JSON_OBJECT = re.compile(r"\{[^{}]*\}")
 RATINGS = ("poparte", "niepoparte", "sprzeczne")
 
 JUDGE_PROMPT = """\
@@ -76,6 +78,7 @@ co zdanie mówi, wynika z tego źródła (pola WYNIK i fragmentów tekstu):
 - "niepoparte": źródło tego nie mówi (szczegół dodany, uogólnienie bez podstaw),
 - "sprzeczne": źródło mówi co innego (np. inny wynik sprawy, inne państwo, inna data).
 Odpowiedz WYŁĄCZNIE listą JSON, bez komentarza, np.:
+W polu "zdanie" tylko pierwsze 6-8 słów zdania, "dlaczego" najwyżej kilkanaście słów.
 [{"zdanie": "początek zdania...", "zrodlo": 1, "ocena": "poparte", "dlaczego": "krótko"}]"""
 
 
@@ -172,11 +175,17 @@ def judge(judge_model, retrieval, answer, suffix=""):
     ]
     raw = judge_model.complete(messages)
     raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL)
-    match = _JSON_LIST.search(raw)
-    if not match:
-        raise ValueError(f"sędzia nie zwrócił listy JSON: {raw[:200]!r}")
-    ratings = json.loads(match.group(0))
-    return [r for r in ratings if isinstance(r, dict) and r.get("ocena") in RATINGS]
+    ratings = []
+    for match in _JSON_OBJECT.finditer(raw):
+        try:
+            item = json.loads(match.group(0))
+        except ValueError:
+            continue
+        if isinstance(item, dict) and item.get("ocena") in RATINGS:
+            ratings.append(item)
+    if not ratings:
+        raise ValueError(f"sędzia nie zwrócił ocen w JSON: {raw[:200]!r}")
+    return ratings
 
 
 def check(pipeline, cur, question, filters=None, judge_model=None, budget_chars=None):

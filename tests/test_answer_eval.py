@@ -91,7 +91,7 @@ def test_judge_gets_only_cited_sources_and_its_list_is_parsed():
     assert [r["ocena"] for r in got] == ["poparte", "niepoparte"]
     user = judge.messages[1]["content"]
     assert "[2] X v. Poland" in user and "[1] X v. Poland" not in user
-    with pytest.raises(ValueError, match="listy JSON"):
+    with pytest.raises(ValueError, match="ocen w JSON"):
         answer_eval.judge(Judge("nie wiem"), retrieval(GUZ), "Tak [1].")
 
 
@@ -145,3 +145,9 @@ def test_model_error_is_recorded_not_raised():
     assert result.error.endswith("No models loaded") and result.answer == ""
     text = "\n".join(answer_eval.report([result], "?"))
     assert "BRAK ODPOWIEDZI" in text and "bez odpowiedzi: 1" in text
+
+
+def test_cut_off_judge_list_keeps_complete_ratings():
+    reply = '[\n {"zdanie": "Naruszenie", "zrodlo": 1, "ocena": "poparte", "dlaczego": "tak"},\n {"zdanie": "Prze'
+    got = answer_eval.judge(Judge(reply), retrieval(GUZ), "Naruszenie art. 10 [1].")
+    assert [r["ocena"] for r in got] == ["poparte"]
