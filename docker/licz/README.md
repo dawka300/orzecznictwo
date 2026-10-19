@@ -25,3 +25,5 @@ Opcje: `--batch 64` (więcej naraz, jeśli karta ma zapas), `--silnik cpu` (bez 
 Bez dockera: `pip install sentence-transformers numpy` (torch z CUDA:
 `pip install torch --index-url https://download.pytorch.org/whl/cu128`) i
 `python licz_paczke.py paczki/nsa-0001.jsonl.gz`.
+
+Wynajęte GPU zamiast kolegi: [VAST.md](VAST.md) (Vast.ai, ten sam skrypt, bez dockera).

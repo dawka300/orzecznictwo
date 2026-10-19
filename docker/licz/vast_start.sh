@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Na wynajętej maszynie (Vast.ai, obraz pytorch/pytorch z CUDA): liczy po kolei
+# wszystkie paczki z /workspace/paczki, w tle (rozłączenie SSH nie przerywa).
+#
+#   bash /workspace/vast_start.sh          # instaluje i liczy wszystko w tle -> /workspace/licz.log
+#   bash /workspace/vast_start.sh test     # test szybkości: 5000 fragmentów pierwszej paczki
+#
+# Paczka z gotowym <nazwa>.wektory.npy jest pomijana; przerwane liczenie
+# (restart maszyny) wznawia się od brakującej części.
+set -euo pipefail
+
+KATALOG=${KATALOG:-/workspace}
+SILNIK=${SILNIK:-cuda}
+BATCH=${BATCH:-64}
+export HF_HOME=${HF_HOME:-$KATALOG/hf}
+
+if ! python -c "import sentence_transformers" 2>/dev/null; then
+    pip install --no-cache-dir sentence-transformers==6.1.0 transformers==5.20.1 requests
+fi
+
+if [ "${1:-}" = "test" ]; then
+    pierwsza=$(ls "$KATALOG"/paczki/*.jsonl.gz | head -n 1)
+    python "$KATALOG/licz_paczke.py" "$pierwsza" --silnik "$SILNIK" --batch "$BATCH" --limit 5000
+    exit 0
+fi
+
+if [ "${1:-}" != "--w-tle" ]; then
+    nohup bash "$0" --w-tle >> "$KATALOG/licz.log" 2>&1 &
+    echo "Liczy w tle; postęp: tail -f $KATALOG/licz.log"
+    exit 0
+fi
+
+echo "=== start $(date -u '+%Y-%m-%d %H:%M:%S') UTC"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader || true
+for paczka in "$KATALOG"/paczki/*.jsonl.gz; do
+    nazwa=$(basename "$paczka" .jsonl.gz)
+    if [ -f "$KATALOG/paczki/$nazwa.wektory.npy" ]; then
+        echo "--- $nazwa: już policzona"
+        continue
+    fi
+    echo "--- $nazwa: liczę"
+    python "$KATALOG/licz_paczke.py" "$paczka" --silnik "$SILNIK" --batch "$BATCH"
+    rm -rf "$KATALOG/paczki/$nazwa.czesci"
+done
+echo "=== WSZYSTKO GOTOWE $(date -u '+%Y-%m-%d %H:%M:%S') UTC"
