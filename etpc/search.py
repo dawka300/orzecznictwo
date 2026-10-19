@@ -82,6 +82,8 @@ def parse_query(text, translate=True):
         words = _WORD_PARTS.findall(word)
         if not exclude and not prefix and len(words) == 1:
             run.append(words[0])
+        elif translate and not exclude and not prefix and _in_glossary(run, words):
+            run.extend(words)  # "adwokacko-radcowski" jako dwa słowa do słownika
         else:
             flush()
             items.append(("token", exclude, words, prefix))
@@ -134,6 +136,16 @@ def parse_query(text, translate=True):
     locate += [max(term.split(), key=len) for term, _ in highlight]
     unique = list({w.lower(): w for w in reversed(locate)}.values())[::-1]
     return Terms(" ".join(parts), highlight, unique[:LOCATE_WORDS], translations)
+
+
+def _in_glossary(run, words):
+    """Whether a glossary phrase covers some of a hyphenated word's parts after the run."""
+    position = 0
+    for original, alternatives in glossary.translate(run + words):
+        position += len(original)
+        if alternatives and position > len(run):
+            return True
+    return False
 
 
 def _indexed(word):

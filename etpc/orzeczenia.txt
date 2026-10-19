@@ -1,0 +1,70 @@
+ORZECZENIA ETPC - NOTATKI Z WYSZUKIWANIA
+=======================================
+
+Odmowa pełnomocnika z urzędu / kasacja / przymus adwokacki (2026-10-19)
+-----------------------------------------------------------------------
+
+Problem: strona nie dostała pełnomocnika z urzędu albo pełnomocnik z urzędu
+odmówił sporządzenia kasacji (skargi kasacyjnej). Przy przymusie
+adwokacko-radcowskim sama kasacji wnieść nie może, więc droga sądowa się
+zamyka - czy to narusza prawo do sądu (art. 6 ust. 1 Konwencji)?
+
+Jak szukać (wyszukiwarka: python -m etpc www, http://127.0.0.1:8080):
+  - po polsku:     adwokat z urzędu kasacja                       + państwo Polska
+                   odmowa pełnomocnika z urzędu skarga kasacyjna  + Polska + wyroki
+                   przymus adwokacko-radcowski
+  - po angielsku (najdokładniej, tak brzmią teksty):
+                   "legal-aid lawyer" "cassation appeal"   + Polska + wyroki (82 wyniki)
+                   + artykuł 6, naruszenie                 (42 wyniki)
+                   + kolejność: najczęściej cytowane
+                   inne frazy: "no prospects of success", "mandatory legal representation",
+                   "time-limit" "cassation appeal"
+  - gotowy link:
+    http://127.0.0.1:8080/?q=%22legal-aid+lawyer%22+%22cassation+appeal%22&panstwo=POL&artykul=6&relacja=violation&sort=cytowane
+
+Znalezione orzeczenia (dane z bazy: data, numer skargi, naruszenia z HUDOC,
+liczba orzeczeń cytujących; link HUDOC: https://hudoc.echr.coe.int/eng?i=<itemid>)
+
+  Sprawy wiodące - naruszenie art. 6 ust. 1:
+  * Siałkowska v. Polska       22.03.2007  8932/05   naruszenie 6-1         cyt. 75  001-79887
+  * Staroszczyk v. Polska      22.03.2007  59519/00  naruszenie 6-1         cyt. 61  001-79879
+  * Kulikowski v. Polska       19.05.2009  18353/03  naruszenie 6-1+6-3-c   cyt. 51  001-92611
+      (sprawa karna; także naruszenie 5-3; zadośćuczynienie osobnym wyrokiem
+       21.12.2010, 001-102350)
+  * Antonicelli v. Polska      19.05.2009  2815/05   naruszenie 6           cyt. 35  001-92615
+  * Zapadka v. Polska          15.12.2009  2619/05   naruszenie 6           cyt. 24  001-96158
+  * Subicka v. Polska          14.09.2010  29342/06  naruszenie 6-1         cyt. 14  001-100409
+  * Subicka v. Polska (nr 2)   21.06.2011  34043/05, 15792/06  naruszenie i brak naruszenia 6-1
+                                                                         cyt.  9  001-105230
+  * Dyluś c. Pologne           23.09.2021  12210/14  naruszenie 6-1 (dostęp do sądu,
+                                                     postępowanie dyscyplinarne) cyt. 1  001-211827
+      (nowa, dlatego mało cytowań; tekst tylko po francusku)
+
+  Kontrprzykłady - bez naruszenia (warto przeczytać, czym się różnią):
+  * Smyk v. Polska             28.07.2009  8958/04   brak naruszenia 6      cyt. 32  001-93766
+  * Bąkowska v. Polska         12.01.2010  33539/02  brak naruszenia 6-1    cyt. 28  001-96577
+  * Correia de Matos v. Portugalia (Wielka Izba)
+                               04.04.2018  56402/12  brak naruszenia 6+6-3-c cyt. 42 001-182243
+      (sam przymus zastępstwa przez adwokata w sprawie karnej nie narusza Konwencji)
+
+  Wyszły w wynikach, ale DO SPRAWDZENIA, czy dotyczą tego problemu:
+  * Laskowska v. Polska        13.03.2007  77765/01  naruszenie 6-1         cyt. 17  001-79765
+      (w tekście pada "przymus adwokacko-radcowski")
+  * Wieczorek v. Polska        08.12.2009  18176/05  naruszenie 6-1         cyt. 55  001-96035
+  * Płonka v. Polska           31.03.2009  20310/02  naruszenie 6           cyt. 18  001-91927
+      (prawdopodobnie obrońca na etapie przesłuchania, nie kasacja)
+
+Myśl przewodnia - Z PAMIĘCI, NIE Z BAZY, sprawdzić w treści wyroków
+(Siałkowska, Staroszczyk, Kulikowski, Antonicelli):
+  - pełnomocnik z urzędu może odmówić sporządzenia kasacji, gdy nie widzi
+    podstaw - samo to nie narusza Konwencji;
+  - ale państwo musi zapewnić, że strona dowie się o odmowie w porę i będzie
+    miała realną możliwość wniesienia kasacji inaczej (inny pełnomocnik,
+    pouczenie o terminie); jeśli termin upływa, a strona przy przymusie
+    adwokackim zostaje bez możliwości działania, to naruszenie prawa do sądu
+    (art. 6 ust. 1; w sprawach karnych w zw. z art. 6 ust. 3 lit. c);
+  - Correia de Matos (Wielka Izba): przymus adwokacki jako taki jest dopuszczalny.
+
+Ograniczenie: wyszukiwanie pełnotekstowe wymaga słów obecnych w tekście;
+opis sytuacji całym zdaniem zadziała dobrze dopiero z embeddingami (plan
+w etpc/notepad.md).

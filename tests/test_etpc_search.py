@@ -39,6 +39,13 @@ def test_polish_phrases_become_groups_of_english_and_french():
     )
 
 
+def test_hyphenated_words_go_to_the_glossary_only_when_it_knows_them():
+    assert search.parse_query("przymus adwokacko-radcowski").translations[0][0] == (
+        "przymus adwokacko"
+    )
+    assert search.parse_query("kasacja pre-trial").boolean.endswith('+"pre trial"')
+
+
 def test_translation_can_be_switched_off():
     assert search.parse_query("prawo do sądu", translate=False).boolean == "+prawo +sądu"
 
