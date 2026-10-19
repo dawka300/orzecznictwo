@@ -37,15 +37,17 @@ services:
     environment:
       QDRANT__TELEMETRY_DISABLED: "true"
 
-  # Wyszukiwarka ETPC na http://127.0.0.1:8080 (python -m etpc www w kontenerze).
-  # Wektor zapytania liczy model w kontenerze (bge-m3 na CPU, ~2.3 GB RAM,
-  # cache w wolumenie hfcache); bez niego LM Studio na komputerze
-  # (host.docker.internal); bez obu strona działa na samym pełnotekstowym.
+  # Wszystkie wyszukiwarki na http://127.0.0.1:8080 (python -m portal w kontenerze):
+  # /etpc/ i /nsa/ - każda z własną wyszukiwarką i statystykami, / - lista.
+  # Wektor zapytania liczy model w kontenerze (bge-m3 na CPU, ~2.3 GB RAM, jeden
+  # dla obu projektów, cache w wolumenie hfcache); bez niego LM Studio na
+  # komputerze (host.docker.internal); bez obu strony działają na pełnotekstowym.
   www:
     build:
       context: .
       dockerfile: docker/www.Dockerfile
     restart: unless-stopped
+    command: ["python", "-m", "portal", "--host", "0.0.0.0", "--port", "8080"]
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
@@ -56,31 +58,11 @@ services:
       ETPC_QDRANT_URL: http://qdrant:6333
       ETPC_EMBED_URL: http://host.docker.internal:1234/v1/embeddings
       ETPC_LOG_DIR: logs/www
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      db:
-        condition: service_healthy
-      qdrant:
-        condition: service_started
-
-  # Wyszukiwarka NSA/WSA na http://127.0.0.1:8082 (python -m nsa www w kontenerze).
-  www-nsa:
-    build:
-      context: .
-      dockerfile: docker/www.Dockerfile
-    restart: unless-stopped
-    command: ["python", "-m", "nsa", "www", "--host", "0.0.0.0", "--port", "8082"]
-    ports:
-      - "127.0.0.1:8082:8082"
-    volumes:
-      - .:/app
-      - hfcache:/root/.cache/huggingface
-    environment:
       NSA_DB_DSN: mysql://szkielet:szkielet@db:3306/nsa
       NSA_QDRANT_URL: http://qdrant:6333
       NSA_EMBED_URL: http://host.docker.internal:1234/v1/embeddings
-      NSA_LOG_DIR: logs/www-nsa
+      NSA_LOG_DIR: logs/www
+      PORTAL_LOG_DIR: logs/www
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

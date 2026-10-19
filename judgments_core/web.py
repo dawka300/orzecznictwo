@@ -10,6 +10,7 @@ hosting under Passenger.
 from __future__ import annotations
 
 import logging
+import re
 from abc import ABC, abstractmethod
 from html import escape
 from socketserver import ThreadingMixIn
@@ -75,6 +76,13 @@ class WebApp(ABC):
         except Exception:
             log.exception("www: błąd strony %s", request.path)
             response = self.error_page()
+        # Pod prefiksem (Portal: /etpc, /nsa; hosting w podkatalogu) linki stron
+        # pisane od korzenia ("/orzeczenie/1") dostają ten prefiks.
+        root = environ.get("SCRIPT_NAME", "").rstrip("/")
+        if root and response.content_type.startswith("text/html"):
+            response.body = _ROOT_LINK.sub(
+                lambda m: m.group(1) + root.encode("utf-8") + b"/", response.body
+            )
         return response(start_response)
 
     @abstractmethod
@@ -87,6 +95,61 @@ class WebApp(ABC):
 
     def error_page(self):
         return Response("<p>Błąd serwera - szczegóły w logu.</p>", "500 Internal Server Error")
+
+
+# href="/...", action='/...', src=/... (ale nie //host): link od korzenia serwera.
+_ROOT_LINK = re.compile(rb"""((?:href|action|src)=["']?)/(?!/)""")
+
+
+class Portal:
+    """Several projects' WebApps on one server: /<name>/... = that project's pages
+    (it sees itself at "/" with SCRIPT_NAME=/<name>), "/" = the list of projects.
+
+    apps: {name: (title, WSGI app)} in display order. default: the project that old
+    addresses without a prefix (/orzeczenie/1, /?q=...) are redirected to.
+    """
+
+    def __init__(self, apps, title="Orzecznictwo", default=None):
+        self.apps = dict(apps)
+        self.title = title
+        self.default = default
+
+    def __call__(self, environ, start_response):
+        path = environ.get("PATH_INFO", "/") or "/"
+        query = environ.get("QUERY_STRING", "")
+        if path == "/favicon.ico":
+            return Response(b"", "204 No Content", "image/x-icon")(start_response)
+        name, slash, rest = path[1:].partition("/")
+        if name in self.apps:
+            if not slash:  # /etpc -> /etpc/
+                return _redirect(start_response, f"/{name}/", query)
+            inner = dict(
+                environ,
+                SCRIPT_NAME=environ.get("SCRIPT_NAME", "").rstrip("/") + f"/{name}",
+                PATH_INFO="/" + rest,
+            )
+            return self.apps[name][1](inner, start_response)
+        if path == "/" and not query:
+            return Response(self.home())(start_response)
+        if self.default:
+            return _redirect(start_response, f"/{self.default}{path}", query)
+        return Response("<p>Nie ma takiej strony.</p>", "404 Not Found")(start_response)
+
+    def home(self):
+        cards = "".join(
+            f'<section class=vectors><h2><a href="/{name}/">{e(title)}</a></h2>'
+            f'<p><a href="/{name}/">Szukaj</a> · <a href="/{name}/statystyki">Statystyki</a></p>'
+            "</section>"
+            for name, (title, _) in self.apps.items()
+        )
+        nav = tuple((f"/{name}/", title) for name, (title, _) in self.apps.items())
+        return layout(self.title, cards, self.title, nav=nav)
+
+
+def _redirect(start_response, location, query=""):
+    location = f"{location}?{query}" if query else location
+    start_response("301 Moved Permanently", [("Location", location), ("Content-Length", "0")])
+    return [b""]
 
 
 class _ThreadingServer(ThreadingMixIn, WSGIServer):

@@ -101,7 +101,10 @@ class HttpEmbedder(Embedder):
 class LocalEmbedder(Embedder):
     """sentence-transformers in this process; the model loads on first use (~10-20 s, ~2.3 GB RAM).
 
-    load: model name -> object with encode(texts, ...); for tests.
+    Instances with the same model and device share one loaded model and its lock
+    (several projects' pages in one process: one copy in RAM).
+
+    load: model name -> object with encode(texts, ...); for tests (not shared).
     """
 
     name = "local"
@@ -111,17 +114,23 @@ class LocalEmbedder(Embedder):
         self.device = device
         self._load = load
         self._model = None
-        self._lock = threading.Lock()
+        self._lock = threading.Lock() if load else _shared_lock((model, device))
 
     def prepare(self):
         with self._lock:
             if self._model is not None:
+                return
+            key = (self.model, self.device)
+            if self._load is None and key in _SHARED:
+                self._model = _SHARED[key]  # wczytany już przez inną instancję
                 return
             started = time.monotonic()
             # huggingface_hub sprawdza pliki modelu zapytaniami HEAD - bez nich w logu
             logging.getLogger("httpx").setLevel(logging.WARNING)
             try:
                 self._model = (self._load or _sentence_transformer)(self.model, self.device)
+                if self._load is None:
+                    _SHARED[key] = self._model
             except ImportError as e:
                 raise EmbeddingError(
                     f"brak sentence-transformers ({e}); pip install -r requirements-dev.txt"
@@ -142,6 +151,17 @@ class LocalEmbedder(Embedder):
                 show_progress_bar=False,
             )
         return [[float(x) for x in v] for v in vectors]
+
+
+# Wczytane modele sentence-transformers w tym procesie: (model, urządzenie) -> model.
+_SHARED = {}
+_SHARED_LOCKS = {}
+_SHARED_GUARD = threading.Lock()
+
+
+def _shared_lock(key):
+    with _SHARED_GUARD:
+        return _SHARED_LOCKS.setdefault(key, threading.Lock())
 
 
 def _sentence_transformer(model, device):
