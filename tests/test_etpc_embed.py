@@ -120,3 +120,17 @@ def test_progress_saved(conn):
         0,
     )
     assert progress["chunks"] > 1 and progress["model"] == "fake-model"
+
+
+def test_progress_of_killed_pass(conn):
+    from datetime import timedelta
+
+    from etpc.embed import read_progress
+    from judgments_core.source import utc_now
+
+    prepared(conn)
+    run(conn)
+    rows(conn, "UPDATE sync_state SET value = REPLACE(value, '\"gotowe\"', '\"liczy\"')")
+    with conn.cursor() as cur:
+        assert read_progress(cur)["status"] == "liczy"
+        assert read_progress(cur, now=utc_now() + timedelta(minutes=11))["status"] == "przerwano"

@@ -14,7 +14,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 
 from etpc.chunker import chunk_document, embedding_input
 from judgments_core.db import MariaDbStore
@@ -41,6 +41,8 @@ GROUP_CHUNKS = 256
 PROGRESS_EVERY_S = 60
 # Postęp w sync_state (strona /statystyki, python -m etpc stan).
 PROGRESS_KEY = "etpc:wektory"
+# "liczy" bez zapisu od tylu sekund = przebieg zabity (Ctrl+C zapisuje "przerwano").
+STALE_AFTER_S = 600
 
 CANDIDATES_SQL = """
 SELECT c.ruling_id, c.document_id, d.body_sha256, d.body_length FROM (
@@ -280,13 +282,23 @@ class Progress:
         self.store.set_state(PROGRESS_KEY, json.dumps(value))
 
 
-def read_progress(cur):
-    """The last saved progress (dict) or None; "eta_s" = seconds left at the last pace."""
+def read_progress(cur, now=None):
+    """The last saved progress (dict) or None; "eta_s" = seconds left at the last pace.
+
+    A pass killed without a chance to save ("liczy" not updated for
+    STALE_AFTER_S) is reported as "przerwano".
+    """
     cur.execute("SELECT value FROM sync_state WHERE `key` = %s", (PROGRESS_KEY,))
     row = cur.fetchone()
     if not row:
         return None
     progress = json.loads(row[0])
+    now = now or utc_now()
+    updated = datetime.strptime(progress["updated"], "%Y-%m-%d %H:%M:%S").replace(
+        tzinfo=timezone.utc
+    )
+    if progress["status"] == "liczy" and (now - updated).total_seconds() > STALE_AFTER_S:
+        progress["status"] = "przerwano"
     rate = progress.get("chars_per_s") or 0
     progress["eta_s"] = progress["remaining_chars"] / rate if rate else None
     return progress
