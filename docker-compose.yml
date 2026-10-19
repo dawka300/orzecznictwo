@@ -38,8 +38,9 @@ services:
       QDRANT__TELEMETRY_DISABLED: "true"
 
   # Wyszukiwarka ETPC na http://127.0.0.1:8080 (python -m etpc www w kontenerze).
-  # Zapytania semantyczne liczy LM Studio na komputerze (host.docker.internal);
-  # gdy jest wyłączone, strona działa dalej na samym wyszukiwaniu pełnotekstowym.
+  # Wektor zapytania liczy model w kontenerze (bge-m3 na CPU, ~2.3 GB RAM,
+  # cache w wolumenie hfcache); bez niego LM Studio na komputerze
+  # (host.docker.internal); bez obu strona działa na samym pełnotekstowym.
   www:
     build:
       context: .
@@ -49,6 +50,7 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - .:/app
+      - hfcache:/root/.cache/huggingface
     environment:
       ETPC_DB_DSN: mysql://szkielet:szkielet@db:3306/etpc
       ETPC_QDRANT_URL: http://qdrant:6333
@@ -73,6 +75,7 @@ services:
       - "127.0.0.1:8082:8082"
     volumes:
       - .:/app
+      - hfcache:/root/.cache/huggingface
     environment:
       NSA_DB_DSN: mysql://szkielet:szkielet@db:3306/nsa
       NSA_QDRANT_URL: http://qdrant:6333
@@ -89,3 +92,4 @@ services:
 volumes:
   dbdata:
   qdrantdata:
+  hfcache:

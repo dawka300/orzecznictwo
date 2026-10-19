@@ -10,6 +10,7 @@ python -m nsa stan                      # kursory, ostatnie przebiegi, blokady, 
 python -m nsa kopia                     # zrzut bazy do <NSA_BACKUP_DIR>/nsa.sql.gz
 python -m etpc www --port 8080          # wyszukiwarka w przeglądarce
 python -m etpc wektory --budzet 3600    # embeddingi (LM Studio) do Qdranta, wznawia
+python -m etpc mcp                      # baza jako narzędzia dla Claude'a (stdio, .mcp.json)
 
 Każdy przebieg pobierz/przetworz/sprawdz zapisuje się w fetch_runs, blokady
 i błędy źródła w fetch_events, rekordy z problemem w record_problems.
@@ -29,7 +30,7 @@ from pathlib import Path
 
 from judgments_core import db
 from judgments_core.backup import dump_database
-from judgments_core.embeddings import Embedder
+from judgments_core.embeddings import make_embedder
 from judgments_core.http import PoliteClient
 from judgments_core.importer import Importer
 from judgments_core.qdrant import QdrantStore, collection_name
@@ -61,6 +62,8 @@ class Project:
     web: Callable | None = None
     # klasa potomna judgments_core.embed.EmbedJob: polecenie wektory; None = brak
     embed_job: type | None = None
+    # klasa potomna judgments_core.mcp.McpServer: polecenie mcp; None = brak
+    mcp: type | None = None
 
 
 def build_parser(project):
@@ -144,14 +147,15 @@ def build_parser(project):
         action="store_true",
         help="policz wszystko od nowa (np. po zmianie chunkera)",
     )
+    commands.add_parser("mcp", help="serwer MCP dla Claude'a (stdio; uruchamia go Claude)")
     commands.add_parser(
         "kopia", help="zrzut bazy do <PREFIKS>_BACKUP_DIR (też sam po pobierz/przetworz)"
     )
     return parser
 
 
-def setup_logging(project, settings):
-    handlers = [logging.StreamHandler(sys.stdout)]
+def setup_logging(project, settings, stream=None):
+    handlers = [logging.StreamHandler(stream or sys.stdout)]
     try:
         Path(settings.log_dir).mkdir(parents=True, exist_ok=True)
         handlers.append(
@@ -175,7 +179,8 @@ def setup_logging(project, settings):
 def main(project, argv=None, settings=None):
     args = build_parser(project).parse_args(argv)
     settings = settings or Settings.from_env(project.name)
-    setup_logging(project, settings)
+    # mcp rozmawia z Claude'em przez stdout - log tylko na stderr i do pliku
+    setup_logging(project, settings, sys.stderr if args.command == "mcp" else None)
     try:
         if args.command == "migracje":
             return _migrate(project, settings)
@@ -189,6 +194,8 @@ def main(project, argv=None, settings=None):
             return _www(project, settings, args)
         if args.command == "wektory":
             return _embed(project, settings, args)
+        if args.command == "mcp":
+            return _mcp(project, settings)
         if args.command == "kopia":
             return _backup(project, settings, required=True)
         return _status(project, settings, args)
@@ -391,15 +398,13 @@ def _embed(project, settings, args):
     if project.embed_job is None:
         raise NotImplementedError(f"projekt {project.name} nie ma jeszcze wektorów")
     budget = settings.time_budget_s if args.time_budget_s is None else args.time_budget_s
-    embedder = Embedder(
-        settings.embed_url, settings.embed_model, timeout_s=settings.embed_timeout_s
-    )
+    # Hurtem liczy LM Studio na karcie graficznej (CPU byłby kilka razy wolniejszy).
+    embedder = make_embedder(settings, "http")
     collection = settings.qdrant_collection or collection_name(project.name, settings.embed_model)
     vectors = QdrantStore(settings.qdrant_url, collection, settings.embed_model)
     log.info(
-        "model %s (%s) -> Qdrant %s, kolekcja %s",
-        embedder.model,
-        embedder.url,
+        "model %s -> Qdrant %s, kolekcja %s",
+        embedder.describe(),
         vectors.url,
         collection,
     )
@@ -438,6 +443,13 @@ def _www(project, settings, args):
     if project.web is None:
         raise NotImplementedError(f"projekt {project.name} nie ma jeszcze stron www")
     serve(project.web(settings), args.host, args.port)
+    return 0
+
+
+def _mcp(project, settings):
+    if project.mcp is None:
+        raise NotImplementedError(f"projekt {project.name} nie ma jeszcze serwera MCP")
+    project.mcp(settings).run()
     return 0
 
 

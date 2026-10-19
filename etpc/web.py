@@ -16,7 +16,7 @@ from etpc.labels import label
 from etpc.semantic import EtpcSemantic
 from etpc.stats import read_stats
 from judgments_core.embed import read_progress
-from judgments_core.embeddings import Embedder
+from judgments_core.embeddings import make_embedder
 from judgments_core.qdrant import QdrantStore, collection_name
 from judgments_core.semantic import SemanticUnavailable
 from judgments_core.web import Response, WebApp, e, layout, url, vectors_card, vectors_line
@@ -32,7 +32,8 @@ log = logging.getLogger(__name__)
 
 _RULING_PATH = re.compile(r"^/orzeczenie/(\d+)$")
 _FRAGMENT = re.compile(r"^(\d+)-(\d+)$")
-# Zapytanie z przeglądarki nie czeka długo na LM Studio/Qdranta.
+# Zapytanie z przeglądarki nie czeka długo na LM Studio/Qdranta (gdy model
+# zapytań w procesie nie działa).
 SEMANTIC_TIMEOUT_S = 20
 SIMILAR = 10
 
@@ -40,22 +41,23 @@ SIMILAR = 10
 class EtpcWebApp(WebApp):
     """Search, ruling and statistics pages of ETPC (child of WebApp).
 
-    semantic: etpc.semantic.EtpcSemantic; by default LM Studio + Qdrant from settings.
+    semantic: etpc.semantic.EtpcSemantic; by default the settings' query embedders + Qdrant.
     """
 
     def __init__(self, settings, semantic=None):
         super().__init__(settings)
-        self.semantic = semantic or EtpcSemantic(
-            Embedder(
-                settings.embed_url, settings.embed_model, timeout_s=SEMANTIC_TIMEOUT_S, retries=0
-            ),
-            QdrantStore(
-                settings.qdrant_url,
-                settings.qdrant_collection or collection_name("etpc", settings.embed_model),
-                settings.embed_model,
-                timeout_s=SEMANTIC_TIMEOUT_S,
-            ),
-        )
+        if semantic is None:
+            semantic = EtpcSemantic(
+                make_embedder(settings, timeout_s=SEMANTIC_TIMEOUT_S, retries=0),
+                QdrantStore(
+                    settings.qdrant_url,
+                    settings.qdrant_collection or collection_name("etpc", settings.embed_model),
+                    settings.embed_model,
+                    timeout_s=SEMANTIC_TIMEOUT_S,
+                ),
+            )
+            semantic.prepare_in_background()
+        self.semantic = semantic
 
     def route(self, request):
         match = _RULING_PATH.match(request.path)

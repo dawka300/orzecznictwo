@@ -11,3 +11,6 @@ sentence-transformers
 # dat ze strefą czasową na Windows
 pyarrow
 tzdata
+# Serwer MCP (python -m etpc|nsa mcp): baza jako narzędzia dla Claude'a;
+# wymaga Pythona 3.10+, dlatego tylko lokalnie
+mcp>=2.3

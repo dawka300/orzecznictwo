@@ -62,6 +62,11 @@ class Settings:
     embed_model: str = "text-embedding-bge-m3"
     embed_batch: int = 32
     embed_timeout_s: float = 600.0
+    # Wektor zapytania (strony www, MCP): local = sentence-transformers w tym
+    # procesie (bez LM Studio), http = embed_url; po przecinku = łańcuch.
+    # local_model musi być tym samym modelem co embed_model w LM Studio.
+    query_embedders: str = "local,http"
+    local_model: str = "BAAI/bge-m3"
     qdrant_url: str = "http://127.0.0.1:6333"
     qdrant_collection: str = ""
 

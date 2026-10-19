@@ -3,8 +3,15 @@
 import pytest
 import requests
 
-from judgments_core.embeddings import Embedder, EmbeddingError
+from judgments_core.embeddings import (
+    EmbeddingError,
+    FallbackEmbedder,
+    HttpEmbedder,
+    LocalEmbedder,
+    make_embedder,
+)
 from judgments_core.qdrant import QdrantError, QdrantStore, collection_name, point_id
+from judgments_core.settings import Settings
 from judgments_core.vectors import Chunk
 
 
@@ -129,11 +136,80 @@ def test_embedder_orders_vectors_and_retries():
         Response(503, text="busy"), requests.ConnectionError("x"), Response(200, data)
     )
     waits = []
-    embedder = Embedder("http://lm/v1/embeddings", "bge", session=session, sleep=waits.append)
+    embedder = HttpEmbedder("http://lm/v1/embeddings", "bge", session=session, sleep=waits.append)
     assert embedder.embed(["a", "b"]) == [[1.0], [2.0]]
     assert waits == [10, 20]
     assert session.requests[0][2]["input"] == ["a", "b"]
     with pytest.raises(EmbeddingError, match="zwrócił 2"):
-        Embedder("u", "m", session=FakeSession(Response(200, data))).embed(["a"])
+        HttpEmbedder("u", "m", session=FakeSession(Response(200, data))).embed(["a"])
     with pytest.raises(EmbeddingError, match="nie odpowiada"):
-        Embedder("u", "m", retries=0, session=FakeSession(Response(500))).embed(["a"])
+        HttpEmbedder("u", "m", retries=0, session=FakeSession(Response(500))).embed(["a"])
+
+
+class FakeModel:
+    def __init__(self):
+        self.calls = []
+
+    def encode(self, texts, normalize_embeddings, convert_to_numpy, show_progress_bar):
+        self.calls.append((list(texts), normalize_embeddings))
+        return [[float(len(t)), 0.5] for t in texts]
+
+
+def test_local_embedder_loads_model_once():
+    loads, model = [], FakeModel()
+    local = LocalEmbedder(
+        "BAAI/bge-m3", load=lambda name, device: loads.append((name, device)) or model
+    )
+    assert local.embed([]) == []
+    assert loads == []
+    assert local.embed(["ab", "c"]) == [[2.0, 0.5], [1.0, 0.5]]
+    local.prepare()
+    assert local.embed(["x"]) == [[1.0, 0.5]]
+    assert loads == [("BAAI/bge-m3", "cpu")]
+    assert model.calls[0] == (["ab", "c"], True)
+
+
+def test_local_embedder_without_library_is_an_embedding_error():
+    def missing(name, device):
+        raise ImportError("No module named 'sentence_transformers'")
+
+    with pytest.raises(EmbeddingError, match="brak sentence-transformers"):
+        LocalEmbedder("m", load=missing).embed(["a"])
+
+
+class Broken:
+    name = "local"
+    model = "m"
+
+    def prepare(self):
+        raise EmbeddingError("brak modelu")
+
+    embed = lambda self, texts: self.prepare()
+
+
+class Works:
+    name = "http"
+    model = "lm"
+
+    def embed(self, texts):
+        return [[1.0] for _ in texts]
+
+
+def test_fallback_embedder_moves_to_next_and_raises_the_last_error():
+    chain = FallbackEmbedder([("local", Broken), ("http", Works)])
+    assert chain.embed(["a"]) == [[1.0]]
+    assert (chain.position, chain.model) == (1, "lm")
+    with pytest.raises(EmbeddingError, match="brak modelu"):
+        FallbackEmbedder([("local", Broken)]).embed(["a"])
+
+
+def test_make_embedder_from_settings():
+    settings = Settings(embed_url="http://lm/v1", embed_model="bge", local_model="BAAI/bge-m3")
+    chain = make_embedder(settings)
+    assert isinstance(chain, FallbackEmbedder)
+    assert [name for name, _ in chain.factories] == ["local", "http"]
+    assert isinstance(chain.current, LocalEmbedder)
+    http = make_embedder(settings, "http", timeout_s=5, retries=0)
+    assert (http.url, http.model, http.timeout_s, http.retries) == ("http://lm/v1", "bge", 5, 0)
+    with pytest.raises(ValueError, match="nieznany embedder"):
+        make_embedder(settings, "gpu")

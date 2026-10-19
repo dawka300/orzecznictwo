@@ -123,3 +123,7 @@ Judgments and decisions of the European Court of Human Rights from HUDOC, https:
 ## State (2026-10-19, evening)
 - `wektory` still running (old code in memory; the refactored code gives identical chunks): 1,675 / 82,976 rulings, 106k chunks at 17:33. Restarting it uses `EtpcEmbedJob`.
 - Code is now split into core parents and ETPC children (map in the root notepad.md): `EtpcImporter`, `HudocParser`, `EtpcTables`, `EtpcDeriver`, `EtpcChunker`, `EtpcEmbedJob`, `EtpcSemantic`, `EtpcWebApp`; transports as a strategy chain requests -> curl -> playwright (`ETPC_TRANSPORT` in .env overrides).
+
+## Query vectors in the process and MCP (2026-10-19)
+- The page (8080) computes query vectors itself (bge-m3 via sentence-transformers, CPU, ~1 s per query) - LM Studio only for `wektory`. Same results as LM Studio (identical top 10).
+- `python -m etpc mcp`: tools `szukaj` (hybrid, filters panstwo/artykul/wynik/waznosc/lata/nr_skargi/jezyk), `orzeczenie` (metadata + text of one language version, in parts `od=`), `podobne`. Live test: "przewlekłość postępowania sądowego w Polsce" -> 345 hits with HUDOC links. Tip for Claude: the country filter (`panstwo=POL`) narrows better than "w Polsce" in the text.

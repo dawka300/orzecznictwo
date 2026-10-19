@@ -11,7 +11,7 @@ import logging
 import re
 
 from judgments_core.embed import read_progress
-from judgments_core.embeddings import Embedder
+from judgments_core.embeddings import make_embedder
 from judgments_core.qdrant import QdrantStore, collection_name
 from judgments_core.semantic import SemanticUnavailable
 from judgments_core.web import (
@@ -48,17 +48,18 @@ _FRAGMENT = re.compile(r"^(\d+)-(\d+)$")
 class NsaWebApp(WebApp):
     def __init__(self, settings, semantic=None):
         super().__init__(settings)
-        self.semantic = semantic or NsaSemantic(
-            Embedder(
-                settings.embed_url, settings.embed_model, timeout_s=SEMANTIC_TIMEOUT_S, retries=0
-            ),
-            QdrantStore(
-                settings.qdrant_url,
-                settings.qdrant_collection or collection_name("nsa", settings.embed_model),
-                settings.embed_model,
-                timeout_s=SEMANTIC_TIMEOUT_S,
-            ),
-        )
+        if semantic is None:
+            semantic = NsaSemantic(
+                make_embedder(settings, timeout_s=SEMANTIC_TIMEOUT_S, retries=0),
+                QdrantStore(
+                    settings.qdrant_url,
+                    settings.qdrant_collection or collection_name("nsa", settings.embed_model),
+                    settings.embed_model,
+                    timeout_s=SEMANTIC_TIMEOUT_S,
+                ),
+            )
+            semantic.prepare_in_background()
+        self.semantic = semantic
 
     def route(self, request):
         match = _JUDGMENT_PATH.match(request.path)

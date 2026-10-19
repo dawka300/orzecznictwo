@@ -54,7 +54,9 @@ Judgments of the Supreme Administrative Court (NSA) and the voivodeship administ
 - Pages: http://127.0.0.1:8082 (compose service `www-nsa`). Trial `python -m nsa wektory --limit 5`: 5 NSA resolutions, 166 chunks; hybrid "czy wydatki na aplikację radcowską są kosztem uzyskania przychodu" finds I FPS 3/10, II FPS 5/16 ...; similar works.
 
 ## Where we stopped (2026-10-19, evening)
-- **Full import running in the background** (started 17:26 from a Claude session): `python -m nsa pobierz` then `python -m nsa przetworz`. At 17:32: files 0-4 in raw_records (173.5k records this pass), downloading/reading file 5 of 46 (~1.5 min per file to download, ~1 min to save). Then przetworz ~8 min per 50k (~5-6 h for everything) and statistics.
+- **Only `pobierz` running in the background** (the user's decision 2026-10-19: download first, `przetworz` the next day). At 19:34: file 27 of 46, ~1.36M records in raw_records, 0 rejected; ~50k rows per file (so more than the ~1.82M estimated - count when done); ~5 min per file when the PC is busy. Judgment tables still 50,299 (file 0 + part of 1).
+- **Tomorrow:** `python -m nsa przetworz` (~8 min per 50k, several hours, resumable), then statistics are refreshed by it.
+- MCP (`python -m nsa mcp`) and the page already work on the 50,299; full set after przetworz, meaning search after `wektory`.
 - Stop/resume: Ctrl+C or Stop-Process on the python process; resume with the same commands (cursor `juddges:cursor` = {"file", "row"}, processing by changed_at). Closing Docker Desktop stops it too.
 - **NSA vectors not started** (only the 5-judgment trial): the GPU is busy with ETPC. Start after ETPC: `python -m nsa wektory` (resolutions and judgments with a thesis first; ~15M chunks for everything - decide later how far to go).
 - **Next:** check the imported data (counts per year 2023-2025, the gap after 2025-03), the NSA page on 8082 with the full set (FULLTEXT speed on ~1.8M judgments, buffer pool), then the gap after 2025-03 (ask the JuDDGES authors / NSA).

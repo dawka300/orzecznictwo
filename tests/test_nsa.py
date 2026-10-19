@@ -220,3 +220,30 @@ def test_pages(nsa_db):
     assert "orzeczenia.nsa.gov.pl/doc/B51A16D504" in html
     assert get(app, "/statystyki")[0].startswith("200")
     assert get(app, "/orzeczenie/999999")[0].startswith("404")
+
+
+def test_mcp_tools(nsa_db):
+    from nsa.mcp import NsaMcp
+
+    server = NsaMcp(Settings(db_dsn=TEST_DSN), semantic=Up(nsa_db.target))
+    found = server.szukaj("zzzzz")
+    assert found.startswith("Znaleziono 1 (tryb hybrydowe)")
+    assert f"[id {nsa_db.target}] I OSK 1769/12" in found and "teza: TEZA" in found
+    text = server.orzeczenie(nsa_db.target)
+    assert (
+        "Sygnatura: I OSK 1769/12" in text
+        and "CBOSA: https://orzeczenia.nsa.gov.pl/doc/B51A16D504" in text
+    )
+    assert "\nTEZA\n" in text
+    assert server.orzeczenie(nsa_db.target, od=5).startswith("I OSK 1769/12, tekst od znaku 5")
+    assert server.orzeczenie(999999) == "Nie ma orzeczenia o id 999999."
+    assert "I OSK 1769/12" in server.podobne(nsa_db.target)
+    assert NsaMcp(Settings(db_dsn=TEST_DSN), semantic=Down()).podobne(1) == "niedostępne"
+
+
+def test_mcp_text_in_parts():
+    from judgments_core.mcp import cut, lines
+
+    assert cut("abcdef", 0, 4) == "abcd\n\n[... ucięto: znaki 4-6; dalej: od=4]"
+    assert cut("abcdef", 4, 4) == "ef"
+    assert lines(("A", "x"), ("B", ""), ("C", None), ("D", 0)) == "A: x\nD: 0"

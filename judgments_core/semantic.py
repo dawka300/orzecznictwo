@@ -4,8 +4,10 @@ The common part: the query goes to the model as typed (bge-m3 is
 multilingual), search operators (quotes, -word, word*) are dropped; the
 best passage of each closest judgment comes back; "similar judgments" = the
 mean vector of a judgment's chunks (of similar_parts if it has them).
-LM Studio or Qdrant being down raises SemanticUnavailable, so a page can fall
-back to FULLTEXT.
+The query vector comes from the settings' query_embedders (by default the
+model in this process, then LM Studio - judgments_core/embeddings.py). No
+embedder or Qdrant raises SemanticUnavailable, so a page can fall back to
+FULLTEXT.
 
 A project's child turns its search form into vector filters (payload_filters)
 and says which payload field holds the document id (document_field).
@@ -13,12 +15,15 @@ and says which payload field holds the document id (document_field).
 
 from __future__ import annotations
 
+import logging
 import re
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from judgments_core.qdrant import CollectionMissing
 
+log = logging.getLogger(__name__)
 _OPERATORS = re.compile(r'(?:^|\s)-\S+|["*]')
 # Stała k w RRF (reciprocal rank fusion): wynik = suma 1 / (k + miejsce).
 RRF_K = 60
@@ -48,6 +53,17 @@ class SemanticSearch(ABC):
     def __init__(self, embedder, vectors):
         self.embedder = embedder
         self.vectors = vectors
+
+    def prepare_in_background(self):
+        """Load the query model in a thread, so the first search doesn't wait for it."""
+
+        def prepare():
+            try:
+                self.embedder.prepare()
+            except RuntimeError as e:
+                log.warning("model zapytań: %s", e)
+
+        threading.Thread(target=prepare, name="model-zapytan", daemon=True).start()
 
     @abstractmethod
     def payload_filters(self, query):
@@ -98,7 +114,7 @@ def _why(error, command):
     if isinstance(error, CollectionMissing):
         return f"Wektory nie są jeszcze policzone ({command}) - pokazuję wyniki pełnotekstowe."
     return (
-        "Wyszukiwanie znaczeniowe jest niedostępne (LM Studio z modelem embeddingów"
+        "Wyszukiwanie znaczeniowe jest niedostępne (model embeddingów"
         f" albo Qdrant nie działa: {error}). Pokazuję wyniki pełnotekstowe."
     )
 

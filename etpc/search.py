@@ -36,6 +36,8 @@ STOPWORDS = frozenset(_STOPWORDS.split())
 SNIPPET_BEFORE = 160
 SNIPPET_LENGTH = 480
 MAX_STATEMENT_TIME_ERROR = 1969
+# Przerwane w środku przeszukiwania FULLTEXT (InnoDB, pod obciążeniem) - też limit czasu.
+FULLTEXT_ABORTED_ERROR = 188
 LOCATE_WORDS = 8
 # Tryb hybrydowy: tyle najlepszych orzeczeń z każdej listy (łączone przez rrf z rdzenia).
 CANDIDATES = 200
@@ -312,8 +314,8 @@ def _hybrid(cur, q, semantic):
 def _run(cur, sql, args, limit_s=MAX_STATEMENT_S):
     try:
         cur.execute(f"SET STATEMENT max_statement_time={limit_s} FOR {sql}", args)
-    except pymysql.err.OperationalError as e:
-        if e.args[0] == MAX_STATEMENT_TIME_ERROR:
+    except pymysql.err.MySQLError as e:
+        if e.args and e.args[0] in (MAX_STATEMENT_TIME_ERROR, FULLTEXT_ABORTED_ERROR):
             raise QueryError(
                 f"Wyszukiwanie trwało ponad {limit_s} s - zawęź zapytanie"
                 " (więcej słów, filtr lat, państwa lub języka)."

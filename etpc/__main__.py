@@ -4,6 +4,7 @@ from pathlib import Path
 from etpc.deriver import EtpcDeriver
 from etpc.embed import EtpcEmbedJob
 from etpc.importer import EtpcImporter
+from etpc.mcp import EtpcMcp
 from etpc.source import HudocSource
 from etpc.verify import verify
 from etpc.web import EtpcWebApp
@@ -22,6 +23,7 @@ PROJECT = Project(
     verify=verify,
     web=EtpcWebApp,
     embed_job=EtpcEmbedJob,
+    mcp=EtpcMcp,
 )
 
 if __name__ == "__main__":
