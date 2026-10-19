@@ -14,6 +14,7 @@ VECTOR_LANGUAGES = ("ENG", "FRE")
 
 class EtpcSemantic(SemanticSearch):
     document_field = "itemid"
+    embed_command = "python -m etpc wektory"
     # "Podobne": z uzasadnienia prawnego, gdy jest.
     similar_parts = ("prawo",)
 

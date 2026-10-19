@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 import pymysql
 
 from etpc import glossary
-from judgments_core.semantic import SemanticUnavailable
+from judgments_core.semantic import SemanticUnavailable, rrf
 
 PAGE_SIZE = 20
 # Zapytanie dłuższe niż tyle sekund jest przerywane (bardzo ogólne słowa
@@ -37,9 +37,8 @@ SNIPPET_BEFORE = 160
 SNIPPET_LENGTH = 480
 MAX_STATEMENT_TIME_ERROR = 1969
 LOCATE_WORDS = 8
-# Tryb hybrydowy: tyle najlepszych orzeczeń z każdej listy, stała k w RRF.
+# Tryb hybrydowy: tyle najlepszych orzeczeń z każdej listy (łączone przez rrf z rdzenia).
 CANDIDATES = 200
-RRF_K = 60
 # W trybie hybrydowym słowa mogą trwać krócej: jest jeszcze wynik znaczeniowy.
 HYBRID_STATEMENT_S = 10
 MODES = ("", "pelnotekstowe", "znaczeniowe")  # "" = hybrydowe
@@ -294,10 +293,7 @@ def _hybrid(cur, q, semantic):
         sql, args = _ids_query(q, None, only_ids=list(passages), top=len(passages))
         allowed = {row[0] for row in _run(cur, sql, args)}
     by_meaning = [i for i in passages if i in allowed]
-    scores = {}
-    for ranking in (by_meaning, by_words):
-        for rank, ruling_id in enumerate(ranking):
-            scores[ruling_id] = scores.get(ruling_id, 0.0) + 1 / (RRF_K + rank + 1)
+    scores = rrf((by_meaning, by_words))
     ids = sorted(scores, key=lambda i: -scores[i])
     if q.sort and ids:
         ids = [row[0] for row in _run(cur, *_ids_query(q, None, only_ids=ids, top=len(ids)))]

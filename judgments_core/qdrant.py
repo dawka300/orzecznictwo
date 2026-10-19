@@ -24,6 +24,10 @@ class QdrantError(RuntimeError):
     pass
 
 
+class CollectionMissing(QdrantError):
+    """The collection doesn't exist yet (nothing embedded with this model)."""
+
+
 def collection_name(project, model):
     return f"{project}_{re.sub(r'[^A-Za-z0-9_-]+', '-', model)}"
 
@@ -46,8 +50,10 @@ class QdrantStore:
             response = self.session.request(method, url, json=body, timeout=self.timeout_s)
         except requests.RequestException as e:
             raise QdrantError(f"Qdrant {self.url} nie odpowiada ({type(e).__name__}: {e})") from e
-        if missing_ok and response.status_code == 404:
+        if response.status_code == 404 and missing_ok:
             return None
+        if response.status_code == 404 and "doesn't exist" in response.text:
+            raise CollectionMissing(f"kolekcji {self.collection} jeszcze nie ma")
         if response.status_code != 200:
             raise QdrantError(
                 f"Qdrant {method} {path or '/'}: HTTP {response.status_code}: {response.text[:300]}"

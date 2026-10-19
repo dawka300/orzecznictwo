@@ -3,8 +3,10 @@ from pathlib import Path
 
 from judgments_core.cli import Project, main
 from nsa.deriver import NsaDeriver
+from nsa.embed import NsaEmbedJob
 from nsa.importer import NsaImporter
 from nsa.juddges import JuddgesSource
+from nsa.web import NsaWebApp
 
 PROJECT = Project(
     name="nsa",
@@ -14,6 +16,8 @@ PROJECT = Project(
     source=JuddgesSource,
     importer=NsaImporter,
     deriver=NsaDeriver,
+    embed_job=NsaEmbedJob,
+    web=NsaWebApp,
     migrations=Path(__file__).parent / "migrations",
 )
 

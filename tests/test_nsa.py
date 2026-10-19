@@ -5,6 +5,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pytest
+from conftest import TEST_DSN
+from test_etpc_search import get
 
 from judgments_core import db
 from nsa.__main__ import PROJECT
@@ -101,3 +103,120 @@ def test_derive_tables(conn):
         )
         assert cur.fetchone()[0] == bases
     conn.commit()
+
+
+# --- chunker, wektory, wyszukiwanie, strony --------------------------------
+
+from test_etpc_embed import FakeEmbedder, FakeVectors
+
+from judgments_core.semantic import Passage, SemanticUnavailable
+from judgments_core.settings import Settings
+from nsa import search
+from nsa.chunker import NsaChunker
+from nsa.embed import NsaEmbedJob
+from nsa.parser import judgment_body
+from nsa.web import NsaWebApp
+
+
+def test_body_and_chunks_follow_the_parts():
+    j = parse_judgment(row("B51A16D504"))
+    body = judgment_body(j.thesis, j.sentence, j.reasons, j.dissenting_opinion)
+    assert body.startswith("TEZA\n") and "\n\nSENTENCJA\n" in body and "\n\nUZASADNIENIE\n" in body
+    chunks = NsaChunker().chunk(1, body, "I OSK 1769/12 - Wyrok NSA", {"kind": "wyrok"})
+    assert chunks[0].part == "teza" and "uzasadnienie" in {c.part for c in chunks}
+    for c in chunks:
+        assert body[c.start :].startswith(c.text.split("\n")[0])
+        assert c.meta["context"].startswith("I OSK 1769/12 - Wyrok NSA | ")
+
+
+def test_query_with_inflection():
+    terms = search.parse_query('skarga kasacyjna "podatek od nieruchomości" -vat oraz')
+    assert terms.boolean == '+skar* +kasacyj* +"podatek od nieruchomości" -vat'
+    assert search.parse_query("skarga", inflect=False).boolean == "+skarga"
+    pattern = search.highlight_pattern(terms.highlight)
+    assert pattern.search("skargi kasacyjnej").group(0) == "skargi"
+    with pytest.raises(search.QueryError):
+        search.parse_query("a i w")
+
+
+@pytest.fixture
+def nsa_db(conn):
+    db.migrate(conn, ("core", db.CORE_MIGRATIONS), ("nsa", PROJECT.migrations))
+    store = db.MariaDbStore(conn)
+    records = [to_record(r) for r in ROWS]
+    for record in records:
+        record.fetched_at = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)
+    store.save_page("juddges", records, "juddges:cursor", None)
+    deriver = PROJECT.deriver(store)
+    deriver.run()
+    with conn.cursor() as cur:
+        deriver.after(cur)
+        cur.execute("SELECT id FROM judgments WHERE cbosa_id = 'B51A16D504'")
+        conn.target = cur.fetchone()[0]
+    conn.commit()
+    return conn
+
+
+def test_embed_job_order_and_payload(nsa_db):
+    vectors = FakeVectors()
+    result = NsaEmbedJob(nsa_db, FakeEmbedder(), vectors, batch_size=8).run()
+    assert result.judgments == len(ROWS) - 1 and result.finished
+    first = vectors.points[next(iter(vectors.points))][0]
+    assert first.meta["kind"] == "uchwala"  # uchwały najpierw
+    target = vectors.points[str(nsa_db.target)]
+    assert target[0].meta["is_nsa"] is True and target[0].meta["symbols"]
+    again = NsaEmbedJob(nsa_db, FakeEmbedder(), vectors).run()
+    assert again.judgments == 0
+
+
+def run_search(conn, semantic=None, **kwargs):
+    with conn.cursor() as cur:
+        return search.search(cur, search.SearchQuery(**kwargs), semantic)
+
+
+class Down:
+    def judgments(self, text, q, k=200):
+        raise SemanticUnavailable("niedostępne")
+
+    def similar(self, judgment_id, k=10):
+        raise SemanticUnavailable("niedostępne")
+
+
+class Up:
+    def __init__(self, judgment_id):
+        self.judgment_id = judgment_id
+
+    def judgments(self, text, q, k=200):
+        return [Passage(self.judgment_id, 0.9, "B51A16D504", "", 0, 200, "T | TEZA", "teza")]
+
+    def similar(self, judgment_id, k=10):
+        return [Passage(self.judgment_id, 0.9, "B51A16D504", "", 0, 10, "", "teza")]
+
+
+def test_search_fulltext_filters_and_hybrid(nsa_db):
+    reasons = parse_judgment(row("B51A16D504")).reasons
+    word = next(w for w in reasons.split() if w.isalpha() and len(w) >= 9)
+    assert run_search(nsa_db, text=word, mode="pelnotekstowe").total >= 1
+    assert run_search(nsa_db, instance="nsa").total == sum(
+        1 for r in ROWS if r["court_name"].startswith("Naczelny") and r != row("25F1838607")
+    )
+    assert run_search(nsa_db, kind="uchwala").total == 1
+    hybrid = run_search(nsa_db, Up(nsa_db.target), text="zzzzz")
+    assert (hybrid.mode, hybrid.total) == ("hybrydowe", 1)
+    assert hybrid.hits[0].snippet.startswith("TEZA") and hybrid.hits[0].passage == "TEZA"
+    assert (
+        run_search(nsa_db, Up(nsa_db.target), text="zzzzz", instance="wsa").total == 0
+    )  # filtr SQL
+    down = run_search(nsa_db, Down(), text=word)
+    assert down.notice == "niedostępne" and down.total >= 1
+
+
+def test_pages(nsa_db):
+    app = NsaWebApp(Settings(db_dsn=TEST_DSN), semantic=Up(nsa_db.target))
+    status, html = get(app, "/", "q=zzzzz")
+    assert status.startswith("200") and "I OSK 1769/12" in html
+    status, html = get(app, f"/orzeczenie/{nsa_db.target}", "q=zzzzz&fragment=0-50")
+    assert status.startswith("200") and "id=fragment" in html and "Podobne orzeczenia" in html
+    assert "orzeczenia.nsa.gov.pl/doc/B51A16D504" in html
+    assert get(app, "/statystyki")[0].startswith("200")
+    assert get(app, "/orzeczenie/999999")[0].startswith("404")

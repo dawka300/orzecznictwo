@@ -17,7 +17,11 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+from judgments_core.qdrant import CollectionMissing
+
 _OPERATORS = re.compile(r'(?:^|\s)-\S+|["*]')
+# Stała k w RRF (reciprocal rank fusion): wynik = suma 1 / (k + miejsce).
+RRF_K = 60
 
 
 class SemanticUnavailable(RuntimeError):
@@ -39,6 +43,7 @@ class Passage:
 class SemanticSearch(ABC):
     document_field = "document"  # pole payloadu z identyfikatorem dokumentu
     similar_parts = ()  # części do "podobnych" (puste = wszystkie fragmenty)
+    embed_command = "wektory"  # polecenie liczące wektory (do komunikatu)
 
     def __init__(self, embedder, vectors):
         self.embedder = embedder
@@ -57,7 +62,7 @@ class SemanticSearch(ABC):
             vector = self.embedder.embed([text])[0]
             hits = self.vectors.search_judgments(vector, k, filters=self.payload_filters(query))
         except RuntimeError as e:
-            raise SemanticUnavailable(_why(e)) from e
+            raise SemanticUnavailable(_why(e, self.embed_command)) from e
         return [self.passage(h) for h in hits]
 
     def similar(self, judgment_id, k=10):
@@ -72,7 +77,7 @@ class SemanticSearch(ABC):
             mean = [sum(column) / len(chosen) for column in zip(*chosen)]
             hits = self.vectors.search_judgments(mean, k, exclude={"judgment_id": str(judgment_id)})
         except RuntimeError as e:
-            raise SemanticUnavailable(_why(e)) from e
+            raise SemanticUnavailable(_why(e, self.embed_command)) from e
         return [self.passage(h) for h in hits]
 
     def passage(self, hit):
@@ -89,8 +94,19 @@ class SemanticSearch(ABC):
         )
 
 
-def _why(error):
+def _why(error, command):
+    if isinstance(error, CollectionMissing):
+        return f"Wektory nie są jeszcze policzone ({command}) - pokazuję wyniki pełnotekstowe."
     return (
         "Wyszukiwanie znaczeniowe jest niedostępne (LM Studio z modelem embeddingów"
         f" albo Qdrant nie działa: {error}). Pokazuję wyniki pełnotekstowe."
     )
+
+
+def rrf(rankings, k=RRF_K):
+    """Reciprocal rank fusion: {id: score} from ranked id lists (a high place in both wins)."""
+    scores = {}
+    for ranking in rankings:
+        for rank, item in enumerate(ranking):
+            scores[item] = scores.get(item, 0.0) + 1 / (k + rank + 1)
+    return scores

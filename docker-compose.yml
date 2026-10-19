@@ -62,6 +62,30 @@ services:
       qdrant:
         condition: service_started
 
+  # Wyszukiwarka NSA/WSA na http://127.0.0.1:8082 (python -m nsa www w kontenerze).
+  www-nsa:
+    build:
+      context: .
+      dockerfile: docker/www.Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "nsa", "www", "--host", "0.0.0.0", "--port", "8082"]
+    ports:
+      - "127.0.0.1:8082:8082"
+    volumes:
+      - .:/app
+    environment:
+      NSA_DB_DSN: mysql://szkielet:szkielet@db:3306/nsa
+      NSA_QDRANT_URL: http://qdrant:6333
+      NSA_EMBED_URL: http://host.docker.internal:1234/v1/embeddings
+      NSA_LOG_DIR: logs/www-nsa
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+
 volumes:
   dbdata:
   qdrantdata:

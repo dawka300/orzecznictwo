@@ -18,6 +18,13 @@ FINALITY = {"orzeczenie prawomocne": True, "orzeczenie nieprawomocne": False}
 # "6110 Podatek od towarów i usług", "658", "inne"
 SYMBOL_RE = re.compile(r"^(\d{3,4})\s*(.*)$")
 TEXT_PARTS = ("thesis", "sentence", "reasons", "dissenting_opinion")
+# Nagłówki części w pełnym tekście orzeczenia (strona www, chunker, wektory).
+PART_HEADINGS = {
+    "thesis": "TEZA",
+    "sentence": "SENTENCJA",
+    "reasons": "UZASADNIENIE",
+    "dissenting_opinion": "ZDANIE ODRĘBNE",
+}
 
 
 @dataclass
@@ -180,3 +187,12 @@ class JuddgesParser(Parser):
 
     def parse(self, row):
         return parse_judgment(row)
+
+
+def judgment_body(thesis, sentence, reasons, dissenting_opinion):
+    """The parts as one text, each under its heading (TEZA, SENTENCJA ...); offsets of
+    chunks and of the passages shown on the page point into this text."""
+    parts = dict(zip(TEXT_PARTS, (thesis, sentence, reasons, dissenting_opinion)))
+    return "\n\n".join(
+        f"{PART_HEADINGS[k]}\n{v.strip()}" for k, v in parts.items() if v and v.strip()
+    )
