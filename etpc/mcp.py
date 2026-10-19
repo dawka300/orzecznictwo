@@ -104,6 +104,7 @@ class EtpcMcp(McpServer):
         rok_od: int = 0,
         rok_do: int = 0,
         limit_znakow: int = 0,
+        tryb: str = "",
     ) -> str:
         """Najlepsze fragmenty orzeczeń ETPC do pytania, gotowe do odpowiedzi z cytowaniem:
         [n] sprawa, dane, link HUDOC, a pod spodem fragmenty (nagłówek, znaki od-do).
@@ -111,9 +112,11 @@ class EtpcMcp(McpServer):
 
         pytanie: opis problemu po polsku albo angielsku. Filtry jak w szukaj (panstwo: POL ...,
         artykul: 6, wynik: violation, waznosc: 1-4). limit_znakow: ile tekstu (domyślnie 16000).
+        tryb: domyślnie znaczeniowe (szybko); hybrydowe = też po słowach (bywa bardzo wolne).
         """
         q = self.retriever.query(
             pytanie,
+            mode=tryb,
             kind=rodzaj,
             respondent=panstwo.upper(),
             article=artykul,

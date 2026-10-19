@@ -96,6 +96,9 @@ class Retriever(ABC):
     budget_chars = BUDGET_CHARS
     widen_chars = WIDEN_CHARS
     query_class = None  # SearchQuery projektu (filtry jak na stronie)
+    # Tryb wyszukiwarki dla fragmentów: "" hybrydowe / znaczeniowe / pelnotekstowe;
+    # zapytanie z własnym trybem (filtr mode) wygrywa.
+    mode = ""
     semantic_class = None  # SemanticSearch projektu (from_settings)
 
     def __init__(self, semantic=None):
@@ -127,7 +130,8 @@ class Retriever(ABC):
         """{key: {judgment ids}} for the keys of evaluation questions (appno, docket ...)."""
 
     def query(self, text, **filters):
-        return self.query_class(text=text, **filters)
+        filters = {k: v for k, v in filters.items() if k != "mode" or v}
+        return self.query_class(text=text, **{"mode": self.mode, **filters})
 
     def retrieve(self, cur, query, budget_chars=None):
         """The best passages for query.text with the query's filters, packed."""

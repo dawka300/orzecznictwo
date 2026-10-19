@@ -4,6 +4,12 @@ Ranking = the page's hybrid search (Polish phrases translated by the glossary,
 filters by state, article, violation ...). Passages come from the version with
 vectors (ENG, else FRE); a ruling without vectors is read in ENG > FRE > any
 other language at the first query word.
+
+Mode: meaning only by default. Long Polish questions turn into several
+required glossary groups of very common phrases ("right to a court", "legal
+aid" ...) and FULLTEXT then takes minutes (max_statement_time doesn't stop it
+in "Fulltext initialization"); on the golden questions meaning alone gave
+the same quality in 1.8 s instead of 61 s (notepad.md, RAG).
 """
 
 from __future__ import annotations
@@ -20,6 +26,7 @@ LANGUAGES = ("ENG", "FRE")
 
 class EtpcRetriever(Retriever):
     query_class = search.SearchQuery
+    mode = "znaczeniowe"
     semantic_class = EtpcSemantic
 
     def ranking(self, cur, query):

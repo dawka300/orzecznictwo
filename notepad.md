@@ -71,7 +71,7 @@ Cel: RAG nie tylko przez MCP (Claude sam szuka i czyta), ale też dla **modeli l
 
 **Następne kroki**
 1. ~~Retriever + `fragmenty` (MCP) + `ocen`~~ zrobione (wyżej).
-2. **Czas pytania:** w retrieverze ograniczyć FULLTEXT dla długich pytań (np. tylko słowa z glosariusza / najdłuższe N słów, albo sam tryb znaczeniowy powyżej N słów - zmierzyć `ocen`); sprawdzić „Fulltext initialization” bez obciążenia (`nsa pobierz` skończone).
+2. ~~**Czas pytania**~~ zrobione (2026-10-19 ~21:00, niżej „Czas pytania RAG”).
 3. **Reranker** `LocalReranker` (`BAAI/bge-reranker-v2-m3` przez `sentence_transformers.CrossEncoder`, CPU, ~50 kandydatów -> 8-12), strategia jak `Embedder` (`NoReranker` domyślnie na hostingu); zysk mierzyć `ocen`.
 4. `ChatModel` (`HttpChat`: OpenAI-compatible `/v1/chat/completions`, tylko requests; `FallbackChat`; ustawienia `<PREFIKS>_CHAT_URL`, `<PREFIKS>_CHAT_MODEL`) + `RagPipeline` (prompt po polsku: tylko ze źródeł, każde twierdzenie z [n], „źródła nie wystarczają” gdy brak; klasa potomna: ETPC tłumaczy z EN/FR, NSA sygnatura/sąd; kontrola numerów [n]) + polecenie `zapytaj`.
 5. Strona `/zapytaj` (SSE) na 8080/8082, potem endpoint OpenAI-compatible (Open WebUI / Jan / AnythingLLM widzą „model” `etpc-rag`).
@@ -107,3 +107,9 @@ Cel: RAG nie tylko przez MCP (Claude sam szuka i czyta), ale też dla **modeli l
 
 - **Wniosek:** batch żądania i równoległość nie zmieniają nic - karta jest ograniczona mocą obliczeniową (bge-m3 F16), nie pamięcią; 2.6 GB VRAM to po prostu mały model. `wektory` w logu robiło ~6,600 tok/s = ~95% tego maksimum, więc zapis do Qdranta/MariaDB kosztuje tylko ~5% (pipelining w `EmbedJob` dałby najwyżej tyle). `ETPC_EMBED_BATCH` zostaje 32.
 - **Co może realnie przyspieszyć (do sprawdzenia):** (1) bge-m3 w **Q8_0** zamiast F16 (na AMD często 1.3-1.8x; sprawdzić jakość: cos z F16 ~0.999, `ocen` bez zmian - uwaga: nowy model = nowa kolekcja, wektory nie mieszają się z F16, więc decyzja przed dalszym liczeniem albo liczenie od nowa); (2) silnik LM Studio **ROCm vs Vulkan** (Settings -> Runtime) na RX 6750 XT; (3) flash attention w ustawieniach modelu; (4) zakres: najpierw wyroki, decyzje później.
+
+## Czas pytania RAG (2026-10-19, ~21:00)
+- Pomiar części hybrydy osobno (pytania wzorcowe ETPC, `wektory` zatrzymane, `nsa pobierz` w tle): znaczeniowe 0.8-7.7 s; FULLTEXT 0.1-12 s, ale **124 s** (pytanie o pełnomocnika i kasację: 4 wymagane grupy ze słowniczka - "legal aid", "cassation", "mandatory legal representation", "right to a court" - każda w dziesiątkach tysięcy dokumentów) i **67 s** (przewlekłość + skuteczny środek). `max_statement_time` tego nie przerywa (stan „Fulltext initialization”). Bez frazy ze słowniczka FULLTEXT wymaga wszystkich polskich słów w angielskich tekstach -> 0 wyników („klimat”, „samobójstwo”).
+- `ocen` w trybie samym znaczeniowym: ETPC MRR 0.668 (hybryda 0.670), w kontekście 17 z 23 (to samo), **średnio 1.8-2.7 s zamiast 61 s**. NSA bez zmian, ale niemiarodajne: 5 policzonych wektorów NSA to akurat uchwały z pytań.
+- Zmiana: `Retriever.mode` (tryb wyszukiwarki dla fragmentów, filtr `mode` w zapytaniu wygrywa): **ETPC `znaczeniowe`**, **NSA hybrydowe** (do czasu wektorów NSA FULLTEXT jest niezbędny i w NSA był szybki: 0.3-30 s). Narzędzie MCP `fragmenty` ma parametr `tryb`.
+- Otwarte (dotyczy też strony www i MCP `szukaj`): limit czasu FULLTEXT w hybrydzie nie działa w fazie inicjalizacji -> ewentualnie termin po stronie klienta (zapytanie w osobnym połączeniu/wątku, po N s porzucone + KILL QUERY) albo w słowniczku pomijać grupy bardzo częstych fraz. Orzeczenia bez wektorów (Kauczor, Antonicelli) znajdzie dopiero dokończone `wektory`.

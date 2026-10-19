@@ -23,6 +23,7 @@ class Hit:
 class Query:
     text: str
     respondent: str = ""
+    mode: str = ""
 
 
 class FakeSemantic:
@@ -132,3 +133,14 @@ def test_evaluation_reports_places_and_context():
     report = "\n".join(evaluation.report(scores))
     assert "2/02 #2" in report and "1/01 #1 K" in report and "brak w bazie: 9/99" in report
     assert "MRR:                0.750" in report
+
+
+def test_query_takes_the_project_mode_unless_given():
+    class Semantic(FakeRetriever):
+        mode = "znaczeniowe"
+
+    retriever = Semantic(FakeSemantic())
+    assert retriever.query("x", respondent="POL") == Query("x", "POL", "znaczeniowe")
+    assert retriever.query("x", mode="").mode == "znaczeniowe"  # puste = domyślny projektu
+    assert retriever.query("x", mode="hybrydowe").mode == "hybrydowe"
+    assert FakeRetriever().query("x").mode == ""

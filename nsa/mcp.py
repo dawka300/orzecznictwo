@@ -105,6 +105,7 @@ class NsaMcp(McpServer):
         haslo: str = "",
         tylko_z_teza: bool = False,
         limit_znakow: int = 0,
+        tryb: str = "",
     ) -> str:
         """Najlepsze fragmenty orzeczeń NSA/WSA do pytania, gotowe do odpowiedzi z cytowaniem:
         [n] sygnatura, sąd, data, link CBOSA, a pod spodem fragmenty (część, znaki od-do).
@@ -112,9 +113,11 @@ class NsaMcp(McpServer):
 
         pytanie: opis problemu prawnego. Filtry jak w szukaj (instancja: nsa / wsa, symbol: 6110,
         haslo, tylko_z_teza). limit_znakow: ile tekstu (domyślnie 16000).
+        tryb: "" hybrydowe (domyślnie) / znaczeniowe / pelnotekstowe.
         """
         q = self.retriever.query(
             pytanie,
+            mode=tryb,
             kind=rodzaj,
             instance=instancja,
             court=sad,
