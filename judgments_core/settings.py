@@ -69,6 +69,17 @@ class Settings:
     local_model: str = "BAAI/bge-m3"
     qdrant_url: str = "http://127.0.0.1:6333"
     qdrant_collection: str = ""
+    # Reranker fragmentów RAG (judgments_core/rerank.py): puste = brak (hosting),
+    # local = cross-encoder sentence-transformers w tym procesie (CPU).
+    reranker: str = ""
+    rerank_model: str = "BAAI/bge-reranker-v2-m3"
+    # Model piszący odpowiedź RAG (polecenie zapytaj): serwer zgodny z OpenAI
+    # (LM Studio); model pusty = pierwszy wczytany model czatu.
+    chat_url: str = "http://127.0.0.1:1234/v1/chat/completions"
+    chat_model: str = ""
+    chat_temperature: float = 0.2
+    chat_max_tokens: int = 2000
+    chat_timeout_s: float = 600.0
 
     @classmethod
     def from_env(cls, prefix, environ=None, dotenv_path=DOTENV_PATH):

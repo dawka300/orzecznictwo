@@ -5,6 +5,7 @@ from etpc.deriver import EtpcDeriver
 from etpc.embed import EtpcEmbedJob
 from etpc.importer import EtpcImporter
 from etpc.mcp import EtpcMcp
+from etpc.pipeline import EtpcRag
 from etpc.rag import EtpcRetriever
 from etpc.source import HudocSource
 from etpc.verify import verify
@@ -26,6 +27,7 @@ PROJECT = Project(
     embed_job=EtpcEmbedJob,
     mcp=EtpcMcp,
     retriever=EtpcRetriever,
+    rag=EtpcRag,
 )
 
 if __name__ == "__main__":

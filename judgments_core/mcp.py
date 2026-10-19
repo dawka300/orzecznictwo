@@ -43,7 +43,11 @@ class McpServer(ABC):
                 settings, self.project, timeout_s=SEMANTIC_TIMEOUT_S
             )
         self.semantic = semantic
-        self.retriever = None if self.retriever_class is None else self.retriever_class(semantic)
+        self.retriever = (
+            None
+            if self.retriever_class is None
+            else self.retriever_class.from_settings(settings, self.project, semantic)
+        )
 
     @abstractmethod
     def register(self, server):

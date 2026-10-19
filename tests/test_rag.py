@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from judgments_core import evaluation
 from judgments_core.rag import Ranking, Retriever, merge, pack, render, widen
+from judgments_core.rerank import LocalReranker, RerankError
 from judgments_core.semantic import Passage, SemanticUnavailable
 
 BODY_A = "\n".join(f"Paragraph {i} of ruling A about legal aid and cassation." for i in range(60))
@@ -76,6 +77,7 @@ def test_merge_joins_overlapping_spans():
         start: int
         end: int
         heading: str
+        core: tuple = ()
 
     spans = merge([Span(50, 80, "b"), Span(0, 40, "a"), Span(35, 60, "c"), Span(200, 210, "d")])
     assert [(s.start, s.end, s.heading) for s in spans] == [(0, 80, "a"), (200, 210, "d")]
@@ -144,3 +146,55 @@ def test_query_takes_the_project_mode_unless_given():
     assert retriever.query("x", mode="").mode == "znaczeniowe"  # puste = domyślny projektu
     assert retriever.query("x", mode="hybrydowe").mode == "hybrydowe"
     assert FakeRetriever().query("x").mode == ""
+
+
+class FakeReranker:
+    """Scores a passage by how often it says "refused"; can be switched off."""
+
+    def __init__(self, down=False):
+        self.down = down
+        self.calls = []
+
+    def scores(self, question, texts):
+        self.calls.append((question, texts))
+        if self.down:
+            raise RerankError("brak modelu")
+        return [t.count("refused") for t in texts]
+
+
+def test_reranker_reorders_judgments_and_passages():
+    start = BODY_A.index("Paragraph 30")
+    semantic = FakeSemantic({1: [passage(1, start, 120), passage(1, 0, 60)]})
+    reranker = FakeReranker()
+    result = FakeRetriever(semantic, reranker).retrieve(None, Query("refusal"), budget_chars=5_000)
+    question, texts = reranker.calls[0]
+    assert question == "refusal" and len(texts) == 3  # 2 fragmenty A + okno B
+    assert texts[0] == BODY_A[start : start + 120]  # ocenia sam fragment, bez poszerzenia
+    assert [s.judgment_id for s in result.sources] == [2, 1]  # B mówi "refused"
+    assert result.ranked == [2, 1]
+
+    down = FakeRetriever(semantic, FakeReranker(down=True)).retrieve(None, Query("x"), 5_000)
+    assert [s.judgment_id for s in down.sources] == [1, 2]
+    assert down.notice == "Reranker niedostępny: brak modelu"
+
+
+def test_local_reranker_loads_lazily_and_scores_pairs():
+    loaded = []
+
+    class Model:
+        def predict(self, pairs, **kwargs):
+            return [len(t) for _, t in pairs]
+
+    reranker = LocalReranker("m", load=lambda model, device: loaded.append(model) or Model())
+    assert reranker.scores("q", []) == [] and loaded == []
+    assert reranker.scores("q", ["ab", "abcd"]) == [2.0, 4.0] and loaded == ["m"]
+
+    def broken(model, device):
+        raise OSError("no such model")
+
+    try:
+        LocalReranker("x", load=broken).scores("q", ["a"])
+    except RerankError as e:
+        assert "no such model" in str(e)
+    else:
+        raise AssertionError("brak RerankError")

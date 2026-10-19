@@ -12,12 +12,16 @@ The common part:
    vectors gets the place of the first query word in its text (or its start),
 3. each passage is widened by `widen_chars` on both sides (to line ends), so
    the model sees the reasoning around it; overlapping ones merge,
-4. packing: best passage of each judgment in rank order, then the second
+4. with a reranker (judgments_core/rerank.py, setting <PREFIKS>_RERANKER):
+   a cross-encoder scores every candidate passage against the question;
+   judgments are reordered by their best passage, passages within a judgment
+   by score,
+5. packing: best passage of each judgment in rank order, then the second
    best ..., until `budget_chars`.
 
 A project's child runs its search (ranking), reads texts (bodies), describes a
 judgment for citing (describe) and maps the keys of the evaluation questions
-to judgments (expected). Reranking comes later (judgments_core notes).
+to judgments (expected).
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
+from judgments_core.rerank import RerankError, make_reranker
 from judgments_core.semantic import SemanticUnavailable
 
 log = logging.getLogger(__name__)
@@ -88,6 +93,8 @@ class _Candidate:
     start: int
     end: int
     heading: str
+    core: tuple = ()  # (start, end) samego fragmentu bez poszerzenia: to ocenia reranker
+    score: float = 0.0  # ocena rerankera
 
 
 class Retriever(ABC):
@@ -101,16 +108,20 @@ class Retriever(ABC):
     mode = ""
     semantic_class = None  # SemanticSearch projektu (from_settings)
 
-    def __init__(self, semantic=None):
+    def __init__(self, semantic=None, reranker=None):
         self.semantic = semantic
+        self.reranker = reranker
 
     @classmethod
-    def from_settings(cls, settings, project):
-        """With the project's semantic search from the settings (query model, Qdrant)."""
-        semantic = (
-            cls.semantic_class.from_settings(settings, project) if cls.semantic_class else None
-        )
-        return cls(semantic)
+    def from_settings(cls, settings, project, semantic=None):
+        """With the project's semantic search (query model, Qdrant) and the reranker
+        from the settings; both models start loading in the background."""
+        if semantic is None and cls.semantic_class is not None:
+            semantic = cls.semantic_class.from_settings(settings, project)
+        reranker = make_reranker(settings)
+        if reranker is not None:
+            reranker.prepare_in_background()
+        return cls(semantic, reranker)
 
     @abstractmethod
     def ranking(self, cur, query):
@@ -159,7 +170,15 @@ class Retriever(ABC):
             i: self._candidates(body, passages.get(i, []), ranking.pattern)
             for i, (_, _, _, body) in found.items()
         }
-        chosen = pack([(i, [c.end - c.start for c in candidates[i]]) for i in found], budget)
+        order = list(found)
+        ranked = [h.id for h in ranking.hits]
+        if self.reranker is not None and candidates:
+            try:
+                order = self._rerank(query.text, found, candidates)
+                ranked = order + [i for i in ranked if i not in found]
+            except RerankError as e:
+                notice = notice or f"Reranker niedostępny: {e}"
+        chosen = pack([(i, [c.end - c.start for c in candidates[i]]) for i in order], budget)
         sources = []
         for judgment_id, picks in chosen:
             hit, document, language, body = found[judgment_id]
@@ -172,7 +191,21 @@ class Retriever(ABC):
             sources.append(
                 Reference(len(sources) + 1, judgment_id, title, details, url, language, fragments)
             )
-        return Retrieval(sources, [h.id for h in ranking.hits], ranking.mode, notice)
+        return Retrieval(sources, ranked, ranking.mode, notice)
+
+    def _rerank(self, question, found, candidates):
+        """Score every candidate passage; candidates sorted in place, judgments by their
+        best passage (a tie keeps the search order)."""
+        pairs = [(i, c, found[i][3][c.core[0] : c.core[1]]) for i in found for c in candidates[i]]
+        scores = self.reranker.scores(question, [text for _, _, text in pairs])
+        best = {}
+        for (i, c, _), score in zip(pairs, scores):
+            c.score = score
+            best[i] = max(best.get(i, score), score)
+        for i in found:
+            candidates[i].sort(key=lambda c: -c.score)
+        position = {i: n for n, i in enumerate(found)}
+        return sorted(found, key=lambda i: (-best[i], position[i]))
 
     def _candidates(self, body, passages, pattern):
         """Widened passages of one judgment, best first; without vectors one window
@@ -182,6 +215,7 @@ class Retriever(ABC):
                 _Candidate(
                     *widen(body, p.start, p.start + p.length, self.widen_chars),
                     heading=_heading(p.context, p.part),
+                    core=(p.start, p.start + p.length),
                 )
                 for p in passages
             ]
@@ -189,7 +223,8 @@ class Retriever(ABC):
         match = pattern.search(body) if pattern is not None else None
         at = match.start() if match else 0
         start = max(at - TEXT_WINDOW // 3, 0)
-        return [_Candidate(*widen(body, start, start + TEXT_WINDOW, 0), heading="")]
+        start, end = widen(body, start, start + TEXT_WINDOW, 0)
+        return [_Candidate(start, end, heading="", core=(start, end))]
 
 
 def widen(body, start, end, by):
@@ -221,7 +256,7 @@ def merge(spans):
             last = merged[-1]
             last.end = max(last.end, span.end)
         else:
-            merged.append(_Candidate(span.start, span.end, span.heading))
+            merged.append(_Candidate(span.start, span.end, span.heading, span.core))
     return merged
 
 

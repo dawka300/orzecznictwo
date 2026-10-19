@@ -13,6 +13,7 @@ python -m etpc wektory --budzet 3600    # embeddingi (LM Studio) do Qdranta, wzn
 python -m etpc mcp                      # baza jako narzędzia dla Claude'a (stdio, .mcp.json)
 python -m etpc fragmenty "pytanie"      # kontekst RAG: najlepsze fragmenty do pytania
 python -m etpc ocen                     # trafność fragmentów na pytaniach z etpc/pytania.json
+python -m etpc zapytaj "pytanie"        # odpowiedź modelu lokalnego (LM Studio) ze źródłami
 
 Każdy przebieg pobierz/przetworz/sprawdz zapisuje się w fetch_runs, blokady
 i błędy źródła w fetch_events, rekordy z problemem w record_problems.
@@ -69,6 +70,8 @@ class Project:
     mcp: type | None = None
     # klasa potomna judgments_core.rag.Retriever: polecenia fragmenty, ocen; None = brak
     retriever: type | None = None
+    # klasa potomna judgments_core.pipeline.RagPipeline: polecenie zapytaj; None = brak
+    rag: type | None = None
 
 
 def build_parser(project):
@@ -164,6 +167,19 @@ def build_parser(project):
         "ocen", help="trafność fragmentów na pytaniach wzorcowych (<projekt>/pytania.json)"
     )
     evaluate.add_argument("--plik", dest="path", help="plik z pytaniami (JSON)")
+    ask = commands.add_parser(
+        "zapytaj", help="odpowiedź modelu językowego (LM Studio) na podstawie fragmentów"
+    )
+    ask.add_argument("question", metavar="pytanie")
+    ask.add_argument(
+        "--limit-znakow", dest="budget_chars", type=int, help="ile tekstu (domyślnie 16000)"
+    )
+    ask.add_argument(
+        "--tylko-zrodla",
+        dest="sources_only",
+        action="store_true",
+        help="pokaż prompt ze źródłami, bez wołania modelu",
+    )
     evaluate.add_argument(
         "--limit-znakow", dest="budget_chars", type=int, help="ile tekstu (domyślnie 16000)"
     )
@@ -219,6 +235,8 @@ def main(project, argv=None, settings=None):
             return _passages(project, settings, args)
         if args.command == "ocen":
             return _evaluate(project, settings, args)
+        if args.command == "zapytaj":
+            return _ask(project, settings, args)
         if args.command == "kopia":
             return _backup(project, settings, required=True)
         return _status(project, settings, args)
@@ -504,6 +522,39 @@ def _evaluate(project, settings, args):
     with db.connect(settings.db_dsn, autocommit=True) as conn, conn.cursor() as cur:
         scores = evaluation.evaluate(retriever, cur, questions, args.budget_chars)
     print("\n".join(evaluation.report(scores)))
+    return 0
+
+
+def _ask(project, settings, args):
+    if project.rag is None or project.retriever is None:
+        raise NotImplementedError(f"projekt {project.name} nie ma jeszcze odpowiedzi (RAG)")
+    pipeline = project.rag.from_settings(settings, project.name, project.retriever)
+    with db.connect(settings.db_dsn, autocommit=True) as conn, conn.cursor() as cur:
+        retrieval = pipeline.retrieve(cur, args.question, args.budget_chars)
+    if retrieval.notice:
+        log.info("%s", retrieval.notice)
+    log.info(
+        "%d orzeczeń, %d znaków (tryb %s); model %s",
+        len(retrieval.sources),
+        retrieval.chars,
+        retrieval.mode or "?",
+        pipeline.chat.describe(),
+    )
+    if args.sources_only:
+        for message in pipeline.messages(args.question, retrieval):
+            print(f"=== {message['role']}\n{message['content']}\n")
+        return 0
+    pieces = []
+    for piece in pipeline.stream(args.question, retrieval):
+        pieces.append(piece)
+        print(piece, end="", flush=True)
+    answer = pipeline.answer(args.question, retrieval, pieces)
+    print("\n\nŹródła:")
+    for s in retrieval.sources:
+        mark = "" if s.number in answer.cited else " (nieużyte)"
+        print(f"[{s.number}] {s.title} - {s.details}{mark}\n    {s.url}")
+    if answer.unknown:
+        print(f"\nUWAGA: odpowiedź powołuje się na nieistniejące źródła: {answer.unknown}")
     return 0
 
 
