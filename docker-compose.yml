@@ -23,5 +23,17 @@ services:
       interval: 5s
       retries: 20
 
+  # Baza wektorowa do wyszukiwania semantycznego (tylko lokalnie; na hostingu
+  # jej nie ma). REST na 6333, panel: http://127.0.0.1:6333/dashboard
+  qdrant:
+    image: qdrant/qdrant:v1.19.2
+    ports:
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - qdrantdata:/qdrant/storage
+    environment:
+      QDRANT__TELEMETRY_DISABLED: "true"
+
 volumes:
   dbdata:
+  qdrantdata:
