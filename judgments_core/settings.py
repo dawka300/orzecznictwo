@@ -82,6 +82,11 @@ class Settings:
     chat_timeout_s: float = 600.0
     # Dopisek na końcu pytania do modelu, np. /no_think (Qwen3 bez „myślenia”: szybciej).
     chat_suffix: str = ""
+    # Model-sędzia oceniający odpowiedzi (ocen-odpowiedzi): puste = ten sam co chat_*;
+    # może być mocniejszy model za API zgodnym z OpenAI (klucz: Authorization: Bearer).
+    judge_url: str = ""
+    judge_model: str = ""
+    judge_api_key: str = ""
 
     @classmethod
     def from_env(cls, prefix, environ=None, dotenv_path=DOTENV_PATH):

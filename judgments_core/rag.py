@@ -72,6 +72,7 @@ class Reference:
     url: str
     language: str
     fragments: list = field(default_factory=list)
+    result: str = ""  # wynik sprawy z metadanych (do sprawdzania odpowiedzi)
 
 
 @dataclass
@@ -144,6 +145,10 @@ class Retriever(ABC):
     def expected(self, cur, keys):
         """{key: {judgment ids}} for the keys of evaluation questions (appno, docket ...)."""
 
+    def result(self, hit):
+        """The case's outcome from the metadata ("" = unknown); checked against answers."""
+        return ""
+
     def query(self, text, **filters):
         filters = {k: v for k, v in filters.items() if k != "mode" or v}
         return self.query_class(text=text, **{"mode": self.mode, **filters})
@@ -193,7 +198,16 @@ class Retriever(ABC):
                 for c in merge(spans)
             ]
             sources.append(
-                Reference(len(sources) + 1, judgment_id, title, details, url, language, fragments)
+                Reference(
+                    len(sources) + 1,
+                    judgment_id,
+                    title,
+                    details,
+                    url,
+                    language,
+                    fragments,
+                    self.result(hit),
+                )
             )
         return Retrieval(sources, ranked, ranking.mode, notice)
 

@@ -75,6 +75,9 @@ class EtpcRetriever(Retriever):
         )
         return hit.title, details, HUDOC_URL.format(document)
 
+    def result(self, hit):
+        return outcome(hit.conclusion)
+
     def expected(self, cur, keys):
         found = {k: set() for k in keys}
         if keys:

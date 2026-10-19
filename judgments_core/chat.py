@@ -53,10 +53,12 @@ class HttpChat(ChatModel):
         temperature=0.2,
         max_tokens=2000,
         timeout_s=600.0,
+        api_key="",
         session=None,
     ):
         super().__init__(model)
         self.url = url
+        self.headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.timeout_s = timeout_s
@@ -71,7 +73,9 @@ class HttpChat(ChatModel):
             "stream": True,
         }
         try:
-            response = self.session.post(self.url, json=body, stream=True, timeout=self.timeout_s)
+            response = self.session.post(
+                self.url, json=body, stream=True, timeout=self.timeout_s, headers=self.headers
+            )
         except requests.RequestException as e:
             raise ChatError(
                 f"serwer modelu {self.url} nie odpowiada ({type(e).__name__}: {e})"
@@ -104,7 +108,7 @@ class HttpChat(ChatModel):
         """The first loaded chat model (not an embedding model); remembered."""
         url = self.url.rsplit("/chat/completions", 1)[0] + "/models"
         try:
-            response = self.session.get(url, timeout=30)
+            response = self.session.get(url, timeout=30, headers=self.headers)
             ids = [m["id"] for m in response.json().get("data", [])]
         except (requests.RequestException, ValueError, KeyError) as e:
             raise ChatError(f"serwer modelu {url} nie odpowiada ({type(e).__name__}: {e})") from e
@@ -129,6 +133,18 @@ def make_chat(settings):
         temperature=settings.chat_temperature,
         max_tokens=settings.chat_max_tokens,
         timeout_s=settings.chat_timeout_s,
+    )
+
+
+def make_judge(settings):
+    """The model that rates answers: judge_* settings, else the chat model; temperature 0."""
+    return HttpChat(
+        settings.judge_url or settings.chat_url,
+        settings.judge_model or ("" if settings.judge_url else settings.chat_model),
+        temperature=0.0,
+        max_tokens=3000,
+        timeout_s=settings.chat_timeout_s,
+        api_key=settings.judge_api_key,
     )
 
 

@@ -51,6 +51,9 @@ class NsaRetriever(Retriever):
         )
         return hit.docket_number, details, CBOSA_URL.format(hit.cbosa_id)
 
+    def result(self, hit):
+        return hit.result or ""
+
     def expected(self, cur, keys):
         found = {k: set() for k in keys}
         if keys:

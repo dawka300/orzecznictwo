@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from judgments_core.pipeline import RagPipeline
 
 DOMAIN = """\
@@ -13,5 +15,18 @@ pojedynczy wyrok - zaznacz, gdy odpowiedź opiera się na uchwale. Gdy orzeczeni
 różnią, pokaż obie linie."""
 
 
+# Rozstrzygnięcie w odpowiedzi vs "Treść wyniku" z CBOSA (np. "Oddalono skargę kasacyjną").
+OUTCOMES = tuple(
+    (label, re.compile(rf"\b{stem}\w*", re.IGNORECASE), re.compile(stem, re.IGNORECASE))
+    for label, stem in (
+        ("oddalenie", "oddal"),
+        ("uchylenie", "uchyl"),
+        ("odrzucenie", "odrzuc"),
+        ("umorzenie", "umorz"),
+    )
+)
+
+
 class NsaRag(RagPipeline):
     domain = DOMAIN
+    outcomes = OUTCOMES

@@ -14,6 +14,7 @@ python -m etpc mcp                      # baza jako narzędzia dla Claude'a (std
 python -m etpc fragmenty "pytanie"      # kontekst RAG: najlepsze fragmenty do pytania
 python -m etpc ocen                     # trafność fragmentów na pytaniach z etpc/pytania.json
 python -m etpc zapytaj "pytanie"        # odpowiedź modelu lokalnego (LM Studio) ze źródłami
+python -m etpc ocen-odpowiedzi          # odpowiedzi na pytania wzorcowe + automatyczna ocena
 python -m nsa paczki --ile 2            # paczki fragmentów do policzenia na innym komputerze
 python -m nsa paczka-import nsa-0001    # wektory policzone gdzie indziej -> Qdrant
 
@@ -169,6 +170,21 @@ def build_parser(project):
         "ocen", help="trafność fragmentów na pytaniach wzorcowych (<projekt>/pytania.json)"
     )
     evaluate.add_argument("--plik", dest="path", help="plik z pytaniami (JSON)")
+    check = commands.add_parser(
+        "ocen-odpowiedzi",
+        help="odpowiedzi modelu na pytania wzorcowe: cytowania, wynik sprawy, model-sędzia",
+    )
+    check.add_argument("--plik", dest="path", help="plik z pytaniami (JSON)")
+    check.add_argument("--pytania", dest="picks", help="numery pytań, np. 1,4,11")
+    check.add_argument(
+        "--bez-sedziego",
+        dest="no_judge",
+        action="store_true",
+        help="tylko reguły, bez modelu-sędziego",
+    )
+    check.add_argument(
+        "--limit-znakow", dest="budget_chars", type=int, help="ile tekstu (domyślnie 16000)"
+    )
     packages = commands.add_parser(
         "paczki", help="paczki fragmentów do liczenia wektorów na innych komputerach"
     )
@@ -269,6 +285,8 @@ def main(project, argv=None, settings=None):
             return _evaluate(project, settings, args)
         if args.command == "zapytaj":
             return _ask(project, settings, args)
+        if args.command == "ocen-odpowiedzi":
+            return _check_answers(project, settings, args)
         if args.command == "paczki":
             return _packages(project, settings, args)
         if args.command == "paczka-import":
@@ -591,6 +609,37 @@ def _ask(project, settings, args):
         print(f"[{s.number}] {s.title} - {s.details}{mark}\n    {s.url}")
     if answer.unknown:
         print(f"\nUWAGA: odpowiedź powołuje się na nieistniejące źródła: {answer.unknown}")
+    return 0
+
+
+def _check_answers(project, settings, args):
+    from datetime import datetime, timezone
+
+    from judgments_core import answer_eval, evaluation
+    from judgments_core.chat import make_judge
+
+    if project.rag is None or project.retriever is None:
+        raise NotImplementedError(f"projekt {project.name} nie ma jeszcze odpowiedzi (RAG)")
+    path = Path(args.path) if args.path else project.migrations.parent / "pytania.json"
+    questions = evaluation.load(path)
+    if args.picks:
+        questions = [questions[int(n) - 1] for n in args.picks.split(",")]
+    pipeline = project.rag.from_settings(settings, project.name, project.retriever)
+    judge = None if args.no_judge else make_judge(settings)
+    checks = []
+    with db.connect(settings.db_dsn, autocommit=True) as conn, conn.cursor() as cur:
+        for n, q in enumerate(questions, 1):
+            log.info("pytanie %d/%d: %s", n, len(questions), q.text[:80])
+            checks.append(
+                answer_eval.check(pipeline, cur, q.text, q.filters, judge, args.budget_chars)
+            )
+    model = pipeline.chat.model or "?"
+    print("\n".join(answer_eval.report(checks, model)))
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    out = project.migrations.parent / "database" / "odpowiedzi" / f"{stamp}-{model}.json"
+    note = f"suffix={settings.chat_suffix!r} temperature={settings.chat_temperature}"
+    answer_eval.save(checks, out, model, note)
+    log.info("Odpowiedzi zapisane: %s", out)
     return 0
 
 

@@ -34,11 +34,11 @@ class Session:
         self.post_response, self.get_response = post, get
         self.posted = []
 
-    def post(self, url, json=None, stream=False, timeout=None):
+    def post(self, url, json=None, stream=False, timeout=None, headers=None):
         self.posted.append((url, json))
         return self.post_response
 
-    def get(self, url, timeout=None):
+    def get(self, url, timeout=None, headers=None):
         self.got = url
         return self.get_response
 

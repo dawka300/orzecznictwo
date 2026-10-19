@@ -44,6 +44,9 @@ class Answer:
 
 class RagPipeline(ABC):
     domain = ""  # dla modelu: czym są źródła i jak je cytować
+    # Reguła sprawdzania odpowiedzi (judgments_core/answer_eval.py): [(etykieta, regex
+    # słów w odpowiedzi, regex w wyniku z metadanych)]; wcześniejsza wygrywa z późniejszą.
+    outcomes = ()
 
     def __init__(self, retriever, chat, suffix=""):
         self.retriever = retriever
