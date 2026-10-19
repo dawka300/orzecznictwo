@@ -1,6 +1,7 @@
 """Raw records of judgments (JSON row of the JuDDGES dataset) -> DTOs of the project tables.
 
-Pure functions, no database: nsa/tables.py writes the DTOs.
+Pure functions, no database: nsa/tables.py writes the DTOs. JuddgesParser is
+the NSA child of the core Parser.
 """
 
 from __future__ import annotations
@@ -9,6 +10,8 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 from datetime import date
+
+from judgments_core.parser import Parser
 
 KINDS = {"wyrok": "wyrok", "postanowienie": "postanowienie", "uchwała": "uchwala"}
 FINALITY = {"orzeczenie prawomocne": True, "orzeczenie nieprawomocne": False}
@@ -170,3 +173,10 @@ def _date(value):
     if not value:
         return None
     return date.fromisoformat(str(value)[:10])
+
+
+class JuddgesParser(Parser):
+    """A JuDDGES dataset row (JSON) -> Judgment."""
+
+    def parse(self, row):
+        return parse_judgment(row)

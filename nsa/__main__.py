@@ -2,9 +2,9 @@ import sys
 from pathlib import Path
 
 from judgments_core.cli import Project, main
+from nsa.deriver import NsaDeriver
 from nsa.importer import NsaImporter
 from nsa.juddges import JuddgesSource
-from nsa.tables import derive
 
 PROJECT = Project(
     name="nsa",
@@ -13,8 +13,8 @@ PROJECT = Project(
     # wyszukiwarki CBOSA robots.txt zabrania (nsa/notepad.md).
     source=JuddgesSource,
     importer=NsaImporter,
+    deriver=NsaDeriver,
     migrations=Path(__file__).parent / "migrations",
-    derive=derive,
 )
 
 if __name__ == "__main__":

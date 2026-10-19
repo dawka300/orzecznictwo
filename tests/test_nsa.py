@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from judgments_core import db
-from judgments_core.deriver import Deriver
 from nsa.__main__ import PROJECT
 from nsa.juddges import JuddgesSource, to_record
 from nsa.parser import kind_of, parse_judgment
@@ -75,7 +74,7 @@ def test_derive_tables(conn):
     for record in records:  # przetworz bierze tylko rekordy sprzed bieżącej sekundy
         record.fetched_at = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)
     store.save_page("juddges", records, "juddges:cursor", None)
-    result = Deriver(store, "juddges", PROJECT.derive).run()
+    result = PROJECT.deriver(store).run()
     with conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM judgments")
         saved = cur.fetchone()[0]
@@ -95,7 +94,7 @@ def test_derive_tables(conn):
     assert problems == {"brak_sygnatury": 1, "pusty_tekst": 1}
     assert docket == "I OSK 1769/12" and bases >= 1 and related >= 1
     # drugi przebieg od początku nie dubluje tabel pobocznych
-    Deriver(store, "juddges", PROJECT.derive, from_start=True).run()
+    PROJECT.deriver(store, from_start=True).run()
     with conn.cursor() as cur:
         cur.execute(
             "SELECT COUNT(*) FROM judgment_legal_bases b JOIN judgments j ON j.id = b.judgment_id WHERE j.cbosa_id = 'B51A16D504'"

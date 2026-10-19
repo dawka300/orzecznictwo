@@ -29,7 +29,6 @@ from pathlib import Path
 
 from judgments_core import db
 from judgments_core.backup import dump_database
-from judgments_core.deriver import Deriver
 from judgments_core.embeddings import Embedder
 from judgments_core.http import PoliteClient
 from judgments_core.importer import Importer
@@ -54,12 +53,10 @@ class Project:
     # przejmuje, gdy Cloudflare blokuje bieżącą. <PREFIKS>_TRANSPORT (jedna
     # nazwa albo kilka po przecinku) ma pierwszeństwo.
     transports: tuple = ("requests",)
-    # derive(cursor, records) -> problemy: tabele projektu z raw_records; None = brak parsera
-    derive: Callable | None = None
+    # klasa potomna Deriver (źródło, TableWriter, after()): polecenie przetworz; None = brak
+    deriver: type | None = None
     # verify(store, source, years) -> wyniki: porównanie źródła z bazą; None = brak
     verify: Callable | None = None
-    # after_derive(cursor): po przetworz, które coś zmieniło (np. statystyki)
-    after_derive: Callable | None = None
     # web(settings) -> aplikacja WSGI: polecenie www; None = brak stron
     web: Callable | None = None
     # embed(conn, embedder, vectors, limit=, time_budget_s=, from_start=, batch_size=)
@@ -331,16 +328,12 @@ class _IdsSource:
 
 
 def _derive(project, settings, args):
-    if project.derive is None:
+    if project.deriver is None:
         raise NotImplementedError(f"projekt {project.name} nie ma jeszcze parsera")
-    with contextlib.ExitStack() as closer:
-        source = _make_source(project, settings, closer)  # tylko nazwa źródła
     budget = settings.time_budget_s if args.time_budget_s is None else args.time_budget_s
     with _logged_run(project, settings, "przetworz") as (store, run):
-        deriver = Deriver(
+        deriver = project.deriver(
             store,
-            source.name,
-            project.derive,
             from_start=args.from_start,
             limit=args.limit,
             time_budget_s=budget,
@@ -350,9 +343,9 @@ def _derive(project, settings, args):
         finally:
             r = deriver.result
             run.counts.update(pages=r.batches, records=r.records, problems=r.problems)
-        if project.after_derive is not None and result.records:
+        if result.records:
             with store.conn.cursor() as cur:
-                project.after_derive(cur)
+                deriver.after(cur)
             store.conn.commit()
         run.status = _status_of(result)
     end = "wszystko przetworzone" if result.finished else f"przerwano ({result.stopped_by})"

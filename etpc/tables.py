@@ -1,4 +1,4 @@
-"""Project tables of ETPC from raw records: derive(cursor, records) for the Deriver.
+"""Project tables of ETPC from raw records: EtpcTables, the ETPC child of TableWriter.
 
 Each changed document is upserted into ruling_documents under its ruling
 (ECLI). Then every touched ruling is rebuilt from its best language version:
@@ -9,11 +9,9 @@ the language versions arrived.
 
 from __future__ import annotations
 
-import json
-
-from etpc.parser import is_wanted, language_priority, parse_document, parse_ruling
+from etpc.parser import HudocParser, language_priority
 from etpc.source import HudocSource
-from judgments_core.source import utc_now
+from judgments_core.tables import TableWriter
 
 SIDE_TABLES = {
     "ruling_applications": ("appno", "position"),
@@ -24,43 +22,42 @@ SIDE_TABLES = {
 }
 
 
-def derive(cur, records):
-    """Returns problems [(source_id, problem, details)]; a failing record is skipped."""
-    now = utc_now().replace(tzinfo=None)
-    touched, left, problems = set(), set(), []
-    for record in records:
-        # SAVEPOINT: błąd jednego dokumentu cofa tylko jego zapisy.
-        cur.execute("SAVEPOINT document")
-        try:
-            columns = json.loads(record.body)
-            if not is_wanted(columns):
-                continue
-            document = parse_document(columns)
-            ruling_id = _ensure_ruling(cur, columns, now)
-            previous = _upsert_document(cur, ruling_id, document, now)
-        except Exception as e:  # noqa: BLE001 - zapisujemy każdy błąd jako problem
-            cur.execute("ROLLBACK TO SAVEPOINT document")
-            problems.append((record.source_id, "blad_parsera", f"{type(e).__name__}: {e}"))
-            continue
-        touched.add(ruling_id)
+class EtpcTables(TableWriter):
+    """Documents into ruling_documents, then the touched rulings rebuilt (ETPC child of TableWriter)."""
+
+    parser_class = HudocParser
+
+    def start(self, cur):
+        self.touched, self.left = set(), set()
+
+    def write(self, cur, record, columns):
+        if not self.parser.is_wanted(columns):
+            return None
+        document = self.parser.parse(columns)
+        ruling_id = _ensure_ruling(cur, self.parser.parse_ruling(columns), self.now)
+        previous = _upsert_document(cur, ruling_id, document, self.now)
+        self.touched.add(ruling_id)
         if previous not in (None, ruling_id):
-            left.add(previous)  # dokument zmienił ECLI
+            self.left.add(previous)  # dokument zmienił ECLI
         if not document.body:
-            problems.append((record.source_id, "pusty_tekst", "brak contentbody w HUDOC"))
-    for ruling_id in touched | left:
-        cur.execute("SAVEPOINT ruling")
-        try:
-            _rebuild_ruling(cur, ruling_id, now)
-        except Exception as e:  # noqa: BLE001
-            cur.execute("ROLLBACK TO SAVEPOINT ruling")
-            best = _best_itemid(cur, ruling_id) or f"ruling:{ruling_id}"
-            problems.append((best, "blad_parsera", f"orzeczenie: {type(e).__name__}: {e}"))
-    return problems
+            return [(record.source_id, "pusty_tekst", "brak contentbody w HUDOC")]
+        return None
+
+    def finish(self, cur):
+        problems = []
+        for ruling_id in self.touched | self.left:
+            cur.execute("SAVEPOINT ruling")
+            try:
+                _rebuild_ruling(cur, self.parser, ruling_id, self.now)
+            except Exception as e:  # noqa: BLE001
+                cur.execute("ROLLBACK TO SAVEPOINT ruling")
+                best = _best_itemid(cur, ruling_id) or f"ruling:{ruling_id}"
+                problems.append((best, "blad_parsera", f"orzeczenie: {type(e).__name__}: {e}"))
+        return problems
 
 
-def _ensure_ruling(cur, columns, now):
+def _ensure_ruling(cur, ruling, now):
     """Id of the ruling for this document's ECLI; a placeholder row if it is new."""
-    ruling = parse_ruling(columns)
     cur.execute(
         "INSERT INTO rulings (group_key, ecli, kind, formation, ruling_date, title, parsed_at)"
         " VALUES (%s, %s, %s, %s, %s, %s, %s)"
@@ -130,7 +127,7 @@ def _best_itemid(cur, ruling_id):
     return min(documents, key=lambda d: (language_priority(d[1]), d[0]))[0]
 
 
-def _rebuild_ruling(cur, ruling_id, now):
+def _rebuild_ruling(cur, parser, ruling_id, now):
     documents = _documents(cur, ruling_id)
     if not documents:
         cur.execute("DELETE FROM rulings WHERE id = %s", (ruling_id,))
@@ -140,7 +137,7 @@ def _rebuild_ruling(cur, ruling_id, now):
         "SELECT body FROM raw_records WHERE source = %s AND source_id = %s",
         (HudocSource.name, best),
     )
-    r = parse_ruling(json.loads(cur.fetchone()[0]))
+    r = parser.parse_ruling(parser.load(cur.fetchone()[0]))
     updated = [d[2] for d in documents if d[2] is not None]
     cur.execute(
         "UPDATE rulings SET ecli = %s, kind = %s, formation = %s, ruling_date = %s,"

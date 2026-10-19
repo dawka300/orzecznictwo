@@ -7,7 +7,6 @@ from pathlib import Path
 from etpc.__main__ import PROJECT
 from etpc.source import HudocSource, to_record
 from judgments_core import db
-from judgments_core.deriver import Deriver
 
 FIXTURES = Path(__file__).parent / "fixtures" / "etpc"
 ECLI = "ECLI:CE:ECHR:2026:1008JUD002271612"
@@ -44,7 +43,7 @@ def save(store, *columns, second=0):
 
 
 def derive(store, **kwargs):
-    return Deriver(store, HudocSource.name, PROJECT.derive, **kwargs).run()
+    return PROJECT.deriver(store, **kwargs).run()
 
 
 def rows(conn, sql):
@@ -111,7 +110,7 @@ def test_document_moved_to_another_ecli_leaves_no_empty_ruling(conn):
 def test_records_of_the_current_second_wait_for_the_next_pass(conn):
     store = setup(conn)
     save(store, english())
-    assert Deriver(store, HudocSource.name, PROJECT.derive, now=lambda: T0).run().records == 0
+    assert PROJECT.deriver(store, now=lambda: T0).run().records == 0
     assert derive(store).records == 1
 
 

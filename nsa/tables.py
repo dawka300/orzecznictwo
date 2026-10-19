@@ -1,16 +1,14 @@
-"""Project tables of NSA from raw records: derive(cursor, records) for the Deriver.
+"""Project tables of NSA from raw records: NsaTables, the NSA child of TableWriter.
 
 Each record is one judgment: its judgments row is upserted by CBOSA id and
 its side tables replaced. Records without any text are skipped (problem
-pusty_tekst), a failing record doesn't stop the batch (SAVEPOINT).
+pusty_tekst); a failing record doesn't stop the batch (SAVEPOINT in TableWriter).
 """
 
 from __future__ import annotations
 
-import json
-
-from judgments_core.source import utc_now
-from nsa.parser import parse_judgment
+from judgments_core.tables import TableWriter
+from nsa.parser import JuddgesParser
 
 SIDE_TABLES = (
     "judgment_judges",
@@ -23,26 +21,22 @@ SIDE_TABLES = (
 )
 
 
-def derive(cur, records, source="juddges"):
-    """Returns problems [(source_id, problem, details)]."""
-    now = utc_now().replace(tzinfo=None)
-    problems = []
-    for record in records:
-        cur.execute("SAVEPOINT judgment")
-        try:
-            j = parse_judgment(json.loads(record.body))
-            if not j.text:
-                _delete(cur, j.cbosa_id)
-                problems.append((record.source_id, "pusty_tekst", "orzeczenie bez tekstu"))
-                continue
-            judgment_id = _upsert(cur, j, source, now)
-            _replace_side_tables(cur, judgment_id, j)
-            if not j.docket_number:
-                problems.append((record.source_id, "brak_sygnatury", "zapisane bez sygnatury"))
-        except Exception as e:  # noqa: BLE001 - każdy błąd jako problem rekordu
-            cur.execute("ROLLBACK TO SAVEPOINT judgment")
-            problems.append((record.source_id, "blad_parsera", f"{type(e).__name__}: {e}"))
-    return problems
+class NsaTables(TableWriter):
+    """One judgment per record into judgments + side tables (NSA child of TableWriter)."""
+
+    parser_class = JuddgesParser
+    source = "juddges"  # kolumna judgments.source
+
+    def write(self, cur, record, row):
+        j = self.parser.parse(row)
+        if not j.text:
+            _delete(cur, j.cbosa_id)
+            return [(record.source_id, "pusty_tekst", "orzeczenie bez tekstu")]
+        judgment_id = _upsert(cur, j, self.source, self.now)
+        _replace_side_tables(cur, judgment_id, j)
+        if not j.docket_number:
+            return [(record.source_id, "brak_sygnatury", "zapisane bez sygnatury")]
+        return None
 
 
 def _upsert(cur, j, source, now):
@@ -87,27 +81,27 @@ def _upsert(cur, j, source, now):
 def _replace_side_tables(cur, judgment_id, j):
     for table in SIDE_TABLES:
         cur.execute(f"DELETE FROM {table} WHERE judgment_id = %s", (judgment_id,))
-    _insert(
+    TableWriter.insert_rows(
         cur,
         "judgment_judges (judgment_id, position, name, is_presiding, is_rapporteur)",
         [(judgment_id, i, name[:100], p, r) for i, (name, p, r) in enumerate(j.judges)],
     )
-    _insert(
+    TableWriter.insert_rows(
         cur,
         "judgment_symbols (judgment_id, code, description)",
         [(judgment_id, code, description[:255]) for code, description in j.symbols],
     )
-    _insert(
+    TableWriter.insert_rows(
         cur,
         "judgment_keywords (judgment_id, keyword)",
         _distinct([(judgment_id, k[:100]) for k in j.keywords]),
     )
-    _insert(
+    TableWriter.insert_rows(
         cur,
         "judgment_results (judgment_id, result)",
         _distinct([(judgment_id, r[:191]) for r in j.results]),
     )
-    _insert(
+    TableWriter.insert_rows(
         cur,
         "judgment_legal_bases (judgment_id, position, journal, article, law, link)",
         [
@@ -122,7 +116,7 @@ def _replace_side_tables(cur, judgment_id, j):
             for i, b in enumerate(j.legal_bases)
         ],
     )
-    _insert(
+    TableWriter.insert_rows(
         cur,
         "judgment_related (judgment_id, position, related_cbosa_id, docket_number, judgment_date, judgment_type)",
         [
@@ -137,17 +131,11 @@ def _replace_side_tables(cur, judgment_id, j):
             for i, r in enumerate(j.related)
         ],
     )
-    _insert(
+    TableWriter.insert_rows(
         cur,
         "judgment_publications (judgment_id, kind, position, text)",
         [(judgment_id, kind, i, text[:500]) for i, (kind, text) in enumerate(j.publications)],
     )
-
-
-def _insert(cur, table_columns, rows):
-    if rows:
-        marks = ", ".join(["%s"] * len(rows[0]))
-        cur.executemany(f"INSERT INTO {table_columns} VALUES ({marks})", rows)
 
 
 def _distinct(rows):

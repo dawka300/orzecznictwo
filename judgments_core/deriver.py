@@ -1,12 +1,14 @@
 """Project tables from raw_records, batch by batch, resumable like the Importer.
 
-A project gives a function derive(cursor, records) that writes its tables
-from raw records (judgments_core.db.StoredRecord) and returns problems
-[(source_id, problem, details)] for records it could not (fully) use; they
-land in record_problems instead of stopping the pass. The Deriver feeds it the
-records changed since the last pass, oldest first, and saves how far it got
-in sync_state together with each batch. After a parser change, a pass with
-from_start re-derives everything without downloading anything again.
+Deriver is the parent; a project's child names its source (source_name),
+its table writer (writer_class, a judgments_core.tables.TableWriter child)
+and may add work after a pass (after(), e.g. statistics). The writer is a
+callable derive(cursor, records) returning problems [(source_id, problem,
+details)]; they land in record_problems instead of stopping the pass. The
+Deriver feeds it the records changed since the last pass, oldest first, and
+saves how far it got in sync_state together with each batch. After a parser
+change, a pass with from_start re-derives everything without downloading
+anything again.
 """
 
 from __future__ import annotations
@@ -34,11 +36,14 @@ class DeriveResult:
 
 
 class Deriver:
+    source_name = ""  # klasa potomna: np. "hudoc"
+    writer_class = None  # klasa potomna: TableWriter projektu
+
     def __init__(
         self,
         store,
-        source_name,
-        derive,
+        source_name=None,
+        derive=None,
         *,
         from_start=False,
         limit=None,
@@ -48,9 +53,10 @@ class Deriver:
         now=utc_now,
     ):
         self.store = store
-        self.source_name = source_name
-        self.derive = derive
-        self.state_key = f"{source_name}:derived"
+        self.source_name = source_name or self.source_name
+        # derive(cursor, records); domyślnie TableWriter projektu
+        self.derive = derive or self.writer_class()
+        self.state_key = f"{self.source_name}:derived"
         self.from_start = from_start
         self.limit = limit
         self.batch_size = batch_size
@@ -98,6 +104,9 @@ class Deriver:
             if self.time_budget_s and self.clock() - started >= self.time_budget_s:
                 result.stopped_by = "czas"
                 return result
+
+    def after(self, cur):
+        """After a pass that processed records (statistics, rankings ...); nothing by default."""
 
 
 def _dump(after):

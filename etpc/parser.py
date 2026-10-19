@@ -1,6 +1,7 @@
 """HUDOC raw records (a document's `columns` JSON) -> DTOs of the project tables.
 
-Pure functions, no database: etpc/tables.py writes the DTOs. A ruling (one
+Pure functions, no database: etpc/tables.py writes the DTOs. HudocParser is
+the ETPC child of the core Parser. A ruling (one
 ECLI) takes its metadata from its best language version (English, then
 French, then any), each version is a Document with its own text.
 """
@@ -12,6 +13,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
+from judgments_core.parser import Parser
 from judgments_core.text import clean_html
 
 KINDS = {"JUDGMENTS": "judgment", "DECISIONS": "decision"}
@@ -211,3 +213,17 @@ def _int(value):
 
 def _bool(value):
     return (_text(value) or "").lower() == "true"
+
+
+class HudocParser(Parser):
+    """HUDOC `columns` JSON -> Document (one language version) and Ruling."""
+
+    def parse(self, columns):
+        return parse_document(columns)
+
+    def parse_ruling(self, columns):
+        return parse_ruling(columns)
+
+    def is_wanted(self, columns):
+        """Judgments and decisions only, no placeholders."""
+        return is_wanted(columns)
