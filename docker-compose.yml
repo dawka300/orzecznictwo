@@ -12,7 +12,12 @@ services:
     volumes:
       - dbdata:/var/lib/mysql
       - ./docker/mariadb-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    # Bufor InnoDB: domyślne 128 MB to za mało dla ~10 GB ETPC (wyszukiwanie
+    # pełnotekstowe czytało z dysku: "court" 45 s). Na hostingu ustawia hosting.
+    command:
+      - "--character-set-server=utf8mb4"
+      - "--collation-server=utf8mb4_unicode_ci"
+      - "--innodb-buffer-pool-size=4G"
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s

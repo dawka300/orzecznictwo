@@ -8,6 +8,7 @@ python -m nsa sprawdz                   # porównaj źródło z bazą, zapisz br
 python -m nsa pobierz --brakujace       # dociągnij braki znalezione przez sprawdz
 python -m nsa stan                      # kursory, ostatnie przebiegi, blokady, problemy
 python -m nsa kopia                     # zrzut bazy do <NSA_BACKUP_DIR>/nsa.sql.gz
+python -m etpc www --port 8080          # wyszukiwarka w przeglądarce
 
 Każdy przebieg pobierz/przetworz/sprawdz zapisuje się w fetch_runs, blokady
 i błędy źródła w fetch_events, rekordy z problemem w record_problems.
@@ -32,6 +33,7 @@ from judgments_core.deriver import Deriver
 from judgments_core.http import CurlSession, PoliteClient
 from judgments_core.importer import Importer
 from judgments_core.settings import DOTENV_PATH, Settings
+from judgments_core.web import serve
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +51,10 @@ class Project:
     derive: Callable | None = None
     # verify(store, source, years) -> wyniki: porównanie źródła z bazą; None = brak
     verify: Callable | None = None
+    # after_derive(cursor): po przetworz, które coś zmieniło (np. statystyki)
+    after_derive: Callable | None = None
+    # web(settings) -> aplikacja WSGI: polecenie www; None = brak stron
+    web: Callable | None = None
 
 
 def build_parser(project):
@@ -113,6 +119,9 @@ def build_parser(project):
     status.add_argument(
         "--problemy", dest="list_problems", action="store_true", help="wypisz otwarte problemy"
     )
+    www = commands.add_parser("www", help="wyszukiwarka w przeglądarce (serwer lokalny)")
+    www.add_argument("--host", default="127.0.0.1", help="adres (domyślnie 127.0.0.1)")
+    www.add_argument("--port", type=int, default=8080, help="port (domyślnie 8080)")
     commands.add_parser(
         "kopia", help="zrzut bazy do <PREFIKS>_BACKUP_DIR (też sam po pobierz/przetworz)"
     )
@@ -154,6 +163,8 @@ def main(project, argv=None, settings=None):
             return _derive(project, settings, args)
         if args.command == "sprawdz":
             return _verify(project, settings, args)
+        if args.command == "www":
+            return _www(project, settings, args)
         if args.command == "kopia":
             return _backup(project, settings, required=True)
         return _status(project, settings, args)
@@ -313,6 +324,10 @@ def _derive(project, settings, args):
         finally:
             r = deriver.result
             run.counts.update(pages=r.batches, records=r.records, problems=r.problems)
+        if project.after_derive is not None and result.records:
+            with store.conn.cursor() as cur:
+                project.after_derive(cur)
+            store.conn.commit()
         run.status = _status_of(result)
     end = "wszystko przetworzone" if result.finished else f"przerwano ({result.stopped_by})"
     log.info(
@@ -351,6 +366,13 @@ def _verify(project, settings, args):
         extra,
         " Braki pobierze: pobierz --brakujace" if missing else "",
     )
+    return 0
+
+
+def _www(project, settings, args):
+    if project.web is None:
+        raise NotImplementedError(f"projekt {project.name} nie ma jeszcze stron www")
+    serve(project.web(settings), args.host, args.port)
     return 0
 
 

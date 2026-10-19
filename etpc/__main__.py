@@ -2,8 +2,10 @@ import sys
 from pathlib import Path
 
 from etpc.source import HudocSource
+from etpc.stats import refresh_stats
 from etpc.tables import derive
 from etpc.verify import verify
+from etpc.web import make_app
 from judgments_core.cli import Project, main
 
 PROJECT = Project(
@@ -15,6 +17,8 @@ PROJECT = Project(
     transport="curl",
     derive=derive,
     verify=verify,
+    after_derive=refresh_stats,
+    web=make_app,
 )
 
 if __name__ == "__main__":
