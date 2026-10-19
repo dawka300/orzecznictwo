@@ -4,7 +4,9 @@ Claude (Claude Code, Claude Desktop) starts the server and talks to it over
 stdin/stdout, so nothing else may print to stdout (the log goes to stderr
 and the log file). A project's child registers its tools (search, a
 judgment's text, similar judgments) in register(); Claude does the RAG
-itself: it searches, reads what it found and answers with citations.
+itself: it searches, reads what it found and answers with citations. The
+retriever's tool (fragmenty) gives the best passages at once, packed into a
+limit - for models with a small context (local models in LM Studio).
 
 The common part: the database connection, the semantic search (query
 embedders from the settings, Qdrant) and the trimming of long texts. Runs
@@ -17,8 +19,6 @@ import logging
 from abc import ABC, abstractmethod
 
 from judgments_core import db
-from judgments_core.embeddings import make_embedder
-from judgments_core.qdrant import QdrantStore, collection_name
 
 log = logging.getLogger(__name__)
 
@@ -34,22 +34,16 @@ class McpServer(ABC):
     title = ""
     instructions = ""  # dla Claude'a: co jest w bazie i jak szukać
     semantic_class = None  # klasa potomna SemanticSearch; None = bez wyszukiwania znaczeniowego
+    retriever_class = None  # klasa potomna Retriever (narzędzie fragmenty); None = brak
 
     def __init__(self, settings, semantic=None):
         self.settings = settings
         if semantic is None and self.semantic_class is not None:
-            semantic = self.semantic_class(
-                make_embedder(settings, timeout_s=SEMANTIC_TIMEOUT_S, retries=0),
-                QdrantStore(
-                    settings.qdrant_url,
-                    settings.qdrant_collection
-                    or collection_name(self.project, settings.embed_model),
-                    settings.embed_model,
-                    timeout_s=SEMANTIC_TIMEOUT_S,
-                ),
+            semantic = self.semantic_class.from_settings(
+                settings, self.project, timeout_s=SEMANTIC_TIMEOUT_S
             )
-            semantic.prepare_in_background()
         self.semantic = semantic
+        self.retriever = None if self.retriever_class is None else self.retriever_class(semantic)
 
     @abstractmethod
     def register(self, server):

@@ -1,0 +1,32 @@
+[
+  {
+    "pytanie": "Kto jest podatnikiem podatku od nieruchomości przy spółce cywilnej: spółka czy jej wspólnicy?",
+    "oczekiwane": ["II FPS 5/16"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Czy firma leasingowa wlicza do podstawy VAT koszt ubezpieczenia przedmiotu leasingu refakturowany na korzystającego?",
+    "oczekiwane": ["I FPS 3/10"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Czy sędzia, który orzekał w WSA, może rozpoznawać skargę kasacyjną od tego wyroku?",
+    "oczekiwane": ["I OPS 3/05"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Domek letniskowy a budynek mieszkalny w podatku od nieruchomości - co decyduje o kwalifikacji?",
+    "oczekiwane": ["FPK 2/02"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Kary pieniężne za naruszenie przepisów o utrzymaniu czystości i porządku w gminach a przepisy kpa o administracyjnych karach pieniężnych",
+    "oczekiwane": ["III OPS 1/21"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Umowa nazwana najmem lub leasingiem - czy dla podatku liczy się nazwa umowy czy jej treść?",
+    "oczekiwane": ["FPS 14/00"],
+    "filtry": {}
+  }
+]

@@ -1,6 +1,7 @@
 """ETPC rulings as tools for Claude: python -m etpc mcp (child of McpServer).
 
 szukaj - hybrid search (words + meaning) with the page's filters;
+fragmenty - the best passages for a question, packed into a limit (RAG);
 orzeczenie - metadata and the text of one language version (in parts);
 podobne - rulings closest in meaning to one ruling.
 """
@@ -9,18 +10,20 @@ from __future__ import annotations
 
 from etpc import labels, search
 from etpc.labels import label
+from etpc.rag import HUDOC_URL, EtpcRetriever
 from etpc.semantic import EtpcSemantic
 from judgments_core.mcp import McpServer, cut, lines
+from judgments_core.rag import render
 from judgments_core.semantic import SemanticUnavailable
 
-HUDOC_URL = "https://hudoc.echr.coe.int/eng?i={}"
 RELATIONS = {"violation": "naruszenie", "no_violation": "brak naruszenia", "concerned": "dotyczy"}
 
 INSTRUCTIONS = """\
 Orzeczenia Europejskiego Trybunału Praw Człowieka z HUDOC: wyroki i decyzje,
 teksty po angielsku albo francusku (część też po polsku), artykuły Konwencji,
 naruszenia, cytowania. Szukaj narzędziem szukaj (po słowach i po znaczeniu;
-polskie zwroty prawnicze są tłumaczone), potem czytaj orzeczenie(id) i cytuj
+polskie zwroty prawnicze są tłumaczone) albo fragmenty (od razu najlepsze
+fragmenty tekstów do pytania), potem czytaj orzeczenie(id) i cytuj
 nazwę sprawy, numer skargi, datę oraz link do HUDOC. Nie zgaduj treści
 orzeczeń, których nie przeczytałeś."""
 
@@ -30,9 +33,11 @@ class EtpcMcp(McpServer):
     title = "Orzecznictwo ETPC"
     instructions = INSTRUCTIONS
     semantic_class = EtpcSemantic
+    retriever_class = EtpcRetriever
 
     def register(self, server):
         server.add_tool(self.szukaj, name="szukaj", description=self.szukaj.__doc__)
+        server.add_tool(self.fragmenty, name="fragmenty", description=self.fragmenty.__doc__)
         server.add_tool(self.orzeczenie, name="orzeczenie", description=self.orzeczenie.__doc__)
         server.add_tool(self.podobne, name="podobne", description=self.podobne.__doc__)
 
@@ -87,6 +92,43 @@ class EtpcMcp(McpServer):
         if result.notice:
             head += f"\nUwaga: {result.notice}"
         return "\n\n".join([head] + [_hit(h) for h in result.hits])
+
+    def fragmenty(
+        self,
+        pytanie: str,
+        rodzaj: str = "",
+        panstwo: str = "",
+        artykul: str = "",
+        wynik: str = "",
+        waznosc: int = 0,
+        rok_od: int = 0,
+        rok_do: int = 0,
+        limit_znakow: int = 0,
+    ) -> str:
+        """Najlepsze fragmenty orzeczeń ETPC do pytania, gotowe do odpowiedzi z cytowaniem:
+        [n] sprawa, dane, link HUDOC, a pod spodem fragmenty (nagłówek, znaki od-do).
+        Po znaki można sięgnąć dalej: orzeczenie(id, od=...).
+
+        pytanie: opis problemu po polsku albo angielsku. Filtry jak w szukaj (panstwo: POL ...,
+        artykul: 6, wynik: violation, waznosc: 1-4). limit_znakow: ile tekstu (domyślnie 16000).
+        """
+        q = self.retriever.query(
+            pytanie,
+            kind=rodzaj,
+            respondent=panstwo.upper(),
+            article=artykul,
+            relation=wynik,
+            importance=waznosc,
+            year_from=rok_od,
+            year_to=rok_do,
+        )
+        with self.connect() as conn, conn.cursor() as cur:
+            try:
+                result = self.retriever.retrieve(cur, q, limit_znakow or None)
+            except search.QueryError as e:
+                return f"Błąd zapytania: {e}"
+        notice = f"Uwaga: {result.notice}\n\n" if result.notice else ""
+        return notice + render(result)
 
     def orzeczenie(self, id: int, jezyk: str = "", od: int = 0) -> str:
         """Orzeczenie o tym id (z wyników szukaj): metadane i pełny tekst jednej wersji

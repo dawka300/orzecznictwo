@@ -1,6 +1,7 @@
 """NSA/WSA judgments as tools for Claude: python -m nsa mcp (child of McpServer).
 
 szukaj - hybrid search (words + meaning) with the page's filters;
+fragmenty - the best passages for a question, packed into a limit (RAG);
 orzeczenie - metadata and the text (in parts for long ones);
 podobne - judgments closest in meaning to one judgment.
 """
@@ -8,17 +9,17 @@ podobne - judgments closest in meaning to one judgment.
 from __future__ import annotations
 
 from judgments_core.mcp import McpServer, cut, lines
+from judgments_core.rag import render
 from judgments_core.semantic import SemanticUnavailable
 from nsa import search
+from nsa.rag import CBOSA_URL, FINAL, NsaRetriever
 from nsa.semantic import NsaSemantic
-
-CBOSA_URL = "https://orzeczenia.nsa.gov.pl/doc/{}"
-FINAL = {1: "prawomocne", 0: "nieprawomocne"}
 
 INSTRUCTIONS = """\
 Orzeczenia polskich sądów administracyjnych (NSA i wszystkie WSA) z bazy CBOSA,
 do marca 2025: wyroki, postanowienia, uchwały; teza, sentencja, uzasadnienie.
-Szukaj narzędziem szukaj (po słowach i po znaczeniu naraz), potem czytaj
+Szukaj narzędziem szukaj (po słowach i po znaczeniu naraz) albo fragmenty
+(od razu najlepsze fragmenty tekstów do pytania), potem czytaj
 orzeczenie(id) i cytuj sygnaturę, datę, sąd oraz link do CBOSA. Nie zgaduj
 treści orzeczeń, których nie przeczytałeś."""
 
@@ -28,9 +29,11 @@ class NsaMcp(McpServer):
     title = "Orzecznictwo sądów administracyjnych"
     instructions = INSTRUCTIONS
     semantic_class = NsaSemantic
+    retriever_class = NsaRetriever
 
     def register(self, server):
         server.add_tool(self.szukaj, name="szukaj", description=self.szukaj.__doc__)
+        server.add_tool(self.fragmenty, name="fragmenty", description=self.fragmenty.__doc__)
         server.add_tool(self.orzeczenie, name="orzeczenie", description=self.orzeczenie.__doc__)
         server.add_tool(self.podobne, name="podobne", description=self.podobne.__doc__)
 
@@ -89,6 +92,45 @@ class NsaMcp(McpServer):
         if result.notice:
             head += f"\nUwaga: {result.notice}"
         return "\n\n".join([head] + [_hit(h) for h in result.hits])
+
+    def fragmenty(
+        self,
+        pytanie: str,
+        rodzaj: str = "",
+        instancja: str = "",
+        sad: str = "",
+        rok_od: int = 0,
+        rok_do: int = 0,
+        symbol: str = "",
+        haslo: str = "",
+        tylko_z_teza: bool = False,
+        limit_znakow: int = 0,
+    ) -> str:
+        """Najlepsze fragmenty orzeczeń NSA/WSA do pytania, gotowe do odpowiedzi z cytowaniem:
+        [n] sygnatura, sąd, data, link CBOSA, a pod spodem fragmenty (część, znaki od-do).
+        Po znaki można sięgnąć dalej: orzeczenie(id, od=...).
+
+        pytanie: opis problemu prawnego. Filtry jak w szukaj (instancja: nsa / wsa, symbol: 6110,
+        haslo, tylko_z_teza). limit_znakow: ile tekstu (domyślnie 16000).
+        """
+        q = self.retriever.query(
+            pytanie,
+            kind=rodzaj,
+            instance=instancja,
+            court=sad,
+            year_from=rok_od,
+            year_to=rok_do,
+            symbol=symbol,
+            keyword=haslo,
+            with_thesis=tylko_z_teza,
+        )
+        with self.connect() as conn, conn.cursor() as cur:
+            try:
+                result = self.retriever.retrieve(cur, q, limit_znakow or None)
+            except search.QueryError as e:
+                return f"Błąd zapytania: {e}"
+        notice = f"Uwaga: {result.notice}\n\n" if result.notice else ""
+        return notice + render(result)
 
     def orzeczenie(self, id: int, od: int = 0) -> str:
         """Orzeczenie o tym id (z wyników szukaj): metadane i pełny tekst (teza, sentencja,

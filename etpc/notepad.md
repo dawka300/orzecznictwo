@@ -127,3 +127,6 @@ Judgments and decisions of the European Court of Human Rights from HUDOC, https:
 ## Query vectors in the process and MCP (2026-10-19)
 - The page (8080) computes query vectors itself (bge-m3 via sentence-transformers, CPU, ~1 s per query) - LM Studio only for `wektory`. Same results as LM Studio (identical top 10).
 - `python -m etpc mcp`: tools `szukaj` (hybrid, filters panstwo/artykul/wynik/waznosc/lata/nr_skargi/jezyk), `orzeczenie` (metadata + text of one language version, in parts `od=`), `podobne`. Live test: "przewlekłość postępowania sądowego w Polsce" -> 345 hits with HUDOC links. Tip for Claude: the country filter (`panstwo=POL`) narrows better than "w Polsce" in the text.
+
+## RAG (2026-10-19)
+- `etpc/rag.py` (retriever, potomek `Retriever`), narzędzie MCP `fragmenty`, `python -m etpc fragmenty "pytanie"`, `python -m etpc ocen` na `etpc/pytania.json`. Pierwszy pomiar: ETPC 12 pytań: MRR 0.670, 74% oczekiwanych w kontekście. Plan i następne kroki: główny [`../notepad.md`](../notepad.md), sekcja RAG.

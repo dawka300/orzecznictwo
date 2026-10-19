@@ -60,3 +60,6 @@ Judgments of the Supreme Administrative Court (NSA) and the voivodeship administ
 - Stop/resume: Ctrl+C or Stop-Process on the python process; resume with the same commands (cursor `juddges:cursor` = {"file", "row"}, processing by changed_at). Closing Docker Desktop stops it too.
 - **NSA vectors not started** (only the 5-judgment trial): the GPU is busy with ETPC. Start after ETPC: `python -m nsa wektory` (resolutions and judgments with a thesis first; ~15M chunks for everything - decide later how far to go).
 - **Next:** check the imported data (counts per year 2023-2025, the gap after 2025-03), the NSA page on 8082 with the full set (FULLTEXT speed on ~1.8M judgments, buffer pool), then the gap after 2025-03 (ask the JuDDGES authors / NSA).
+
+## RAG (2026-10-19)
+- `nsa/rag.py` (retriever, potomek `Retriever`), narzędzie MCP `fragmenty`, `python -m nsa fragmenty "pytanie"`, `python -m nsa ocen` na `nsa/pytania.json`. Pierwszy pomiar: NSA 6 pytań o uchwały: MRR 0.667, 4 z 6 w kontekście (wektory tylko 5). Plan i następne kroki: główny [`../notepad.md`](../notepad.md), sekcja RAG.

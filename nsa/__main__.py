@@ -7,6 +7,7 @@ from nsa.embed import NsaEmbedJob
 from nsa.importer import NsaImporter
 from nsa.juddges import JuddgesSource
 from nsa.mcp import NsaMcp
+from nsa.rag import NsaRetriever
 from nsa.web import NsaWebApp
 
 PROJECT = Project(
@@ -20,6 +21,7 @@ PROJECT = Project(
     embed_job=NsaEmbedJob,
     web=NsaWebApp,
     mcp=NsaMcp,
+    retriever=NsaRetriever,
     migrations=Path(__file__).parent / "migrations",
 )
 

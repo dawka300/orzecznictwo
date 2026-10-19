@@ -11,6 +11,8 @@ python -m nsa kopia                     # zrzut bazy do <NSA_BACKUP_DIR>/nsa.sql
 python -m etpc www --port 8080          # wyszukiwarka w przeglądarce
 python -m etpc wektory --budzet 3600    # embeddingi (LM Studio) do Qdranta, wznawia
 python -m etpc mcp                      # baza jako narzędzia dla Claude'a (stdio, .mcp.json)
+python -m etpc fragmenty "pytanie"      # kontekst RAG: najlepsze fragmenty do pytania
+python -m etpc ocen                     # trafność fragmentów na pytaniach z etpc/pytania.json
 
 Każdy przebieg pobierz/przetworz/sprawdz zapisuje się w fetch_runs, blokady
 i błędy źródła w fetch_events, rekordy z problemem w record_problems.
@@ -34,6 +36,7 @@ from judgments_core.embeddings import make_embedder
 from judgments_core.http import PoliteClient
 from judgments_core.importer import Importer
 from judgments_core.qdrant import QdrantStore, collection_name
+from judgments_core.rag import render
 from judgments_core.settings import DOTENV_PATH, Settings
 from judgments_core.transport import make_transport
 from judgments_core.web import serve
@@ -64,6 +67,8 @@ class Project:
     embed_job: type | None = None
     # klasa potomna judgments_core.mcp.McpServer: polecenie mcp; None = brak
     mcp: type | None = None
+    # klasa potomna judgments_core.rag.Retriever: polecenia fragmenty, ocen; None = brak
+    retriever: type | None = None
 
 
 def build_parser(project):
@@ -148,6 +153,20 @@ def build_parser(project):
         help="policz wszystko od nowa (np. po zmianie chunkera)",
     )
     commands.add_parser("mcp", help="serwer MCP dla Claude'a (stdio; uruchamia go Claude)")
+    passages = commands.add_parser(
+        "fragmenty", help="najlepsze fragmenty orzeczeń do pytania (kontekst dla modelu)"
+    )
+    passages.add_argument("question", metavar="pytanie")
+    passages.add_argument(
+        "--limit-znakow", dest="budget_chars", type=int, help="ile tekstu (domyślnie 16000)"
+    )
+    evaluate = commands.add_parser(
+        "ocen", help="trafność fragmentów na pytaniach wzorcowych (<projekt>/pytania.json)"
+    )
+    evaluate.add_argument("--plik", dest="path", help="plik z pytaniami (JSON)")
+    evaluate.add_argument(
+        "--limit-znakow", dest="budget_chars", type=int, help="ile tekstu (domyślnie 16000)"
+    )
     commands.add_parser(
         "kopia", help="zrzut bazy do <PREFIKS>_BACKUP_DIR (też sam po pobierz/przetworz)"
     )
@@ -196,6 +215,10 @@ def main(project, argv=None, settings=None):
             return _embed(project, settings, args)
         if args.command == "mcp":
             return _mcp(project, settings)
+        if args.command == "fragmenty":
+            return _passages(project, settings, args)
+        if args.command == "ocen":
+            return _evaluate(project, settings, args)
         if args.command == "kopia":
             return _backup(project, settings, required=True)
         return _status(project, settings, args)
@@ -450,6 +473,37 @@ def _mcp(project, settings):
     if project.mcp is None:
         raise NotImplementedError(f"projekt {project.name} nie ma jeszcze serwera MCP")
     project.mcp(settings).run()
+    return 0
+
+
+def _retriever(project, settings):
+    if project.retriever is None:
+        raise NotImplementedError(f"projekt {project.name} nie ma jeszcze fragmentów (RAG)")
+    return project.retriever.from_settings(settings, project.name)
+
+
+def _passages(project, settings, args):
+    retriever = _retriever(project, settings)
+    with db.connect(settings.db_dsn, autocommit=True) as conn, conn.cursor() as cur:
+        result = retriever.retrieve(cur, retriever.query(args.question), args.budget_chars)
+    if result.notice:
+        log.info("%s", result.notice)
+    print(render(result))
+    log.info(
+        "%d orzeczeń, %d znaków (tryb %s)", len(result.sources), result.chars, result.mode or "?"
+    )
+    return 0
+
+
+def _evaluate(project, settings, args):
+    from judgments_core import evaluation
+
+    path = Path(args.path) if args.path else project.migrations.parent / "pytania.json"
+    questions = evaluation.load(path)
+    retriever = _retriever(project, settings)
+    with db.connect(settings.db_dsn, autocommit=True) as conn, conn.cursor() as cur:
+        scores = evaluation.evaluate(retriever, cur, questions, args.budget_chars)
+    print("\n".join(evaluation.report(scores)))
     return 0
 
 

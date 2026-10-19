@@ -132,15 +132,16 @@ class QdrantStore:
         result = self._call("POST", "/points/query", self._query(vector, k, filters, exclude))
         return [_hit(p) for p in result["points"]]
 
-    def search_judgments(self, vector, k=10, filters=None, exclude=None):
-        """Best chunk of each of the k best judgments (Qdrant groups by judgment_id)."""
+    def search_judgments(self, vector, k=10, filters=None, exclude=None, per_judgment=1):
+        """Best chunks (per_judgment of them) of each of the k best judgments, judgment
+        after judgment (Qdrant groups by judgment_id)."""
         body = {
             **self._query(vector, k, filters, exclude),
             "group_by": "judgment_id",
-            "group_size": 1,
+            "group_size": per_judgment,
         }
         result = self._call("POST", "/points/query/groups", body)
-        return [_hit(group["hits"][0]) for group in result["groups"] if group["hits"]]
+        return [_hit(hit) for group in result["groups"] for hit in group["hits"]]
 
     def vectors_of(self, judgment_id, limit=2000):
         """[(part, vector)] of one judgment's chunks."""
