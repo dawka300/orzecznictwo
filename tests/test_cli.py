@@ -15,7 +15,7 @@ def test_dry_run_prints_records_without_database(tmp_path, capsys):
     project = Project(
         name="fake",
         title="test",
-        make_source=lambda s, c: FakeSource([["a", "b"], ["c"]]),
+        source=lambda s, c: FakeSource([["a", "b"], ["c"]]),
         migrations=tmp_path,
     )
     assert main(project, ["pobierz", "--na-sucho", "--limit", "2"], settings(tmp_path)) == 0
@@ -35,7 +35,7 @@ class UnwrittenSource:
 
 
 def unwritten_project(tmp_path):
-    return Project(name="unwritten", title="test", make_source=UnwrittenSource, migrations=tmp_path)
+    return Project(name="unwritten", title="test", source=UnwrittenSource, migrations=tmp_path)
 
 
 def test_unwritten_source_exits_with_2(tmp_path):
@@ -64,7 +64,7 @@ def test_passes_are_logged_in_the_database(conn, tmp_path):
     project = Project(
         name="fake",
         title="test",
-        make_source=lambda settings, client: next(sources),
+        source=lambda settings, client: next(sources),
         migrations=tmp_path,
     )
     assert main(project, ["migracje"], s) == 0

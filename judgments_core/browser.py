@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 import requests
 import requests.structures
 
-from judgments_core.http import CurlResponse, _full_url
+from judgments_core.transport import Response, Transport, full_url
 
 log = logging.getLogger(__name__)
 
@@ -32,15 +32,17 @@ FETCH_JS = """async ([url, timeoutMs]) => {
 }"""
 
 
-class PlaywrightSession:
-    """Same interface as requests.Session.get for PoliteClient; close() at the end.
+class PlaywrightTransport(Transport):
+    """Transport strategy through a headless Chromium; close() at the end.
 
     The browser keeps its own User-Agent: a made-up one next to a real
     Chromium fingerprint looks more suspicious to Cloudflare, not less.
     """
 
+    name = "playwright"
+
     def __init__(self, headless=True):
-        self.headers = {}  # User-Agent z PoliteClient - przeglądarka ma własny
+        super().__init__()  # headers: User-Agent z PoliteClient - przeglądarka ma własny
         self.headless = headless
         self._playwright = None
         self._browser = None
@@ -49,7 +51,7 @@ class PlaywrightSession:
         self._reload = True
 
     def get(self, url, params=None, timeout=60.0):
-        url = _full_url(url, params)
+        url = full_url(url, params)
         self._start()  # brak Playwrighta/Chromium: błąd od razu, bez ponawiania
         try:
             self._open_origin(url, timeout)
@@ -61,7 +63,7 @@ class PlaywrightSession:
         if result["status"] == 403 and headers.get("cf-mitigated"):
             # Cloudflare zatrzymał zapytanie: przed następnym strona od nowa.
             self._reload = True
-        return CurlResponse(result["status"], headers, result["body"].encode("utf-8"), url)
+        return Response(result["status"], headers, result["body"].encode("utf-8"), url)
 
     def close(self):
         if self._browser is not None:

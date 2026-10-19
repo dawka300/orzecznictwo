@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 from etpc.embed import embed
+from etpc.importer import EtpcImporter
 from etpc.ranks import refresh_ranks
 from etpc.source import HudocSource
 from etpc.stats import refresh_stats
@@ -20,10 +21,12 @@ def refresh_derived(cur):
 PROJECT = Project(
     name="etpc",
     title="Orzeczenia ETPC z HUDOC",
-    make_source=HudocSource,
+    source=HudocSource,
+    importer=EtpcImporter,
     migrations=Path(__file__).parent / "migrations",
-    # HUDOC stoi za Cloudflare, który zatrzymuje TLS Pythona, a curl przepuszcza.
-    transport="curl",
+    # HUDOC stoi za Cloudflare: TLS Pythona zatrzymuje zawsze, curl zwykle
+    # przepuszcza, a gdy i jego blokuje - przeglądarka (tylko lokalnie).
+    transports=("requests", "curl", "playwright"),
     derive=derive,
     verify=verify,
     after_derive=refresh_derived,

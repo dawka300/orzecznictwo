@@ -128,7 +128,11 @@ class QdrantStore:
 
     def search_judgments(self, vector, k=10, filters=None, exclude=None):
         """Best chunk of each of the k best judgments (Qdrant groups by judgment_id)."""
-        body = {**self._query(vector, k, filters, exclude), "group_by": "judgment_id", "group_size": 1}
+        body = {
+            **self._query(vector, k, filters, exclude),
+            "group_by": "judgment_id",
+            "group_size": 1,
+        }
         result = self._call("POST", "/points/query/groups", body)
         return [_hit(group["hits"][0]) for group in result["groups"] if group["hits"]]
 

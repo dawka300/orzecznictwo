@@ -33,3 +33,8 @@ Shared notes for the core. Each project has its own: [`nsa/notepad.md`](nsa/note
 2. When the first project has a parser: a shared "re-derive tables from `raw_records`" command (like `rebuild_from_raw.py` in SAOS) - add to the core once its shape is clear from one real project.
 3. Backups of the MariaDB database (`mysqldump`, or what the hosting panel offers).
 4. Chunking + vector store implementation, when RAG starts.
+
+## Core = parents, projects = children (2026-10-19)
+- Rule (also in CLAUDE.md): a project that needs a core class to behave differently gets a child class in its own package; no project cases in core files.
+- **Stage 1 done:** `judgments_core/transport.py` = strategy pattern for HTTP: `Transport` (ABC) with `RequestsTransport`, `CurlTransport`, `PlaywrightTransport` (`browser.py`), and `FallbackTransport` (chain: the next strategy takes over after 2 Cloudflare challenges in a row, the request is repeated at once, event `transport` in fetch_events; transports created only when reached). `PoliteClient(transport=...)` keeps pauses/retries/events. `Source` is an ABC (`HudocSource`, `JuddgesSource`, `CbosaSource` are children). `Project(source=..., importer=..., transports=(...))`; `EtpcImporter`, `NsaImporter` children of `Importer` (empty for now - the place for project-specific import behaviour). ETPC chain: requests -> curl -> playwright (live check: switched twice, ~1.5 min overhead at the start); `ETPC_TRANSPORT=playwright` in .env skips the chain; the setting also takes a comma list (`curl,playwright`).
+- Next stages: 2) parser, table writer, deriver as parent classes with ETPC/NSA children; 3) chunker, embedding job, web pages.

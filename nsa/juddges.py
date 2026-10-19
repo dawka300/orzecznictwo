@@ -20,7 +20,7 @@ from pathlib import Path
 
 import requests
 
-from judgments_core.source import Page, RawRecord
+from judgments_core.source import Page, RawRecord, Source
 
 log = logging.getLogger(__name__)
 
@@ -33,11 +33,13 @@ BATCH_ROWS = 500
 SKIPPED_COLUMNS = ("full_text",)
 
 
-class JuddgesSource:
+class JuddgesSource(Source):
+    """Local parquet files of the dataset - the NSA child of Source (no HTTP client needed)."""
+
     name = "juddges"
 
     def __init__(self, settings=None, client=None, data_dir=DATA_DIR, files=None):
-        self.settings = settings
+        super().__init__(settings, client)
         self.data_dir = Path(data_dir)
         self._files = files  # nazwy plików; None = lista z Hugging Face
 

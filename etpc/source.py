@@ -22,7 +22,7 @@ import json
 import logging
 from datetime import timedelta
 
-from judgments_core.source import Page, RawRecord, utc_now
+from judgments_core.source import Page, RawRecord, Source, utc_now
 
 BASE_URL = "https://hudoc.echr.coe.int"
 SEARCH_URL = BASE_URL + "/app/query/results"
@@ -48,12 +48,13 @@ SINCE_MARGIN = timedelta(days=1)
 log = logging.getLogger(__name__)
 
 
-class HudocSource:
+class HudocSource(Source):
+    """HUDOC search API (judgments and decisions) - the ETPC child of Source."""
+
     name = "hudoc"
 
     def __init__(self, settings, client, page_size=PAGE_SIZE, now=utc_now):
-        self.settings = settings
-        self.client = client
+        super().__init__(settings, client)
         self.page_size = page_size
         self.now = now
 

@@ -29,13 +29,13 @@ from pathlib import Path
 
 from judgments_core import db
 from judgments_core.backup import dump_database
-from judgments_core.browser import PlaywrightSession
 from judgments_core.deriver import Deriver
 from judgments_core.embeddings import Embedder
-from judgments_core.http import CurlSession, PoliteClient
+from judgments_core.http import PoliteClient
 from judgments_core.importer import Importer
 from judgments_core.qdrant import QdrantStore, collection_name
 from judgments_core.settings import DOTENV_PATH, Settings
+from judgments_core.transport import make_transport
 from judgments_core.web import serve
 
 log = logging.getLogger(__name__)
@@ -45,11 +45,15 @@ log = logging.getLogger(__name__)
 class Project:
     name: str  # "nsa": prefiks zmiennych NSA_*, nazwa blokady, plik logu
     title: str
-    make_source: Callable  # (settings, client) -> Source
+    # (settings, client) -> Source: klasa potomna judgments_core.source.Source
+    source: Callable
     migrations: Path  # katalog NNN_*.sql projektu (po migracjach rdzenia)
-    # requests / curl (Cloudflare blokuje TLS Pythona) / playwright (prawdziwa
-    # przeglądarka, tylko lokalnie); ustawienie <PREFIKS>_TRANSPORT ma pierwszeństwo
-    transport: str = "requests"
+    # klasa importu: Importer albo jego klasa potomna w projekcie
+    importer: type = Importer
+    # Strategie transportu po kolei (judgments_core/transport.py): następna
+    # przejmuje, gdy Cloudflare blokuje bieżącą. <PREFIKS>_TRANSPORT (jedna
+    # nazwa albo kilka po przecinku) ma pierwszeństwo.
+    transports: tuple = ("requests",)
     # derive(cursor, records) -> problemy: tabele projektu z raw_records; None = brak parsera
     derive: Callable | None = None
     # verify(store, source, years) -> wyniki: porównanie źródła z bazą; None = brak
@@ -211,21 +215,19 @@ def _migrate(project, settings):
 
 
 def _make_source(project, settings, closer, on_event=None):
-    """The project's source over the chosen transport; closer closes the session at the end."""
-    transport = settings.transport or project.transport
-    if transport == "curl":
-        session = CurlSession()
-    elif transport == "playwright":
-        session = PlaywrightSession()
-    elif transport == "requests":
-        session = None
-    else:
-        raise ValueError(f"nieznany transport: {transport} (requests / curl / playwright)")
-    if session is not None:
-        closer.callback(session.close)
-    log.info("transport: %s", transport)
-    client = PoliteClient.from_settings(settings, session=session, on_event=on_event)
-    return project.make_source(settings, client)
+    """The project's source over its transport strategy; closer closes it at the end."""
+    names = settings.transport.split(",") if settings.transport else project.transports
+
+    def switched(old, new, url):
+        if on_event is not None:
+            on_event("transport", f"{old} blokowany - przejście na {new}", url, None)
+
+    transport = make_transport(names, on_switch=switched)
+    log.info("transport: %s", " -> ".join(n.strip() for n in names))
+    client = PoliteClient.from_settings(settings, transport=transport, on_event=on_event)
+    source = project.source(settings, client)
+    closer.callback(client.close)
+    return source
 
 
 def _lock_name(project):
@@ -274,7 +276,7 @@ def _fetch(project, settings, args):
     if args.dry_run:
         with contextlib.ExitStack() as closer:
             source = _make_source(project, settings, closer)
-            result = Importer(
+            result = project.importer(
                 source, limit=args.limit, time_budget_s=budget, outputs=[_print_record]
             ).run()
         _report(result)
@@ -289,7 +291,7 @@ def _fetch(project, settings, args):
             ids = store.open_problems(source.name, "pobierz", "brak_w_bazie", limit=args.limit)
             log.info("brakujących do pobrania: %d", len(ids))
             source = _IdsSource(source, ids)
-        importer = Importer(
+        importer = project.importer(
             source,
             store,
             limit=args.limit,
