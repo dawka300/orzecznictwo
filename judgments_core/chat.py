@@ -7,7 +7,10 @@ has loaded (GET .../models, embedding models skipped). Runs where the model
 is (a PC), not on the hosting.
 
 Reasoning models (Qwen3 ...) may write "<think>...</think>" before the
-answer; without_thinking() drops it from a stream.
+answer; without_thinking() drops it from a stream. LM Studio may instead
+send the reasoning apart (delta.reasoning_content, skipped here); its tokens
+still count against max_tokens. reasoning_effort="none" switches it off
+for models that honour it (qwen3.8 does, Qwen3 needs /no_think in the prompt).
 """
 
 from __future__ import annotations
@@ -54,6 +57,7 @@ class HttpChat(ChatModel):
         max_tokens=2000,
         timeout_s=600.0,
         api_key="",
+        reasoning_effort="",
         session=None,
     ):
         super().__init__(model)
@@ -62,6 +66,7 @@ class HttpChat(ChatModel):
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.timeout_s = timeout_s
+        self.reasoning_effort = reasoning_effort  # "" = nie wysyłać
         self.session = session or requests.Session()
 
     def stream(self, messages):
@@ -72,6 +77,8 @@ class HttpChat(ChatModel):
             "max_tokens": self.max_tokens,
             "stream": True,
         }
+        if self.reasoning_effort:
+            body["reasoning_effort"] = self.reasoning_effort
         try:
             response = self.session.post(
                 self.url, json=body, stream=True, timeout=self.timeout_s, headers=self.headers
@@ -85,6 +92,7 @@ class HttpChat(ChatModel):
                 raise ChatError(
                     f"serwer modelu: HTTP {response.status_code}: {response.text[:300]}"
                 )
+            wrote, finish = False, None
             try:
                 # Bajty, nie tekst: iter_lines(decode_unicode=True) dzieli też na U+2028,
                 # U+0085 ... wewnątrz treści i ucina wiersz JSON-u.
@@ -96,13 +104,21 @@ class HttpChat(ChatModel):
                     if data == "[DONE]":
                         break
                     choices = json.loads(data).get("choices") or [{}]
+                    finish = choices[0].get("finish_reason") or finish
                     piece = (choices[0].get("delta") or {}).get("content")
                     if piece:
+                        wrote = True
                         yield piece
             except requests.RequestException as e:
                 raise ChatError(
                     f"serwer modelu przerwał odpowiedź ({type(e).__name__}: {e})"
                 ) from e
+            if not wrote and finish == "length":
+                raise ChatError(
+                    f"model zużył limit {self.max_tokens} tokenów, zanim zaczął odpowiadać"
+                    " (myślenie?): ustaw <PREFIKS>_CHAT_REASONING_EFFORT=none albo większe"
+                    " <PREFIKS>_CHAT_MAX_TOKENS"
+                )
 
     def loaded_model(self):
         """The first loaded chat model (not an embedding model); remembered."""
@@ -133,6 +149,7 @@ def make_chat(settings):
         temperature=settings.chat_temperature,
         max_tokens=settings.chat_max_tokens,
         timeout_s=settings.chat_timeout_s,
+        reasoning_effort=settings.chat_reasoning_effort,
     )
 
 
@@ -145,6 +162,7 @@ def make_judge(settings):
         max_tokens=3000,
         timeout_s=settings.chat_timeout_s,
         api_key=settings.judge_api_key,
+        reasoning_effort="" if settings.judge_url else settings.chat_reasoning_effort,
     )
 
 

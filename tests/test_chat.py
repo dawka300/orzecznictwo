@@ -131,3 +131,17 @@ def test_suffix_goes_after_the_question():
     chat = FakeChat(["Odp."])
     Pipeline(retriever=None, chat=chat, suffix="/no_think").answer("Pytanie?", retrieval())
     assert chat.messages[1]["content"].endswith("Pytanie: Pytanie?\n\n/no_think")
+
+
+def test_reasoning_effort_and_thinking_that_ate_the_limit():
+    done = [
+        b'data: {"choices": [{"delta": {"reasoning_content": "hmm"}, "finish_reason": "length"}]}'
+    ]
+    session = Session(post=Response(lines=done))
+    chat = HttpChat("http://h/v1/chat/completions", "m", reasoning_effort="none", session=session)
+    with pytest.raises(ChatError, match="REASONING_EFFORT=none"):
+        chat.complete([])
+    assert session.posted[0][1]["reasoning_effort"] == "none"
+    plain = Session(post=Response(lines=sse("ok")))
+    HttpChat("http://h/v1/chat/completions", "m", session=plain).complete([])
+    assert "reasoning_effort" not in plain.posted[0][1]

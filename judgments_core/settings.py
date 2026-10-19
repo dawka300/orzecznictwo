@@ -82,6 +82,9 @@ class Settings:
     chat_timeout_s: float = 600.0
     # Dopisek na końcu pytania do modelu, np. /no_think (Qwen3 bez „myślenia”: szybciej).
     chat_suffix: str = ""
+    # reasoning_effort w zapytaniu (np. none: bez myślenia dla modeli, które to
+    # obsługują, jak qwen3.8; Qwen3 potrzebuje chat_suffix=/no_think); puste = nie wysyłać.
+    chat_reasoning_effort: str = ""
     # Model-sędzia oceniający odpowiedzi (ocen-odpowiedzi): puste = ten sam co chat_*;
     # może być mocniejszy model za API zgodnym z OpenAI (klucz: Authorization: Bearer).
     judge_url: str = ""

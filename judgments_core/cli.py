@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import logging
+import re
 import shlex
 import sys
 from collections.abc import Callable
@@ -641,8 +642,12 @@ def _check_answers(project, settings, args):
     model = pipeline.chat.model or "?"
     print("\n".join(answer_eval.report(checks, model)))
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    out = project.migrations.parent / "database" / "odpowiedzi" / f"{stamp}-{model}.json"
-    note = f"suffix={settings.chat_suffix!r} temperature={settings.chat_temperature}"
+    name = re.sub(r"[^\w.-]+", "-", model)  # "qwen/qwen3.8-27b" -> bez podkatalogu
+    out = project.migrations.parent / "database" / "odpowiedzi" / f"{stamp}-{name}.json"
+    note = (
+        f"suffix={settings.chat_suffix!r} reasoning_effort={settings.chat_reasoning_effort!r}"
+        f" temperature={settings.chat_temperature} limit_znakow={args.budget_chars}"
+    )
     answer_eval.save(checks, out, model, note)
     log.info("Odpowiedzi zapisane: %s", out)
     return 0
