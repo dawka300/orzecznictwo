@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 import pymysql
 
 from etpc import glossary
-from etpc.semantic import SemanticUnavailable
+from judgments_core.semantic import SemanticUnavailable
 
 PAGE_SIZE = 20
 # Zapytanie dłuższe niż tyle sekund jest przerywane (bardzo ogólne słowa
@@ -241,7 +241,7 @@ class SearchResult:
 def search(cur, q, semantic=None):
     """Run the query; raises QueryError for unsearchable or too slow queries.
 
-    semantic (etpc.semantic.Semantic) enables the hybrid and semantic modes;
+    semantic (etpc.semantic.EtpcSemantic) enables the hybrid and semantic modes;
     without it, or when LM Studio/Qdrant is down, the search is FULLTEXT only.
     """
     if semantic is not None and q.text.strip() and q.field == "tresc" and q.mode != "pelnotekstowe":
@@ -272,7 +272,7 @@ def _fulltext(cur, q):
 
 def _hybrid(cur, q, semantic):
     started = time.monotonic()
-    passages = {p.ruling_id: p for p in semantic.rulings(q.text, q, k=CANDIDATES)}
+    passages = {p.judgment_id: p for p in semantic.judgments(q.text, q, k=CANDIDATES)}
     terms, by_words, notice = None, [], ""
     if q.mode != "znaczeniowe":
         try:
@@ -334,13 +334,13 @@ def _add_passages(cur, hits, passages):
     args = []
     for hit in hits:
         p = passages[hit.id]
-        args += [p.itemid, p.start + 1, SNIPPET_LENGTH, p.itemid]
+        args += [p.document, p.start + 1, SNIPPET_LENGTH, p.document]
     cur.execute(" UNION ALL ".join([piece] * len(hits)), args)
     texts = dict(cur.fetchall())
     for hit in hits:
         p = passages[hit.id]
-        hit.itemid, hit.snippet_language = p.itemid, p.language
-        hit.snippet = _trim(texts.get(p.itemid, ""), False)
+        hit.itemid, hit.snippet_language = p.document, p.language
+        hit.snippet = _trim(texts.get(p.document, ""), False)
         hit.passage = p.context.split(" | ", 1)[1] if " | " in p.context else ""
         hit.passage_start, hit.passage_length = p.start, p.length
 

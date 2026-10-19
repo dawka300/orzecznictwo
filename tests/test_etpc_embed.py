@@ -2,7 +2,8 @@
 
 from test_etpc_tables import derive, english, polish, rows, save, setup
 
-from etpc.embed import EmbedJob
+from etpc.embed import PROGRESS_KEY, EtpcEmbedJob
+from judgments_core.embed import read_progress
 
 
 class FakeEmbedder:
@@ -44,14 +45,14 @@ def prepared(conn):
 def run(conn, embedder=None, vectors=None, **options):
     embedder = embedder or FakeEmbedder()
     vectors = vectors if vectors is not None else FakeVectors()
-    result = EmbedJob(conn, embedder, vectors, batch_size=4, **options).run()
+    result = EtpcEmbedJob(conn, embedder, vectors, batch_size=4, **options).run()
     return result, embedder, vectors
 
 
 def test_embeds_english_version_once(conn):
     ruling_id = prepared(conn)
     result, embedder, vectors = run(conn)
-    assert (result.rulings, result.finished) == (1, True)
+    assert (result.judgments, result.finished) == (1, True)
     chunks = vectors.points[str(ruling_id)]
     assert len(chunks) == result.chunks > 1
     assert all(len(batch) <= 4 for batch in embedder.calls)
@@ -65,17 +66,17 @@ def test_embeds_english_version_once(conn):
         (ruling_id, "001-252650", "fake-model", len(chunks)),
     )
     again, embedder, _ = run(conn, vectors=vectors)
-    assert (again.rulings, embedder.calls) == (0, [])
+    assert (again.judgments, embedder.calls) == (0, [])
 
 
 def test_changed_text_or_model_embeds_again(conn):
     prepared(conn)
     _, _, vectors = run(conn)
     rows(conn, "UPDATE ruling_vectors SET body_sha256 = 'stary'")
-    assert run(conn, vectors=vectors)[0].rulings == 1
+    assert run(conn, vectors=vectors)[0].judgments == 1
     other = FakeEmbedder()
     other.model = "inny-model"
-    assert run(conn, embedder=other, vectors=vectors)[0].rulings == 1
+    assert run(conn, embedder=other, vectors=vectors)[0].judgments == 1
     assert rows(conn, "SELECT model FROM ruling_vectors") == (("inny-model",),)
 
 
@@ -93,7 +94,7 @@ def test_time_budget_stops_before_work(conn):
     prepared(conn)
     ticks = iter(range(0, 1000, 100))
     result, embedder, _ = run(conn, time_budget_s=50, clock=lambda: next(ticks))
-    assert (result.rulings, result.stopped_by, result.remaining, embedder.calls) == (
+    assert (result.judgments, result.stopped_by, result.remaining, embedder.calls) == (
         0,
         "czas",
         1,
@@ -102,12 +103,11 @@ def test_time_budget_stops_before_work(conn):
 
 
 def test_progress_saved(conn):
-    from etpc.embed import read_progress
 
     prepared(conn)
     run(conn)
     with conn.cursor() as cur:
-        progress = read_progress(cur)
+        progress = read_progress(cur, PROGRESS_KEY)
     assert (
         progress["status"],
         progress["total"],
@@ -125,12 +125,14 @@ def test_progress_saved(conn):
 def test_progress_of_killed_pass(conn):
     from datetime import timedelta
 
-    from etpc.embed import read_progress
     from judgments_core.source import utc_now
 
     prepared(conn)
     run(conn)
     rows(conn, "UPDATE sync_state SET value = REPLACE(value, '\"gotowe\"', '\"liczy\"')")
     with conn.cursor() as cur:
-        assert read_progress(cur)["status"] == "liczy"
-        assert read_progress(cur, now=utc_now() + timedelta(minutes=11))["status"] == "przerwano"
+        assert read_progress(cur, PROGRESS_KEY)["status"] == "liczy"
+        assert (
+            read_progress(cur, PROGRESS_KEY, now=utc_now() + timedelta(minutes=11))["status"]
+            == "przerwano"
+        )

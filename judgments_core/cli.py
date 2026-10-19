@@ -57,11 +57,10 @@ class Project:
     deriver: type | None = None
     # verify(store, source, years) -> wyniki: porównanie źródła z bazą; None = brak
     verify: Callable | None = None
-    # web(settings) -> aplikacja WSGI: polecenie www; None = brak stron
+    # klasa potomna judgments_core.web.WebApp (settings) -> WSGI: polecenie www; None = brak
     web: Callable | None = None
-    # embed(conn, embedder, vectors, limit=, time_budget_s=, from_start=, batch_size=)
-    # -> wynik: polecenie wektory; None = brak
-    embed: Callable | None = None
+    # klasa potomna judgments_core.embed.EmbedJob: polecenie wektory; None = brak
+    embed_job: type | None = None
 
 
 def build_parser(project):
@@ -389,7 +388,7 @@ def _verify(project, settings, args):
 
 
 def _embed(project, settings, args):
-    if project.embed is None:
+    if project.embed_job is None:
         raise NotImplementedError(f"projekt {project.name} nie ma jeszcze wektorów")
     budget = settings.time_budget_s if args.time_budget_s is None else args.time_budget_s
     embedder = Embedder(
@@ -407,7 +406,7 @@ def _embed(project, settings, args):
     # Własna blokada: liczenie trwa godzinami i tylko czyta orzeczenia, więc
     # pobierz/przetworz mogą iść obok (zmieniony tekst złapie następny przebieg).
     with _logged_run(project, settings, "wektory", lock=f"{project.name}:wektory") as (store, run):
-        result = project.embed(
+        job = project.embed_job(
             store.conn,
             embedder,
             vectors,
@@ -416,7 +415,8 @@ def _embed(project, settings, args):
             from_start=args.from_start,
             batch_size=settings.embed_batch,
         )
-        run.counts.update(pages=result.groups, records=result.rulings)
+        result = job.run()
+        run.counts.update(pages=result.groups, records=result.judgments)
         run.status = _status_of(result)
     end = (
         "wszystko policzone"
@@ -425,7 +425,7 @@ def _embed(project, settings, args):
     )
     log.info(
         "Gotowe: %d orzeczeń, %d fragmentów, usunięto wektory %d orzeczeń; w kolekcji %d punktów; %s.",
-        result.rulings,
+        result.judgments,
         result.chunks,
         result.removed,
         vectors.count(),

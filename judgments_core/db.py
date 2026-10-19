@@ -319,6 +319,52 @@ class MariaDbStore:
         self.conn.commit()
         return ids
 
+    # --- wektory: tabela projektu "co już policzone" (judgments_core/embed.py) ---
+    # Kolumny: <key>, <doc>, body_sha256, model, chunks, embedded_at; nazwy
+    # tabel i kolumn podaje klasa potomna EmbedJob (stałe w kodzie, nie od użytkownika).
+
+    def vectors_done(self, table, model):
+        """(judgments, chunks) already embedded with this model."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                f"SELECT COUNT(*), COALESCE(SUM(chunks), 0) FROM {table} WHERE model = %s", (model,)
+            )
+            count, chunks = cur.fetchone()
+        self.conn.commit()
+        return int(count), int(chunks)
+
+    def vectors_orphans(self, table, key, parent):
+        """Ids in the tracking table whose judgment is gone from the parent table."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                f"SELECT v.{key} FROM {table} v LEFT JOIN {parent} p ON p.id = v.{key} WHERE p.id IS NULL"
+            )
+            ids = [row[0] for row in cur.fetchall()]
+        self.conn.commit()
+        return ids
+
+    def vectors_forget(self, table, key, ids=None):
+        """Remove tracking rows (all of them for ids=None: everything is embedded again)."""
+        with self.conn.cursor() as cur:
+            if ids is None:
+                cur.execute(f"DELETE FROM {table}")
+            elif ids:
+                cur.execute(f"DELETE FROM {table} WHERE {key} IN %s", (list(ids),))
+        self.conn.commit()
+
+    def vectors_record(self, table, key, doc, rows):
+        """rows: [(judgment id, document id, sha256, model, chunks)] embedded now."""
+        now = _naive_utc(utc_now())
+        with self.conn.cursor() as cur:
+            cur.executemany(
+                f"INSERT INTO {table} ({key}, {doc}, body_sha256, model, chunks, embedded_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s)"
+                f" ON DUPLICATE KEY UPDATE {doc} = VALUES({doc}), body_sha256 = VALUES(body_sha256),"
+                " model = VALUES(model), chunks = VALUES(chunks), embedded_at = VALUES(embedded_at)",
+                [(*row, now) for row in rows],
+            )
+        self.conn.commit()
+
     @staticmethod
     def _add_problems(cur, source, stage, problems, now):
         if problems:
@@ -387,3 +433,10 @@ class MariaDbStore:
 def _naive_utc(moment):
     # DATETIME nie ma strefy: zapisujemy zawsze UTC.
     return moment.replace(tzinfo=None) if moment.tzinfo else moment
+
+
+def read_state(cur, key):
+    """One sync_state value through an open cursor (pages read it this way), or None."""
+    cur.execute("SELECT value FROM sync_state WHERE `key` = %s", (key,))
+    row = cur.fetchone()
+    return row[0] if row else None

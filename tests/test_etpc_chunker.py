@@ -1,11 +1,9 @@
-from etpc.chunker import (
-    MAX_CHARS,
-    chunk_document,
-    embedding_input,
-    heading_level,
-    section_of,
-    split_long,
-)
+from etpc.chunker import EtpcChunker, heading_level, section_of
+
+CHUNKER = EtpcChunker()
+MAX_CHARS = CHUNKER.max_chars
+embedding_input = CHUNKER.embedding_input
+split_long = CHUNKER.split_long
 
 PARAGRAPH = "The applicant complained that the length of the proceedings had been excessive. " * 8
 
@@ -46,7 +44,7 @@ JUDGMENT = "\n".join(
 
 
 def chunks(body=JUDGMENT, title="CASE OF KOWALSKI v. POLAND"):
-    return chunk_document(7, body, title, meta={"language": "ENG"})
+    return CHUNKER.chunk(7, body, title, meta={"language": "ENG"})
 
 
 def test_sections_and_skipped_parts():

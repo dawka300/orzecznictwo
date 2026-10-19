@@ -8,9 +8,9 @@ from test_etpc_tables import derive, english, polish, save, setup
 
 from etpc import glossary, search
 from etpc.ranks import refresh_ranks
-from etpc.semantic import Passage, SemanticUnavailable
 from etpc.stats import read_stats, refresh_stats
-from etpc.web import make_app
+from etpc.web import EtpcWebApp
+from judgments_core.semantic import Passage, SemanticUnavailable
 from judgments_core.settings import Settings
 
 
@@ -129,7 +129,7 @@ def get(app, path, query=""):
 class Down:
     """Semantic search with LM Studio/Qdrant switched off."""
 
-    def rulings(self, text, q, k=200):
+    def judgments(self, text, q, k=200):
         raise SemanticUnavailable("niedostępne")
 
     def similar(self, ruling_id, k=10):
@@ -148,7 +148,7 @@ class Up:
         conn.commit()
         self.queries = []
 
-    def rulings(self, text, q, k=200):
+    def judgments(self, text, q, k=200):
         self.queries.append((text, q.respondent))
         return [
             Passage(
@@ -183,7 +183,7 @@ def test_hybrid_merges_meaning_and_words(ruling_db):
 
 def test_pages_with_meaning(ruling_db):
     up = Up(ruling_db)
-    app = make_app(Settings(db_dsn=TEST_DSN), semantic=up)
+    app = EtpcWebApp(Settings(db_dsn=TEST_DSN), semantic=up)
     status, html = get(app, "/", "q=zzzzz")
     assert status.startswith("200") and "wg słów i znaczenia" in html
     link = html.split('href="/orzeczenie/')[1].split('"')[0].replace("&amp;", "&")
@@ -194,7 +194,7 @@ def test_pages_with_meaning(ruling_db):
 
 
 def test_pages(ruling_db):
-    app = make_app(Settings(db_dsn=TEST_DSN), semantic=Down())
+    app = EtpcWebApp(Settings(db_dsn=TEST_DSN), semantic=Down())
     status, html = get(app, "/", "q=satisfaction")
     assert status.startswith("200") and "<mark>satisfaction</mark>" in html.lower()
     ruling_id = html.split('href="/orzeczenie/')[1].split("?")[0]

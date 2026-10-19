@@ -11,14 +11,15 @@ import logging
 import re
 
 from etpc import labels, search
-from etpc.embed import read_progress
+from etpc.embed import PROGRESS_KEY
 from etpc.labels import label
-from etpc.semantic import Semantic, SemanticUnavailable
+from etpc.semantic import EtpcSemantic
 from etpc.stats import read_stats
-from judgments_core import db
+from judgments_core.embed import read_progress
 from judgments_core.embeddings import Embedder
 from judgments_core.qdrant import QdrantStore, collection_name
-from judgments_core.web import Request, Response, e, url
+from judgments_core.semantic import SemanticUnavailable
+from judgments_core.web import Response, WebApp, e, url
 
 log = logging.getLogger(__name__)
 
@@ -29,50 +30,44 @@ SEMANTIC_TIMEOUT_S = 20
 SIMILAR = 10
 
 
-def make_app(settings, semantic=None):
-    """WSGI application reading the project's database (and Qdrant for meaning).
+class EtpcWebApp(WebApp):
+    """Search, ruling and statistics pages of ETPC (child of WebApp).
 
-    semantic: etpc.semantic.Semantic; by default LM Studio + Qdrant from settings.
+    semantic: etpc.semantic.EtpcSemantic; by default LM Studio + Qdrant from settings.
     """
-    semantic = semantic or Semantic(
-        Embedder(settings.embed_url, settings.embed_model, timeout_s=SEMANTIC_TIMEOUT_S, retries=0),
-        QdrantStore(
-            settings.qdrant_url,
-            settings.qdrant_collection or collection_name("etpc", settings.embed_model),
-            settings.embed_model,
-            timeout_s=SEMANTIC_TIMEOUT_S,
-        ),
-    )
 
-    def app(environ, start_response):
-        request = Request(environ)
-        try:
-            response = _route(settings, request, semantic)
-        except Exception:
-            log.exception("www: błąd strony %s", request.path)
-            response = Response(
-                _layout("Błąd", "<p class=error>Błąd serwera - szczegóły w logu.</p>"),
-                "500 Internal Server Error",
-            )
-        return response(start_response)
-
-    return app
-
-
-def _route(settings, request, semantic=None):
-    if request.path == "/favicon.ico":
-        return Response(b"", "204 No Content", "image/x-icon")
-    match = _RULING_PATH.match(request.path)
-    if request.path not in ("/", "/statystyki") and not match:
-        return Response(
-            _layout("Nie ma takiej strony", "<p>Nie ma takiej strony.</p>"), "404 Not Found"
+    def __init__(self, settings, semantic=None):
+        super().__init__(settings)
+        self.semantic = semantic or EtpcSemantic(
+            Embedder(
+                settings.embed_url, settings.embed_model, timeout_s=SEMANTIC_TIMEOUT_S, retries=0
+            ),
+            QdrantStore(
+                settings.qdrant_url,
+                settings.qdrant_collection or collection_name("etpc", settings.embed_model),
+                settings.embed_model,
+                timeout_s=SEMANTIC_TIMEOUT_S,
+            ),
         )
-    with db.connect(settings.db_dsn, autocommit=True) as conn, conn.cursor() as cur:
-        if match:
-            return _ruling(cur, request, int(match.group(1)), semantic)
-        if request.path == "/statystyki":
-            return _stats(cur)
-        return _search(cur, request, semantic)
+
+    def route(self, request):
+        match = _RULING_PATH.match(request.path)
+        if request.path not in ("/", "/statystyki") and not match:
+            return Response(
+                _layout("Nie ma takiej strony", "<p>Nie ma takiej strony.</p>"), "404 Not Found"
+            )
+        with self.connect() as conn, conn.cursor() as cur:
+            if match:
+                return _ruling(cur, request, int(match.group(1)), self.semantic)
+            if request.path == "/statystyki":
+                return _stats(cur)
+            return _search(cur, request, self.semantic)
+
+    def error_page(self):
+        return Response(
+            _layout("Błąd", "<p class=error>Błąd serwera - szczegóły w logu.</p>"),
+            "500 Internal Server Error",
+        )
 
 
 # --- wyszukiwanie ---------------------------------------------------------
@@ -145,7 +140,7 @@ def _search(cur, request, semantic=None):
     else:
         body = _results(q, result)
     title = f"{q.text} - wyszukiwanie" if q.text else "Wyszukiwanie"
-    body = _vectors_line(read_progress(cur)) + body
+    body = _vectors_line(read_progress(cur, PROGRESS_KEY)) + body
     return Response(_layout(title, f"<div class=search>{form}<section>{body}</section></div>"))
 
 
@@ -528,7 +523,7 @@ def _similar(cur, semantic, ruling_id):
         return ""
     if not passages:
         return ""
-    ids = [p.ruling_id for p in passages]
+    ids = [p.judgment_id for p in passages]
     cur.execute(
         f"SELECT id, title, ruling_date FROM rulings WHERE id IN ({', '.join(['%s'] * len(ids))})",
         ids,
@@ -619,7 +614,7 @@ def _stats(cur):
     body = f"""<h1>Statystyki</h1>
 <p class=hint>Przeliczone {e(updated)} UTC, po ostatnim przetworz. Orzeczenie = jedno ECLI ze wszystkimi wersjami językowymi.</p>
 <div class=cards>{cards}</div>
-{_vectors_card(read_progress(cur))}
+{_vectors_card(read_progress(cur, PROGRESS_KEY))}
 <div class=tables>{tables}</div>"""
     return Response(_layout("Statystyki", body))
 

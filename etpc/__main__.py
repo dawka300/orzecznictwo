@@ -2,11 +2,11 @@ import sys
 from pathlib import Path
 
 from etpc.deriver import EtpcDeriver
-from etpc.embed import embed
+from etpc.embed import EtpcEmbedJob
 from etpc.importer import EtpcImporter
 from etpc.source import HudocSource
 from etpc.verify import verify
-from etpc.web import make_app
+from etpc.web import EtpcWebApp
 from judgments_core.cli import Project, main
 
 PROJECT = Project(
@@ -20,8 +20,8 @@ PROJECT = Project(
     # przepuszcza, a gdy i jego blokuje - przeglądarka (tylko lokalnie).
     transports=("requests", "curl", "playwright"),
     verify=verify,
-    web=make_app,
-    embed=embed,
+    web=EtpcWebApp,
+    embed_job=EtpcEmbedJob,
 )
 
 if __name__ == "__main__":

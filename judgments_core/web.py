@@ -1,16 +1,22 @@
-"""Minimal WSGI helpers and a threaded local server - standard library only.
+"""Minimal WSGI helpers, the parent web application and a threaded local server.
 
-A project's web pages are a plain WSGI application, so the same code runs
-locally (`python -m <projekt> www`) and on the hosting under Passenger.
+Standard library only. WebApp is the parent: a WSGI callable with the
+common part (favicon, a database connection per request, a 500 page and a
+log entry for any error); a project's child (EtpcWebApp ...) routes its own
+pages. The same code runs locally (`python -m <projekt> www`) and on the
+hosting under Passenger.
 """
 
 from __future__ import annotations
 
 import logging
+from abc import ABC, abstractmethod
 from html import escape
 from socketserver import ThreadingMixIn
 from urllib.parse import parse_qs, urlencode
 from wsgiref.simple_server import WSGIRequestHandler, WSGIServer, make_server
+
+from judgments_core import db
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +58,35 @@ def url(path, **params):
 def e(value):
     """HTML-escaped text; None -> ''."""
     return "" if value is None else escape(str(value))
+
+
+class WebApp(ABC):
+    """WSGI application of a project: app(environ, start_response)."""
+
+    def __init__(self, settings):
+        self.settings = settings
+
+    def __call__(self, environ, start_response):
+        request = Request(environ)
+        if request.path == "/favicon.ico":
+            return Response(b"", "204 No Content", "image/x-icon")(start_response)
+        try:
+            response = self.route(request)
+        except Exception:
+            log.exception("www: błąd strony %s", request.path)
+            response = self.error_page()
+        return response(start_response)
+
+    @abstractmethod
+    def route(self, request):
+        """The Response for a request."""
+
+    def connect(self):
+        """A database connection for one request (pages only read)."""
+        return db.connect(self.settings.db_dsn, autocommit=True)
+
+    def error_page(self):
+        return Response("<p>Błąd serwera - szczegóły w logu.</p>", "500 Internal Server Error")
 
 
 class _ThreadingServer(ThreadingMixIn, WSGIServer):
