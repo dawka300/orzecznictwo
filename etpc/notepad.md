@@ -119,3 +119,7 @@ Judgments and decisions of the European Court of Human Rights from HUDOC, https:
 - Closing Docker Desktop stops the pass (DB connection lost) - just run it again later. Restarting only the `www` container is harmless.
 - **Docker:** the user starts Docker Desktop by hand on purpose (resources, not always used) - no autostart. Opening it brings db, qdrant and www (8080) up thanks to `restart: unless-stopped`. MariaDB buffer pool stays 4 GB (plenty of RAM, keeps FULLTEXT fast).
 - **Next session:** check progress (`/statystyki` or `python -m etpc stan`), resume `wektory` if stopped; try the hybrid search on real questions (RRF weights, CANDIDATES=200, maybe a minimum similarity); later decisions' quality and NSA reusing the core.
+
+## State (2026-10-19, evening)
+- `wektory` still running (old code in memory; the refactored code gives identical chunks): 1,675 / 82,976 rulings, 106k chunks at 17:33. Restarting it uses `EtpcEmbedJob`.
+- Code is now split into core parents and ETPC children (map in the root notepad.md): `EtpcImporter`, `HudocParser`, `EtpcTables`, `EtpcDeriver`, `EtpcChunker`, `EtpcEmbedJob`, `EtpcSemantic`, `EtpcWebApp`; transports as a strategy chain requests -> curl -> playwright (`ETPC_TRANSPORT` in .env overrides).
