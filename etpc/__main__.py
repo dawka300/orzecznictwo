@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+from etpc.embed import embed
 from etpc.ranks import refresh_ranks
 from etpc.source import HudocSource
 from etpc.stats import refresh_stats
@@ -27,6 +28,7 @@ PROJECT = Project(
     verify=verify,
     after_derive=refresh_derived,
     web=make_app,
+    embed=embed,
 )
 
 if __name__ == "__main__":

@@ -25,6 +25,9 @@ MIN_CHARS = 500
 # Nagłówek (skład, sędziowie) krótszy niż to pomijamy; dłuższy to zwykle
 # stara decyzja Komisji bez nagłówków, gdzie cały stan faktyczny jest na początku.
 SHORT_HEADER_CHARS = 2500
+# Wiersz kontekstu przed fragmentem: tytuły spraw zbiorowych mają do 1000 znaków.
+TITLE_MAX_CHARS = 150
+CONTEXT_MAX_CHARS = 400
 # Części bez treści merytorycznej: nie liczymy dla nich wektorów.
 SKIPPED_PARTS = ("naglowek", "zalacznik")
 
@@ -216,7 +219,8 @@ def chunk_document(ruling_id, body, title, meta=None, skip=SKIPPED_PARTS):
             part = "tekst"
         if part in skip or lines == [section]:
             continue
-        context = " | ".join(x for x in (title, section, " > ".join(path)) if x)
+        context = " | ".join(x for x in (title[:TITLE_MAX_CHARS], section, " > ".join(path)) if x)
+        context = context[:CONTEXT_MAX_CHARS]
         chunks.append(
             Chunk(
                 judgment_id=str(ruling_id),

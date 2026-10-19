@@ -1,4 +1,4 @@
-"""Interface of the separate vector database (not chosen yet; nothing implemented).
+"""Interface of the separate vector database (implemented: judgments_core/qdrant.py).
 
 MariaDB on the hosting holds judgments; vectors go to a dedicated store
 elsewhere. Code that embeds or searches talks only to this interface, so the

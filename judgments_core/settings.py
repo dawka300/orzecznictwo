@@ -56,6 +56,14 @@ class Settings:
     # Program zrzutu z argumentami; lokalnie z dockera, np.
     # docker exec -i -e MYSQL_PWD orzecznictwo-szkielet-db-1 mariadb-dump
     dump_command: str = "mysqldump"
+    # Wektory (polecenie wektory, tylko lokalnie): serwer embeddingów zgodny
+    # z OpenAI (LM Studio) i Qdrant; kolekcja pusta = <projekt>_<model>.
+    embed_url: str = "http://127.0.0.1:1234/v1/embeddings"
+    embed_model: str = "text-embedding-bge-m3"
+    embed_batch: int = 32
+    embed_timeout_s: float = 600.0
+    qdrant_url: str = "http://127.0.0.1:6333"
+    qdrant_collection: str = ""
 
     @classmethod
     def from_env(cls, prefix, environ=None, dotenv_path=DOTENV_PATH):

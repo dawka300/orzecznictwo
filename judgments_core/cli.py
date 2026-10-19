@@ -9,6 +9,7 @@ python -m nsa pobierz --brakujace       # dociągnij braki znalezione przez spra
 python -m nsa stan                      # kursory, ostatnie przebiegi, blokady, problemy
 python -m nsa kopia                     # zrzut bazy do <NSA_BACKUP_DIR>/nsa.sql.gz
 python -m etpc www --port 8080          # wyszukiwarka w przeglądarce
+python -m etpc wektory --budzet 3600    # embeddingi (LM Studio) do Qdranta, wznawia
 
 Każdy przebieg pobierz/przetworz/sprawdz zapisuje się w fetch_runs, blokady
 i błędy źródła w fetch_events, rekordy z problemem w record_problems.
@@ -30,8 +31,10 @@ from judgments_core import db
 from judgments_core.backup import dump_database
 from judgments_core.browser import PlaywrightSession
 from judgments_core.deriver import Deriver
+from judgments_core.embeddings import Embedder
 from judgments_core.http import CurlSession, PoliteClient
 from judgments_core.importer import Importer
+from judgments_core.qdrant import QdrantStore, collection_name
 from judgments_core.settings import DOTENV_PATH, Settings
 from judgments_core.web import serve
 
@@ -55,6 +58,9 @@ class Project:
     after_derive: Callable | None = None
     # web(settings) -> aplikacja WSGI: polecenie www; None = brak stron
     web: Callable | None = None
+    # embed(conn, embedder, vectors, limit=, time_budget_s=, from_start=, batch_size=)
+    # -> wynik: polecenie wektory; None = brak
+    embed: Callable | None = None
 
 
 def build_parser(project):
@@ -122,6 +128,22 @@ def build_parser(project):
     www = commands.add_parser("www", help="wyszukiwarka w przeglądarce (serwer lokalny)")
     www.add_argument("--host", default="127.0.0.1", help="adres (domyślnie 127.0.0.1)")
     www.add_argument("--port", type=int, default=8080, help="port (domyślnie 8080)")
+    vectors = commands.add_parser(
+        "wektory", help="policz embeddingi brakujących/zmienionych orzeczeń do bazy wektorów"
+    )
+    vectors.add_argument("--limit", type=int, help="zakończ po N orzeczeniach")
+    vectors.add_argument(
+        "--budzet",
+        dest="time_budget_s",
+        type=int,
+        help="zakończ po tylu sekundach (domyślnie z ustawień, 0 = bez limitu)",
+    )
+    vectors.add_argument(
+        "--od-poczatku",
+        dest="from_start",
+        action="store_true",
+        help="policz wszystko od nowa (np. po zmianie chunkera)",
+    )
     commands.add_parser(
         "kopia", help="zrzut bazy do <PREFIKS>_BACKUP_DIR (też sam po pobierz/przetworz)"
     )
@@ -165,6 +187,8 @@ def main(project, argv=None, settings=None):
             return _verify(project, settings, args)
         if args.command == "www":
             return _www(project, settings, args)
+        if args.command == "wektory":
+            return _embed(project, settings, args)
         if args.command == "kopia":
             return _backup(project, settings, required=True)
         return _status(project, settings, args)
@@ -211,14 +235,14 @@ def _lock_name(project):
 
 
 @contextlib.contextmanager
-def _logged_run(project, settings, command, cursor_start=None):
+def _logged_run(project, settings, command, cursor_start=None, lock=None):
     """Connection, lock and a fetch_runs row; the row is closed also on errors.
 
     Yields (store, run); the body sets run.status and run.counts.
     """
     with db.connect(settings.db_dsn) as conn:
         store = db.MariaDbStore(conn)
-        with store.lock(_lock_name(project)):
+        with store.lock(lock or _lock_name(project)):
             run = RunLog(store.start_run(command, cursor_start))
             try:
                 yield store, run
@@ -365,6 +389,52 @@ def _verify(project, settings, args):
         missing,
         extra,
         " Braki pobierze: pobierz --brakujace" if missing else "",
+    )
+    return 0
+
+
+def _embed(project, settings, args):
+    if project.embed is None:
+        raise NotImplementedError(f"projekt {project.name} nie ma jeszcze wektorów")
+    budget = settings.time_budget_s if args.time_budget_s is None else args.time_budget_s
+    embedder = Embedder(
+        settings.embed_url, settings.embed_model, timeout_s=settings.embed_timeout_s
+    )
+    collection = settings.qdrant_collection or collection_name(project.name, settings.embed_model)
+    vectors = QdrantStore(settings.qdrant_url, collection, settings.embed_model)
+    log.info(
+        "model %s (%s) -> Qdrant %s, kolekcja %s",
+        embedder.model,
+        embedder.url,
+        vectors.url,
+        collection,
+    )
+    # Własna blokada: liczenie trwa godzinami i tylko czyta orzeczenia, więc
+    # pobierz/przetworz mogą iść obok (zmieniony tekst złapie następny przebieg).
+    with _logged_run(project, settings, "wektory", lock=f"{project.name}:wektory") as (store, run):
+        result = project.embed(
+            store.conn,
+            embedder,
+            vectors,
+            limit=args.limit,
+            time_budget_s=budget,
+            from_start=args.from_start,
+            batch_size=settings.embed_batch,
+        )
+        run.counts.update(pages=result.groups, records=result.rulings)
+        run.status = _status_of(result)
+    end = (
+        "wszystko policzone"
+        if result.finished
+        else f"przerwano ({result.stopped_by}), zostało {result.remaining}"
+    )
+    log.info(
+        "Gotowe: %d orzeczeń, %d fragmentów, usunięto wektory %d orzeczeń; w kolekcji %d punktów; %s.",
+        result.rulings,
+        result.chunks,
+        result.removed,
+        vectors.count(),
+        end,
     )
     return 0
 
