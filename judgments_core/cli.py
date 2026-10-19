@@ -633,6 +633,11 @@ def _check_answers(project, settings, args):
             checks.append(
                 answer_eval.check(pipeline, cur, q.text, q.filters, judge, args.budget_chars)
             )
+            if checks[-1].error:
+                log.error("brak odpowiedzi: %s", checks[-1].error)
+                if len(checks) >= 2 and checks[-2].error:
+                    log.error("Dwa razy z rzędu bez odpowiedzi - przerywam (zapisuję to, co jest).")
+                    break
     model = pipeline.chat.model or "?"
     print("\n".join(answer_eval.report(checks, model)))
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")

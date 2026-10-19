@@ -131,3 +131,17 @@ def test_sentences_ignore_abbreviations():
         "Natomiast R.R. v. Poland dotyczy art. 8 [3]!",
         "Nowy wiersz bez kropki",
     ]
+
+
+class Broken(Pipeline):
+    def answer(self, question, retrieval):
+        from judgments_core.chat import ChatError
+
+        raise ChatError("serwer modelu: HTTP 400: No models loaded")
+
+
+def test_model_error_is_recorded_not_raised():
+    result = answer_eval.check(Broken(), None, "Pytanie?")
+    assert result.error.endswith("No models loaded") and result.answer == ""
+    text = "\n".join(answer_eval.report([result], "?"))
+    assert "BRAK ODPOWIEDZI" in text and "bez odpowiedzi: 1" in text

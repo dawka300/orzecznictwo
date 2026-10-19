@@ -25,6 +25,7 @@ import re
 import time
 from dataclasses import asdict, dataclass, field
 
+from judgments_core.chat import ChatError
 from judgments_core.rag import Retrieval, render
 
 # Koniec zdania: . ! ? i spacja przed wielką literą (albo nowy wiersz), ale nie po skrócie.
@@ -89,6 +90,7 @@ class Check:
     contradictions: list = field(default_factory=list)  # [(numer, zdanie, twierdzi, wynik)]
     ratings: list = field(default_factory=list)  # oceny sędziego
     judge_error: str = ""
+    error: str = ""  # odpowiedzi nie było (np. serwer modelu bez modelu)
 
     def count(self, rating):
         return sum(1 for r in self.ratings if r.get("ocena") == rating)
@@ -181,7 +183,11 @@ def check(pipeline, cur, question, filters=None, judge_model=None, budget_chars=
     """One question through the pipeline and all the checks."""
     retrieval = pipeline.retrieve(cur, question, budget_chars, **(filters or {}))
     started = time.monotonic()
-    answer = pipeline.answer(question, retrieval)
+    try:
+        answer = pipeline.answer(question, retrieval)
+    except ChatError as e:
+        sources = [(s.number, s.title, s.result) for s in retrieval.sources]
+        return Check(question, "", time.monotonic() - started, sources, error=str(e))
     result = Check(
         question,
         answer.text,
@@ -212,6 +218,9 @@ def report(checks, model=""):
         for number, sentence, claimed, result in c.contradictions:
             lines.append(f"    ! [{number}] twierdzi „{claimed}”, a WYNIK: {result[:120]}")
             lines.append(f"      {sentence[:160]}")
+        if c.error:
+            lines.append(f"    BRAK ODPOWIEDZI: {c.error[:160]}")
+            continue
         if c.judge_error:
             lines.append(f"    sędzia: błąd ({c.judge_error[:120]})")
         elif c.ratings:
@@ -223,10 +232,11 @@ def report(checks, model=""):
                         f" - {str(r.get('dlaczego', ''))[:100]}"
                     )
     rated = [r for c in checks for r in c.ratings]
+    answered = [c for c in checks if not c.error]
     lines += [
         "",
-        f"Model: {model}  pytań: {len(checks)}",
-        f"  średni czas odpowiedzi: {sum(c.seconds for c in checks) / max(len(checks), 1):.0f} s",
+        f"Model: {model}  pytań: {len(checks)}, bez odpowiedzi: {len(checks) - len(answered)}",
+        f"  średni czas odpowiedzi: {sum(c.seconds for c in answered) / max(len(answered), 1):.0f} s",
         f"  nieistniejące cytowania: {sum(len(c.unknown) for c in checks)}",
         f"  możliwe sprzeczności wyniku (reguła): {sum(len(c.contradictions) for c in checks)}",
     ]
