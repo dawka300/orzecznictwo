@@ -76,3 +76,22 @@ Cel: RAG nie tylko przez MCP (Claude sam szuka i czyta), ale też dla **modeli l
 4. `ChatModel` (`HttpChat`: OpenAI-compatible `/v1/chat/completions`, tylko requests; `FallbackChat`; ustawienia `<PREFIKS>_CHAT_URL`, `<PREFIKS>_CHAT_MODEL`) + `RagPipeline` (prompt po polsku: tylko ze źródeł, każde twierdzenie z [n], „źródła nie wystarczają” gdy brak; klasa potomna: ETPC tłumaczy z EN/FR, NSA sygnatura/sąd; kontrola numerów [n]) + polecenie `zapytaj`.
 5. Strona `/zapytaj` (SSE) na 8080/8082, potem endpoint OpenAI-compatible (Open WebUI / Jan / AnythingLLM widzą „model” `etpc-rag`).
 6. Pytania wzorcowe rozbudowywać przy każdym ciekawym wyszukiwaniu (`etpc/orzeczenia.txt`), NSA po pełnym `przetworz` + wektorach.
+
+## Wektory: rozmiar batcha (2026-10-19, wieczór)
+- Pytanie użytkownika: `wektory` liczy z batchem 32 (`<PREFIKS>_EMBED_BATCH`, domyślnie 32), a LM Studio zajmuje tylko ~2.6 GB z 12 GB VRAM - czy batch 64/128 przyspieszy?
+- Pętla w `EmbedJob.run` jest szeregowa: grupa ~256 fragmentów -> żądania po `batch_size` jedno po drugim -> zapis do Qdranta i MariaDB; w tym czasie karta stoi.
+- **Pomiar** (skrypt w scratchpadzie sesji, niezachowany: 512 prawdziwych fragmentów ETPC ENG, 756k znaków, te same teksty dla każdego ustawienia; **szło równolegle z działającym `etpc wektory`**, bo zatrzymanie go zostało zablokowane - liczby względne, nie absolutne):
+
+  | batch | równolegle | czas | ~tok/s |
+  |---|---|---|---|
+  | 16 | 1 | 81.5 s | 2,319 |
+  | 32 | 1 | 54.5 s | 3,467 |
+  | 64 | 1 | 41.0 s | 4,607 |
+  | 128 | 1 | 32.9 s | 5,748 |
+  | 32 | 2 | 41.0 s | 4,607 |
+  | 64 | 2 | 33.4 s | 5,667 |
+  | 32 (powtórka) | 1 | 54.4 s | 3,477 |
+
+- Wniosek wstępny: większy batch wyraźnie pomaga (128 vs 32 ~1.65x), dwa żądania naraz dają podobny zysk co podwojenie batcha. Część zysku mogła wziąć się z zabrania karty działającemu `wektory` - **powtórzyć przy zatrzymanym `wektory`** (Ctrl+C w jego terminalu; wznawia się bez strat poza bieżącą grupą).
+- Następnie: `ETPC_EMBED_BATCH=128` w `.env` i ponowne uruchomienie `python -m etpc wektory`; porównać „tokenów/s” w logu z ~6,600 przy 32. Sprawdzić też w LM Studio ustawienie modelu „Evaluation Batch Size” (n_batch/n_ubatch llama.cpp): jeśli jest małe, ono, nie batch żądania, ogranicza. Fragmenty mają do ~3,200 znaków, więc batch 128 to jedno żądanie ~100k tokenów - pamięć VRAM obserwować.
+- Później, jeśli karta dalej czeka na Qdranta/MariaDB: liczyć następną grupę w wątku, gdy poprzednia się zapisuje (pipelining w `EmbedJob`).
