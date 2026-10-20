@@ -10,6 +10,8 @@ RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu 
     && pip install --no-cache-dir sentence-transformers
 # Narzędzia deweloperskie (lokalny Python usunięty: testy i ruff też w kontenerze).
 RUN pip install --no-cache-dir pytest ruff
+# Serwery MCP (python -m etpc|nsa mcp, .mcp.json) uruchamiane w kontenerze.
+RUN pip install --no-cache-dir "mcp>=2.3"
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HF_HUB_DISABLE_TELEMETRY=1
 CMD ["python", "-m", "portal", "--host", "0.0.0.0", "--port", "8080"]
