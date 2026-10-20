@@ -8,6 +8,8 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 # Model (BAAI/bge-m3, ~2.3 GB) pobiera się przy pierwszym starcie do wolumenu hfcache.
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch \
     && pip install --no-cache-dir sentence-transformers
+# Narzędzia deweloperskie (lokalny Python usunięty: testy i ruff też w kontenerze).
+RUN pip install --no-cache-dir pytest ruff
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HF_HUB_DISABLE_TELEMETRY=1
 CMD ["python", "-m", "portal", "--host", "0.0.0.0", "--port", "8080"]

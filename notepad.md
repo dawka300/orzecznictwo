@@ -204,4 +204,4 @@ Lokalny Python (`.venv`) usunięty: polecenia projektów uruchamiamy w kontenerz
 - **Wektory ETPC:** `docker compose run --rm www python -m etpc wektory` (opcjonalnie `--budzet 3600`; wznawia od niepoliczonych, Ctrl+C przerywa).
 - `run --rm` = osobny, jednorazowy kontener: nie ginie przy `docker compose restart www`, nie zajmuje portu 8080. Wymaga działających `db` i `qdrant` (wstaną same przez `depends_on`) oraz LM Studio z bge-m3 na komputerze.
 - Log idzie do `logs/www` (zmienna `ETPC_LOG_DIR` z usługi `www`); inny katalog: `-e ETPC_LOG_DIR=logs`.
-- Tak samo inne polecenia: `docker compose run --rm www python -m nsa przetworz`, `... python -m etpc stan`. Testów obraz nie uruchomi (brak pytest i TEST_DB_DSN wskazuje 127.0.0.1) - do ustalenia.
+- Tak samo inne polecenia: `docker compose run --rm www python -m nsa przetworz`, `... python -m etpc stan`. Testy: `docker compose run --rm www python -m pytest` (obraz ma pytest i ruff, `TEST_DB_DSN` w compose = `db:3306/szkielet_test`; 144 zaliczone, 1 pominięty - pyarrow). `.mcp.json` nadal wskazuje usunięty `.venv` - MCP do przeniesienia.

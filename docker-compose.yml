@@ -63,6 +63,8 @@ services:
       NSA_EMBED_URL: http://host.docker.internal:1234/v1/embeddings
       NSA_LOG_DIR: logs/www
       PORTAL_LOG_DIR: logs/www
+      # testy (docker compose run --rm www python -m pytest): tylko baza robocza
+      TEST_DB_DSN: mysql://szkielet:szkielet@db:3306/szkielet_test
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

@@ -8,6 +8,10 @@ requires-python = ">=3.9"
 line-length = 100
 target-version = "py39"  # hosting może mieć starszego Pythona niż lokalny 3.13
 
+[tool.ruff.lint]
+# Repozytorium z Windows zamontowane w kontenerze: każdy plik wygląda na wykonywalny.
+ignore = ["EXE002"]
+
 [tool.pytest.ini_options]
 pythonpath = [".", "tests"]
 testpaths = ["tests"]
