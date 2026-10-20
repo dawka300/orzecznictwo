@@ -14,6 +14,10 @@ class RunResult:
     pages: int = 0
     saved: int = 0
     rejected: int = 0
+    new: int = 0  # nowe w bazie
+    changed: int = 0  # były, ale treść się zmieniła
+    cursor_start: str | None = None
+    cursor: str | None = None  # ostatni zapisany kursor
     finished: bool = False  # źródło nie ma więcej stron
     stopped_by: str = ""  # "limit" / "czas" przy wcześniejszym końcu
 
@@ -51,24 +55,36 @@ class Importer:
 
     def run(self):
         started = self.clock()
-        result = RunResult()
+        # self.result: liczby także wtedy, gdy przebieg skończy się wyjątkiem
+        result = self.result = RunResult()
         cursor = None
         if self.store is not None and self.resume:
             cursor = self.store.get_state(self.state_key)
             if cursor:
                 log.info("wznawiam od kursora %s", cursor)
+        result.cursor_start = result.cursor = cursor
 
         for page in self.source.iter_pages(cursor):
-            records = page.records
-            if self.limit:
+            records, page_cursor = page.records, page.cursor
+            if self.limit and len(records) > self.limit - result.saved:
                 records = records[: self.limit - result.saved]
+                # Kursor wskazuje koniec całej strony - po przycięciu zostaje
+                # stary, a następny przebieg pobierze tę stronę jeszcze raz.
+                page_cursor = None
             accepted = [r for r in records if self.accept is None or self.accept(r)]
             result.rejected += len(records) - len(accepted)
             for record in accepted:
                 for output in self.outputs:
                     output(record)
             if self.store is not None:
-                self.store.save_page(self.source.name, accepted, self.state_key, page.cursor)
+                stats = self.store.save_page(
+                    self.source.name, accepted, self.state_key, page_cursor
+                )
+                if stats is not None:
+                    result.new += stats.new
+                    result.changed += stats.changed
+            if page_cursor is not None:
+                result.cursor = page_cursor
             result.pages += 1
             result.saved += len(accepted)
             log.info(
@@ -77,7 +93,7 @@ class Importer:
                 len(page.records),
                 result.saved,
                 result.rejected,
-                page.cursor,
+                page_cursor,
             )
             if self.limit and result.saved >= self.limit:
                 result.stopped_by = "limit"

@@ -1,16 +1,17 @@
 """What a project implements: a source of raw records, page by page.
 
-Each project (NSA, ETPC, ...) writes one Source class. The importer only knows
-this interface, so the download loop, resuming and saving are shared.
+Source is the parent class; each project (NSA, ETPC, ...) writes its child
+(HudocSource, JuddgesSource ...). The importer only knows this interface, so
+the download loop, resuming and saving are shared.
 """
 
 from __future__ import annotations
 
 import hashlib
+from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Protocol
 
 
 def utc_now():
@@ -48,9 +49,20 @@ class Page:
     cursor: str | None
 
 
-class Source(Protocol):
-    name: str  # krótka nazwa, np. "cbosa" - kolumna `source` w raw_records
+class Source(ABC):
+    """A source of raw records; client = PoliteClient (its Transport strategy decides how)."""
 
+    name = ""  # krótka nazwa, np. "hudoc" - kolumna `source` w raw_records
+
+    def __init__(self, settings=None, client=None):
+        self.settings = settings
+        self.client = client
+
+    @abstractmethod
     def iter_pages(self, cursor: str | None) -> Iterator[Page]:
         """Yield pages starting after `cursor` (None = from the beginning)."""
-        ...
+
+    def close(self):
+        """Release the client's transport (browser, connections)."""
+        if self.client is not None:
+            self.client.close()

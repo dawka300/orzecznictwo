@@ -1,0 +1,20 @@
+# Uruchomienie (z tego katalogu; paczki w podkatalogu paczki/):
+#   docker compose build
+#   docker compose run --rm licz nsa-0001.jsonl.gz --limit 2000   # test szybkości
+#   docker compose run --rm licz nsa-0001.jsonl.gz                # cała paczka
+services:
+  licz:
+    build: .
+    volumes:
+      - ./paczki:/paczki
+      - hfcache:/cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  hfcache:

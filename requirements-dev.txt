@@ -1,3 +1,16 @@
 -r requirements.txt
 pytest
 ruff
+# Tylko lokalnie: transport "playwright" (ETPC_TRANSPORT=playwright), gdy
+# Cloudflare blokuje curl. Po instalacji: python -m playwright install chromium
+playwright
+# Referencyjne embeddingi (BAAI/bge-m3) do sprawdzania LM Studio; torch tylko
+# na CPU: pip install --index-url https://download.pytorch.org/whl/cpu torch
+sentence-transformers
+# NSA: import zbioru JuDDGES/pl-nsa (parquet) - tylko lokalnie; tzdata dla
+# dat ze strefą czasową na Windows
+pyarrow
+tzdata
+# Serwer MCP (python -m etpc|nsa mcp): baza jako narzędzia dla Claude'a;
+# wymaga Pythona 3.10+, dlatego tylko lokalnie
+mcp>=2.3

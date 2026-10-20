@@ -1,4 +1,4 @@
-"""Interface of the separate vector database (not chosen yet; nothing implemented).
+"""Interface of the separate vector database (implemented: judgments_core/qdrant.py).
 
 MariaDB on the hosting holds judgments; vectors go to a dedicated store
 elsewhere. Code that embeds or searches talks only to this interface, so the
@@ -22,6 +22,12 @@ class Chunk:
     part: str = ""  # np. "sentencja", "uzasadnienie"
     vector: list | None = None
     meta: dict = field(default_factory=dict)  # filtry: sąd, data, rodzaj ...
+    # długość tekstu, gdy samego tekstu nie ma (fragment wrócił z paczki liczonej gdzie indziej)
+    length: int | None = None
+
+    @property
+    def text_length(self):
+        return len(self.text) if self.length is None else self.length
 
 
 @dataclass

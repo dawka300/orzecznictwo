@@ -8,3 +8,7 @@ __pycache__/
 logs/
 backups/
 .claude/settings.local.json
+/*/database/
+.mcp.json
+/docker/licz/paczki/
+/interview.md

@@ -1,0 +1,62 @@
+[
+  {
+    "pytanie": "Pełnomocnik z urzędu odmówił sporządzenia kasacji, a przy przymusie adwokackim strona nie mogła jej wnieść sama - czy to narusza prawo do sądu?",
+    "oczekiwane": ["8932/05", "59519/00", "18353/03", "2815/05"],
+    "filtry": {"respondent": "POL"}
+  },
+  {
+    "pytanie": "Skarga na przewlekłość postępowania i brak skutecznego środka odwoławczego w prawie krajowym",
+    "oczekiwane": ["30210/96"],
+    "filtry": {"respondent": "POL"}
+  },
+  {
+    "pytanie": "Zbyt długie tymczasowe aresztowanie jako problem systemowy w Polsce",
+    "oczekiwane": ["45219/06", "30210/96"],
+    "filtry": {"respondent": "POL"}
+  },
+  {
+    "pytanie": "Przeludnienie cel w zakładach karnych, za mała powierzchnia na więźnia",
+    "oczekiwane": ["17885/04"],
+    "filtry": {"respondent": "POL"}
+  },
+  {
+    "pytanie": "Czy sąd z sędziami powołanymi przez nową KRS jest sądem ustanowionym ustawą?",
+    "oczekiwane": ["43447/19", "49868/19", "1469/20", "4907/18"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Tajna inwigilacja, podsłuchy i retencja danych bez niezależnej kontroli",
+    "oczekiwane": ["72038/17"],
+    "filtry": {"respondent": "POL"}
+  },
+  {
+    "pytanie": "Dostęp do legalnej aborcji i do badań prenatalnych",
+    "oczekiwane": ["5410/03", "27617/04", "57375/08", "40119/21"],
+    "filtry": {"respondent": "POL"}
+  },
+  {
+    "pytanie": "Czy państwo musi umożliwić wspomagane samobójstwo osobie śmiertelnie chorej?",
+    "oczekiwane": ["2346/02"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Czynsz regulowany i ograniczenia właścicieli kamienic, wyrok pilotażowy",
+    "oczekiwane": ["35014/97"],
+    "filtry": {"respondent": "POL"}
+  },
+  {
+    "pytanie": "Rekompensata za mienie pozostawione za Bugiem",
+    "oczekiwane": ["31443/96"],
+    "filtry": {"respondent": "POL"}
+  },
+  {
+    "pytanie": "Obowiązki państwa w walce ze zmianami klimatu",
+    "oczekiwane": ["53600/20", "34068/21"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Sędzia ukarany dyscyplinarnie za krytykę reformy sądownictwa w mediach społecznościowych",
+    "oczekiwane": ["16915/21"],
+    "filtry": {}
+  }
+]

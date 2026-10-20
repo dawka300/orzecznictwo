@@ -12,15 +12,13 @@ before checking, all of it to verify:
 
 from __future__ import annotations
 
+from judgments_core.source import Source
+
 BASE_URL = "https://orzeczenia.nsa.gov.pl"
 
 
-class CbosaSource:
+class CbosaSource(Source):
     name = "cbosa"
-
-    def __init__(self, settings, client):
-        self.settings = settings
-        self.client = client
 
     def iter_pages(self, cursor):
         # Kursor: najpewniej data orzeczenia + numer strony wyników, np.

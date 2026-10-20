@@ -47,7 +47,52 @@ class Settings:
     # hostingu cron uruchamia przebieg co kilka minut, a hosting zabija zbyt
     # długie procesy - przebieg kończy się sam, a następny wznawia od kursora.
     time_budget_s: int = 0
+    # Ile połączeń czyta naraz teksty porcji w przetworz (judgments_core.db.RawReader).
+    # 1 = jedno połączenie jak dotąd (hosting: limit połączeń); lokalnie na SSD 4.
+    read_connections: int = 1
     log_dir: str = "logs"
+    # requests / curl / playwright; puste = domyślny transport projektu
+    transport: str = ""
+    # Katalog kopii bazy (względem katalogu repozytorium); puste = bez kopii.
+    # Ustawiony: po pobierz/przetworz, które coś zmieniły, kopia jest odświeżana.
+    backup_dir: str = ""
+    # Program zrzutu z argumentami; lokalnie z dockera, np.
+    # docker exec -i -e MYSQL_PWD orzecznictwo-szkielet-db-1 mariadb-dump
+    dump_command: str = "mysqldump"
+    # Wektory (polecenie wektory, tylko lokalnie): serwer embeddingów zgodny
+    # z OpenAI (LM Studio) i Qdrant; kolekcja pusta = <projekt>_<model>.
+    embed_url: str = "http://127.0.0.1:1234/v1/embeddings"
+    embed_model: str = "text-embedding-bge-m3"
+    embed_batch: int = 32
+    embed_timeout_s: float = 600.0
+    # Wektor zapytania (strony www, MCP): local = sentence-transformers w tym
+    # procesie (bez LM Studio), http = embed_url; po przecinku = łańcuch.
+    # local_model musi być tym samym modelem co embed_model w LM Studio.
+    query_embedders: str = "local,http"
+    local_model: str = "BAAI/bge-m3"
+    qdrant_url: str = "http://127.0.0.1:6333"
+    qdrant_collection: str = ""
+    # Reranker fragmentów RAG (judgments_core/rerank.py): puste = brak (hosting),
+    # local = cross-encoder sentence-transformers w tym procesie (CPU).
+    reranker: str = ""
+    rerank_model: str = "BAAI/bge-reranker-v2-m3"
+    # Model piszący odpowiedź RAG (polecenie zapytaj): serwer zgodny z OpenAI
+    # (LM Studio); model pusty = pierwszy wczytany model czatu.
+    chat_url: str = "http://127.0.0.1:1234/v1/chat/completions"
+    chat_model: str = ""
+    chat_temperature: float = 0.2
+    chat_max_tokens: int = 2000
+    chat_timeout_s: float = 600.0
+    # Dopisek na końcu pytania do modelu, np. /no_think (Qwen3 bez „myślenia”: szybciej).
+    chat_suffix: str = ""
+    # reasoning_effort w zapytaniu (np. none: bez myślenia dla modeli, które to
+    # obsługują, jak qwen3.8; Qwen3 potrzebuje chat_suffix=/no_think); puste = nie wysyłać.
+    chat_reasoning_effort: str = ""
+    # Model-sędzia oceniający odpowiedzi (ocen-odpowiedzi): puste = ten sam co chat_*;
+    # może być mocniejszy model za API zgodnym z OpenAI (klucz: Authorization: Bearer).
+    judge_url: str = ""
+    judge_model: str = ""
+    judge_api_key: str = ""
 
     @classmethod
     def from_env(cls, prefix, environ=None, dotenv_path=DOTENV_PATH):
