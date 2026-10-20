@@ -325,3 +325,20 @@ docker compose run -d --rm --no-deps --name etpc-wektory  www python -m etpc wek
   - **`_bazy/<projekt>.sql.gz`**: zrzut bazy projektów podanych po katalogu (`python -m <projekt> kopia` w kontenerze z G: zamontowanym jako `/kopia`, bez zajmowania C:).
 - Pierwsze uruchomienie 2026-10-20 ~22:00 UTC (lustro + git + Qdrant: ETPC 450 242 wektory, NSA 2 318). **Zrzut bazy NSA** (67 GB) po zakończeniu `nsa przetworz`: `narzedzia/kopia-na-dysk.sh "/g/projekty AI/orzecznictwo-szkielet" nsa`.
 - Git w chwili kopii: `origin/master` = `9fdafc9` (merge PR #1 `etpc-hudoc`), lokalny `master` 62 commity w tyle (nieprzesunięty), lokalne `etpc-hudoc` o 1 commit przed `origin`.
+
+## Ile RAM na bazy i wektory ETPC + NSA (2026-10-20, przy 32 GB)
+Pomiar plików InnoDB (`information_schema.INNODB_SYS_TABLESPACES`, rozmiar logiczny = tyle zajmuje w buforze; NSA przetworzone w ~60%, „po przetworzeniu” = przeliczenie):
+
+| | ETPC | NSA teraz | NSA po przetworzeniu (szac.) |
+|---|---|---|---|
+| teksty orzeczeń | 4.4 GB | 27.3 GB | ~45 GB |
+| FULLTEXT (pliki FTS) | 3.2 GB | 20.2 GB | ~34 GB |
+| metadane, filtry, rankingi | 0.4 GB | 1.3 GB | ~2 GB |
+| razem do szukania | ~8 GB | | ~80 GB |
+| `raw_records` (tylko `przetworz`, nie musi być w RAM) | ~5 GB | 49.7 GB | ~50 GB |
+
+- Kompresja stron NSA (`PAGE_COMPRESSED`) oszczędza dysk (teksty 11.2 GB zamiast 27.3), **nie RAM** - w buforze strony są rozpakowane.
+- **Qdrant** (wektory na dysku, int8 w RAM): ETPC 450 tys. wektorów ~0.5 GB + graf (teraz 0.75 GB; pełne float ~2 GB); NSA poziom 1 (wektor na orzeczenie, 2.25 mln) ~2.5 GB; NSA wszystkie fragmenty (~18 mln) ~18 GB - przy 32 GB odpada.
+- **Budżet przy 32 GB** (Windows ~6-8 GB, LM Studio głównie GPU; Docker/WSL ~24 GB): bufor InnoDB **12 GB** (cały ETPC + metadane i gorące części NSA), Qdrant ETPC + NSA poziom 1 ~3.5 GB, bge-m3 w `www` + portal ~3 GB, MCP i reszta ~1-2 GB, zapas ~3 GB. Ustawienia: `%USERPROFILE%\.wslconfig` -> `[wsl2] memory=24GB`, compose `--innodb-buffer-pool-size=12G` (teraz WSL ~20 GB, bufor 4 GB). Zrobić po końcu `nsa przetworz` i zrzucie NSA (restart Dockera).
+- **Skutek:** ETPC całe w pamięci (koniec wolnej hybrydy FULLTEXT: „prawo do sądu” 59-218 s przy indeksie 3.2 GB i buforze 4 GB); NSA po znaczeniu szybko (Qdrant w RAM, wiersze po kluczu z dysku w ms); NSA po słowach wolne przy częstych słowach (34 GB FTS poza pamięcią) -> tańsza poprawka: FULLTEXT tylko na `thesis` + `sentence` (dziś też `reasons`, `dissenting_opinion`), uzasadnienia po znaczeniu - indeks kilka razy mniejszy, mieści się w buforze.
+- **Przy 64 GB:** bufor ~32-40 GB = prawie cały NSA bez FTS uzasadnień. Cały NSA z FTS uzasadnień w RAM: ~96-128 GB.
