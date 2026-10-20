@@ -204,6 +204,11 @@ def test_pages(ruling_db):
     ruling_id = html.split('href="/orzeczenie/')[1].split("?")[0]
     status, html = get(app, f"/orzeczenie/{ruling_id}", "jezyk=POL")
     assert status.startswith("200") and "SPRAWA ANDRZEJ" in html
+    assert "<html lang=pl>" in html
+    # wersja angielska: strona po angielsku (przeglądarka proponuje tłumaczenie), interfejs nie
+    html = get(app, f"/orzeczenie/{ruling_id}", "jezyk=ENG")[1]
+    assert "<html lang=en>" in html and "<div class=text lang=en>" in html
+    assert "<aside lang=pl translate=no>" in html
     assert get(app, "/statystyki")[0].startswith("200")
     assert get(app, "/", "q=of")[1].count("class=error") == 1
     assert get(app, "/orzeczenie/999999")[0].startswith("404")

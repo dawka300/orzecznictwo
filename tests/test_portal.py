@@ -86,7 +86,7 @@ def full_portal():
 
 def test_project_pages_get_the_tabs_with_their_own_active():
     _, headers, body = get(full_portal(), "/nsa/orzeczenie/5")
-    assert body.count("<nav class=portal-tabs>") == 1
+    assert body.count("<nav class=portal-tabs ") == 1
     assert '<a class=on href="/nsa/">NSA</a>' in body and '<a href="/etpc/">ETPC</a>' in body
     assert int(headers["Content-Length"]) == len(body.encode("utf-8"))
 

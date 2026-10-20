@@ -284,3 +284,9 @@ docker compose run -d --rm --name etpc-wektory  www python -m etpc wektory --bud
 - Projekty: `WebApp.description` (opis karty) i `WebApp.facts(cur)` -> `[(liczba, opis)]` (ETPC: orzeczenia, wyroki, decyzje z `ruling_stats`; NSA: orzeczenia, wyroki, NSA z `judgment_stats`); `WebApp.summary()` w rdzeniu łączy się z bazą tylko, gdy projekt nadpisał `facts`, a błąd bazy = karta bez liczb.
 - Pod przedrostkiem (hosting w podkatalogu) linki zakładek i strony głównej dostają go raz (test `test_under_a_prefix_tabs_and_home_links_get_it_once`). Sprawdzone zrzutami Playwrighta: jasny i ciemny motyw, telefon (390 px), strona orzeczenia ETPC.
 - Usługa `www` widzi zmianę po `docker compose restart www` (przerywa zadania uruchomione przez `exec` w `www-1`).
+
+## Tłumaczenie w przeglądarce (2026-10-20)
+- Wszystkie strony miały `<html lang=pl>`, więc Chrome/Edge uznawały angielski wyrok za polski i nie proponowały tłumaczenia.
+- Teraz strona orzeczenia ETPC ma `<html lang>` = język wyświetlanej wersji (`etpc/labels.py` `LANG_CODES`: kody HUDOC -> BCP 47, ENG -> en, FRE -> fr, POL -> pl ...), tekst `<div class=text lang=..>`; polski interfejs (`header`, pasek zakładek portalu, zakładki wersji językowych, „wróć”, metadane po prawej) ma `lang=pl translate=no`, więc tłumacz go nie rusza. Fragmenty w wynikach wyszukiwania mają `lang` swojego języka (prawy przycisk -> „Przetłumacz zaznaczenie”).
+- Rdzeń: `layout(..., lang="pl")`. NSA bez zmian (teksty po polsku).
+- Sprawdzone na podglądzie: Delfi (84294) ENG -> `lang=en`, FRE -> `lang=fr`, POL -> `lang=pl`. Samego paska tłumaczenia nie da się sprawdzić w przeglądarce bez okna - do obejrzenia w Chrome/Edge.

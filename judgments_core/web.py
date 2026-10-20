@@ -177,7 +177,7 @@ class Portal:
         for name in self.apps:
             on = " class=on" if name == current else ""
             links.append(f'<a{on} href="{root}/{name}/">{e(name.upper())}</a>')
-        return f"<nav class=portal-tabs>{''.join(links)}</nav>"
+        return f"<nav class=portal-tabs lang=pl translate=no>{''.join(links)}</nav>"
 
     def _with_tabs(self, app, environ, start_response, root, name):
         """Run a project's app; its HTML page gets the bar of tabs after <body>."""
@@ -377,12 +377,26 @@ def vectors_card(progress, command, order_note=""):
 <p class=hint>{e(order_note)} Odśwież stronę, żeby zobaczyć postęp.</p></section>"""
 
 
-def layout(title, body, brand, nav=(("/", "Szukaj"), ("/statystyki", "Statystyki")), header=True):
-    """A whole HTML page in the common look (light and dark theme)."""
+def layout(
+    title,
+    body,
+    brand,
+    nav=(("/", "Szukaj"), ("/statystyki", "Statystyki")),
+    header=True,
+    lang="pl",
+):
+    """A whole HTML page in the common look (light and dark theme).
+
+    lang: the language of the page's main text (an English ruling: "en"), so the
+    browser offers to translate it; the Polish header is marked translate=no.
+    """
     links = "".join(f'<a href="{e(href)}">{e(text)}</a>' for href, text in nav)
-    top = f'<header><a class=brand href="/">{e(brand)}</a>\n<nav>{links}</nav></header>\n'
+    top = (
+        f'<header lang=pl translate=no><a class=brand href="/">{e(brand)}</a>\n'
+        f"<nav>{links}</nav></header>\n"
+    )
     return f"""<!doctype html>
-<html lang=pl><head><meta charset=utf-8>
+<html lang={e(lang)}><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width, initial-scale=1">
 <title>{e(title)} - {e(brand)}</title>
 <style>{CSS}</style></head>

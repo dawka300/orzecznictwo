@@ -56,6 +56,47 @@ LANGUAGES = {
     "BEL": "białoruski",
 }
 
+# Kody HUDOC -> kody języka dla atrybutu lang (BCP 47): przeglądarka po nich
+# proponuje tłumaczenie tekstu orzeczenia.
+LANG_CODES = {
+    "ENG": "en",
+    "FRE": "fr",
+    "POL": "pl",
+    "TUR": "tr",
+    "UKR": "uk",
+    "RUS": "ru",
+    "RUM": "ro",
+    "GER": "de",
+    "CZE": "cs",
+    "SPA": "es",
+    "GEO": "ka",
+    "HRV": "hr",
+    "GRE": "el",
+    "ARM": "hy",
+    "BUL": "bg",
+    "ITA": "it",
+    "MAC": "mk",
+    "ICE": "is",
+    "AZE": "az",
+    "SLV": "sl",
+    "ALB": "sq",
+    "HUN": "hu",
+    "SRP": "sr",
+    "LIT": "lt",
+    "BOS": "bs",
+    "DUT": "nl",
+    "EST": "et",
+    "POR": "pt",
+    "MNE": "cnr",
+    "SLO": "sk",
+    "ARA": "ar",
+    "SWE": "sv",
+    "KOR": "ko",
+    "LAV": "lv",
+    "PER": "fa",
+    "BEL": "be",
+}
+
 STATES = {
     "ALB": "Albania",
     "AND": "Andora",

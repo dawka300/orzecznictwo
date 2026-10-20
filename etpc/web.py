@@ -342,7 +342,11 @@ def _hit(q, h, pattern):
     )
     if h.snippet:
         where = f"<span class=passage-path>{e(h.passage)}</span>" if h.passage else ""
-        text = f"<p class=snip><span class=lang>{e(h.snippet_language)}</span> {where}{_highlight(h.snippet, pattern)}</p>"
+        code = labels.LANG_CODES.get(h.snippet_language, "")
+        text = (
+            f"<p class=snip{f' lang={code}' if code else ''}><span class=lang translate=no>"
+            f"{e(h.snippet_language)}</span> {where}{_highlight(h.snippet, pattern)}</p>"
+        )
     elif h.conclusion:
         text = f"<p class=snip>{e(_shorten(h.conclusion, 300))}</p>"
     else:
@@ -470,17 +474,20 @@ def _ruling(cur, request, ruling_id, semantic=None):
             else "<p class=found>Szukane słowa nie występują w tej wersji językowej.</p>"
         )
     side = _similar(cur, semantic, ruling_id) + _citations(page)
-    body = f"""<p class=back><a href="/" onclick="if(history.length>1){{history.back();return false}}">« wróć</a></p>
+    # Język strony = język wersji w tekście: przeglądarka proponuje tłumaczenie
+    # (np. z angielskiego), polski interfejs obok jest wyłączony z tłumaczenia.
+    lang = labels.LANG_CODES.get(doc["language"], "pl") if doc else "pl"
+    body = f"""<p class=back lang=pl translate=no><a href="/" onclick="if(history.length>1){{history.back();return false}}">« wróć</a></p>
 <h1>{e(r["title"])}</h1>
 <div class=ruling>
 <article>
-<nav class=tabs>{tabs}</nav>
-{found}
-<div class=text>{text}</div>
+<nav class=tabs lang=pl translate=no>{tabs}</nav>
+<div lang=pl translate=no>{found}</div>
+<div class=text lang={lang}>{text}</div>
 </article>
-<aside><dl>{meta}</dl>{side}</aside>
+<aside lang=pl translate=no><dl>{meta}</dl>{side}</aside>
 </div>"""
-    return Response(_layout(r["title"], body))
+    return Response(_layout(r["title"], body, lang))
 
 
 def _citations(page):
@@ -651,5 +658,5 @@ COMMAND_EMBED = "python -m etpc wektory"
 ORDER_NOTE = "Najpierw wyroki (od kluczowych i najnowszych), potem decyzje."
 
 
-def _layout(title, body):
-    return layout(title, body, BRAND)
+def _layout(title, body, lang="pl"):
+    return layout(title, body, BRAND, lang=lang)
