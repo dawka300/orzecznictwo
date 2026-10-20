@@ -226,3 +226,29 @@ Zgodnie z kodem (`judgments_core/rag.py`, ETPC). Baza zabawkowa: Delfi, MTE i In
 - **6. Pakowanie w 16 000 znaków** (`BUDGET_CHARS`) na zmianę: najlepszy kawałek każdego orzeczenia w kolejności rankingu, potem drugi najlepszy ... Dzięki temu model widzi kilka orzeczeń (zasada z Delfi, rozwinięcie w Sanchez, kontrast MTE), a słabe (Kudła, Frydlender) wypadają za limitem.
 - **7. Podanie modelowi:** bloki `[n] sprawa, data, skarga, skład, link HUDOC` + fragmenty z nagłówkiem i znakami od-do + polecenie „tylko z tych źródeł, cytuj [n], podaj wynik sprawy”. `zapytaj` wysyła to do LM Studio; przez MCP Claude dostaje ten sam blok z narzędzia `fragmenty`.
 - **Skąd „wie”:** retriever mierzy tylko odległość liczb; rozumienie siedzi w bge-m3, reszta to nasze reguły (ile orzeczeń, ile kawałków, szerokość, limit, kolejka na zmianę). Słabe punkty: kawałek o podobnym słownictwie z innej sprawy (lepiej odsiewa reranker); wektory nie wiedzą, które orzeczenie jest ważne (Izba i Wielka Izba w Delfi brzmią podobnie) -> waga orzeczeń z planu.
+
+## Gdzie jest wybieranie orzeczeń i na czym polega strojenie RAG (2026-10-20)
+**Ścieżka w kodzie** (pytanie -> kontekst):
+- Wejście: MCP `fragmenty` / CLI `fragmenty` / `zapytaj` (`etpc/mcp.py`, `judgments_core/cli.py`) -> `Retriever.retrieve`.
+- Główna funkcja, wszystkie kroki: `judgments_core/rag.py` `retrieve()`.
+- Ranking orzeczeń ETPC: `etpc/rag.py` `ranking()` -> `etpc/search.py` `search()`; hybryda `_hybrid()`, łączenie `judgments_core/semantic.py` `rrf()`.
+- Qdrant: orzeczenia najbliższe znaczeniem `semantic.py` `judgments()`, do 3 kawałków z orzeczenia `passages_of()`.
+- `rag.py`: kandydaci `_candidates()` (bez wektorów okno wokół słowa z pytania), `widen()`, `merge()`, reranker `_rerank()` + `judgments_core/rerank.py`, pakowanie `pack()`, tekst dla modelu `render()`.
+- Krojenie przy `wektory`: `judgments_core/chunker.py` (`target_chars = 2000`), granice sekcji `etpc/chunker.py`.
+- Pokrętła: góra `judgments_core/rag.py` (`CANDIDATES`, `PER_JUDGMENT`, `BUDGET_CHARS`, `WIDEN_CHARS`); projekt nadpisuje je w potomku (np. `EtpcRetriever.mode = "znaczeniowe"`).
+
+**Strojenie** = zmień jedno pokrętło, zmierz, zostaw tylko to, co poprawia.
+- **Miarka:** `<projekt>/pytania.json` (pytanie + orzeczenia, które powinny się znaleźć) i `python -m <projekt> ocen` (`judgments_core/evaluation.py`): **MRR** (1 / miejsce pierwszego właściwego, średnia) i **w kontekście** (ile oczekiwanych zmieściło się w limicie - ważniejsze, model widzi tylko to). Bez modelu językowego: sekundy, tanio, powtarzalnie. `ocen-odpowiedzi` ocenia całe odpowiedzi (minuty, mniej stabilne).
+- **Pokrętła i koszty:**
+  - wielkość kawałka: pełniejszy wywód, ale wektor rozmywa kilka wątków;
+  - `CANDIDATES`: łapie orzeczenia nisko w rankingu, ale wolniej i więcej śmieci;
+  - `PER_JUDGMENT`: głębiej w jedno orzeczenie, ale mniej różnych orzeczeń;
+  - `WIDEN_CHARS`: więcej kontekstu wokół akapitu, ale mniej kawałków w limicie;
+  - `BUDGET_CHARS`: więcej źródeł, ale mały model gubi się w długim kontekście;
+  - tryb znaczeniowy / hybrydowy: hybryda łapie nazwy i numery, ale FULLTEXT bywa bardzo wolny;
+  - reranker: lepsza kolejność, ale ~49 s na pytanie na CPU;
+  - model wektorów: lepsze rozumienie, ale przeliczenie wszystkich wektorów;
+  - słowniczek pl -> en (`etpc/glossary.py`): polskie pytania trafiają w angielskie teksty, ale to ręczna praca;
+  - waga orzeczeń (plan): ważne wyżej, trzeba dobrać, ile waży wobec podobieństwa znaczenia.
+- **Dotychczasowe pomiary** (12 pytań ETPC): hybryda MRR 0.670, 17/23 w kontekście, 61 s; samo znaczenie 0.668, 17/23, 2 s (domyślne); reranker 0.688, ale dwa orzeczenia wypadły z kontekstu i 49 s (wyłączony).
+- **Zastrzeżenie:** 12 pytań to mało (jedno pytanie przesuwa MRR o kilka setnych, różnice ~0.02 mogą być przypadkiem). Najważniejszy krok: 50-100 pytań wzorcowych z różnych dziedzin, najlepiej od kogoś, kto zna orzecznictwo.
