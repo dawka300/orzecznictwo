@@ -10,6 +10,7 @@ from etpc import glossary, search
 from etpc.ranks import refresh_ranks
 from etpc.stats import read_stats, refresh_stats
 from etpc.web import EtpcWebApp
+from etpc.weights import refresh_weights
 from judgments_core.semantic import Passage, SemanticUnavailable
 from judgments_core.settings import Settings
 
@@ -76,6 +77,7 @@ def ruling_db(conn):
     with conn.cursor() as cur:
         refresh_stats(cur)
         refresh_ranks(cur)
+        refresh_weights(cur)
     conn.commit()
     return conn
 
@@ -83,6 +85,13 @@ def ruling_db(conn):
 def run(conn, **kwargs):
     with conn.cursor() as cur:
         return search.search(cur, search.SearchQuery(**kwargs))
+
+
+def test_weight_is_on_hits_and_filters_them(ruling_db):
+    hit = run(ruling_db, text="satisfaction").hits[0]  # Izba, ważność 4, bez cytowań
+    assert (hit.tier, hit.reasons) == ("D", "bez wyróżnień")
+    assert run(ruling_db, text="satisfaction", weight="C").total == 0
+    assert run(ruling_db, text="satisfaction", weight="D").total == 1
 
 
 def test_fulltext_search_with_filters(ruling_db):
@@ -209,6 +218,8 @@ def test_pages(ruling_db):
     html = get(app, f"/orzeczenie/{ruling_id}", "jezyk=ENG")[1]
     assert "<html lang=en>" in html and "<div class=text lang=en>" in html
     assert "<aside lang=pl translate=no>" in html
+    assert "<span class='badge tier D' title='waga: bez wyróżnień'>D rutynowe</span>" in html
+    assert get(app, "/", "q=satisfaction&waga=C")[1].count("class=title") == 0
     assert get(app, "/statystyki")[0].startswith("200")
     assert get(app, "/", "q=of")[1].count("class=error") == 1
     assert get(app, "/orzeczenie/999999")[0].startswith("404")

@@ -127,6 +127,12 @@ def build_parser(project):
         type=int,
         help="zakończ po tylu sekundach (domyślnie z ustawień, 0 = bez limitu)",
     )
+    derive.add_argument(
+        "--tylko-pochodne",
+        dest="derived_only",
+        action="store_true",
+        help="bez rekordów: tylko przelicz dane pochodne (statystyki, rankingi ...)",
+    )
 
     check = commands.add_parser(
         "sprawdz", help="porównaj źródło z bazą (rok po roku), braki zapisz jako problemy"
@@ -434,6 +440,13 @@ def _derive(project, settings, args):
         raise NotImplementedError(f"projekt {project.name} nie ma jeszcze parsera")
     budget = settings.time_budget_s if args.time_budget_s is None else args.time_budget_s
     with _logged_run(project, settings, "przetworz") as (store, run):
+        if args.derived_only:
+            deriver = project.deriver(store)
+            with store.conn.cursor() as cur:
+                deriver.after(cur)
+            store.conn.commit()
+            log.info("Gotowe: dane pochodne przeliczone.")
+            return 0
         deriver = project.deriver(
             store,
             from_start=args.from_start,

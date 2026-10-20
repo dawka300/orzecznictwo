@@ -138,3 +138,16 @@ Wyszło przy szukaniu przez MCP ciekawych wyroków o wolności słowa: Handyside
 - `python -m etpc przetworz --od-poczatku` w kontenerze (z `-e ETPC_BACKUP_DIR=`): 127 018 rekordów, 2 h 44 min, status ok; `pusty_tekst` 677 (jak dotąd).
 - **Wynik:** powiązania 446 831 -> 467 102, `ruling_citations` 561 652 -> 584 816. Handyside 8 -> 363 (miejsce 9101 -> 118), Lingens 5 -> 291 (12333 -> 183), Delfi GC 0 -> 199, Morice GC 0 -> 418 (miejsce 83), Perinçek GC 0 -> 225; Delfi Izba 198 -> 0; „T.A. v. Turkey” (Izba) 3656 -> 0, a Tahsin Acar GC (to samo, jednostronna deklaracja) 3657, miejsce 3. Góra: Frydlender, Kudła, Tahsin Acar, Josipović, Labita.
 - MCP `szukaj`: opis `artykul` mówi, że sam artykuł = powołany w sprawie (relacja HUDOC „concerned”, np. Labita i Baranowski przy art. 10), a orzeczenia rozstrzygające o artykule: z `wynik`.
+
+## Waga orzeczenia (2026-10-20)
+Jedna litera przy każdym orzeczeniu: jak bardzo liczy się w orzecznictwie, z widocznym powodem (np. Morice: „A kluczowe - kluczowe w HUDOC; Wielka Izba; cytowania: 418”). Proste progi, bez modelu (`etpc/weights.py`):
+- **A kluczowe:** ważność 1 w HUDOC (ocena redakcji Trybunału) albo wyrok Wielkiej Izby albo wyrok cytowany >= 100 razy;
+- **B ważne:** ważność 2 albo decyzja Wielkiej Izby albo cytowane >= 20 razy;
+- **C zwykłe:** ważność 3 albo cytowane >= 5 razy;
+- **D rutynowe:** reszta (głównie komitety, sprawy powtarzalne, rzadko cytowane decyzje).
+- Same cytowania dają decyzji najwyżej B: rutynowe decyzje bywają cytowane tysiące razy w formułach (Josipović v. Serbia 2 449, Waza, Sulwińska). Nowe wyroki nie zdążyły zebrać cytowań - dla nich liczy się ważność z HUDOC.
+- Rozkład przed wprowadzeniem (orzeczenia): wyroki ważność 1/2/3/4: 1 109 / 1 087 / 6 114 / 21 052 (Wielka Izba 525); decyzje 385 / 707 / 1 279 / 51 318; cytowania: 0 - 54 181, 1-4 - 15 137, 5-19 - 9 157, 20-49 - 2 911, 50-99 - 944, 100-299 - 545, 300+ - 176.
+- Migracja `etpc/006_weights.sql`: `ruling_weights (ruling_id, tier, reasons)`, przebudowywana w `EtpcDeriver.after` po `ruling_ranks`.
+- Użycie: znaczek przy wynikach (powody w podpowiedzi), wiersz „Waga” na stronie orzeczenia, filtr „Waga” (`waga=A|B|C` = co najmniej taka); MCP `szukaj`/`fragmenty` parametr `waga`, waga w wynikach, w `orzeczenie` i w opisie źródeł RAG (`fragmenty`, `zapytaj`).
+- Rdzeń: `python -m <projekt> przetworz --tylko-pochodne` = samo `Deriver.after` (statystyki, ranking, waga) bez przetwarzania rekordów.
+- **Jeszcze nie:** waga w kolejności fragmentów RAG (przy podobnej treści ważniejsze wyżej) - najpierw pomiar `ocen`, czy nie psuje trafności. NSA: waga po pełnym `przetworz` (uchwały, teza, glosy, cytowania z regexu sygnatur - plan w głównym `notepad.md`).

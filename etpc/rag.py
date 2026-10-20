@@ -17,6 +17,7 @@ from __future__ import annotations
 from etpc import labels, search
 from etpc.labels import label
 from etpc.semantic import EtpcSemantic
+from etpc.weights import TIERS
 from judgments_core.rag import Ranking, Retriever
 
 HUDOC_URL = "https://hudoc.echr.coe.int/eng?i={}"
@@ -68,6 +69,7 @@ class EtpcRetriever(Retriever):
                 f"skargi {', '.join(hit.appnos)}" if hit.appnos else "",
                 f"przeciwko {', '.join(hit.states)}" if hit.states else "",
                 f"WYNIK: {outcome(hit.conclusion)}" if outcome(hit.conclusion) else "",
+                f"waga {hit.tier} {TIERS[hit.tier]}" if hit.tier else "",
                 f"ważność {label(labels.IMPORTANCE, hit.importance)}",
                 f"cytowane {hit.cited_by} razy" if hit.cited_by else "",
             )

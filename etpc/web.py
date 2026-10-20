@@ -15,6 +15,7 @@ from etpc.embed import PROGRESS_KEY
 from etpc.labels import label
 from etpc.semantic import EtpcSemantic
 from etpc.stats import read_stats
+from etpc.weights import TIERS
 from judgments_core.embed import read_progress
 from judgments_core.embeddings import make_embedder
 from judgments_core.qdrant import QdrantStore, collection_name
@@ -110,6 +111,7 @@ def _query(request):
         appno=request.get("skarga"),
         cites=request.get("cytuje"),
         min_cited=request.get_int("cytowan"),
+        weight=_weight_param(request.get("waga")),
         citing=request.get_int("cytujace"),
         cited_by=request.get_int("cytowane_przez"),
         translate=not request.get("bez_tlumaczenia"),
@@ -153,6 +155,7 @@ def _params(q, **changes):
         "skarga": q.appno,
         "cytuje": q.cites,
         "cytowan": q.min_cited,
+        "waga": q.weight,
         "cytujace": q.citing,
         "cytowane_przez": q.cited_by,
         "bez_tlumaczenia": "" if q.translate else "1",
@@ -240,6 +243,7 @@ def _search_form(q, stats):
 <label>Rok do<input name=do value="{e(q.year_to or "")}" inputmode=numeric placeholder="2026"></label>
 <label>Nr skargi<input name=skarga value="{e(q.appno)}" placeholder="np. 22716/12"></label>
 <label>Cytuje skargę<input name=cytuje value="{e(q.cites)}" placeholder="np. 30210/96"></label>
+{_select("waga", _plain_options([("", "każda"), ("A", "A - kluczowe"), ("B", "co najmniej B - ważne"), ("C", "co najmniej C - zwykłe")], q.weight), "Waga")}
 {_select("cytowan", _plain_options([(0, "dowolnie"), (10, "co najmniej 10 razy"), (50, "co najmniej 50 razy"), (100, "co najmniej 100 razy"), (500, "co najmniej 500 razy")], q.min_cited), "Cytowane")}
 {_select("sort", _plain_options([("", "trafność / najnowsze"), ("cytowane", "najczęściej cytowane"), ("data", "najnowsze"), ("najstarsze", "najstarsze")], q.sort), "Kolejność")}
 {_hidden(q)}
@@ -317,8 +321,8 @@ def _hit(q, h, pattern):
     if h.appno_count > len(h.appnos):
         appnos += f" (+{_n(h.appno_count - len(h.appnos))})"
     badges = f'<span class="badge {e(h.kind)}">{e(label(labels.KINDS, h.kind))}</span>'
-    if h.importance == 1:
-        badges += "<span class='badge key'>kluczowe</span>"
+    if h.tier:
+        badges += _weight_badge(h.tier, h.reasons)
     if h.cited_by:
         badges += (
             f"<span class='badge cited' title='miejsce {_n(h.rank)} w rankingu cytowań'>"
@@ -420,6 +424,7 @@ def _ruling(cur, request, ruling_id, semantic=None):
             row("Data", _date(r["ruling_date"])),
             row("Rodzaj", e(label(labels.KINDS, r["kind"]))),
             row("Skład", e(label(labels.FORMATIONS, r["formation"]))),
+            row("Waga", _weight_badge(*page.weight) + e(page.weight[1]) if page.weight else ""),
             row("Ważność", e(label(labels.IMPORTANCE, r["importance"] or 0))),
             row(
                 "Cytowania",
@@ -656,6 +661,20 @@ def _most_cited(cur, limit=50):
 BRAND = "Orzecznictwo ETPC"
 COMMAND_EMBED = "python -m etpc wektory"
 ORDER_NOTE = "Najpierw wyroki (od kluczowych i najnowszych), potem decyzje."
+
+
+def _weight_param(value):
+    """A-D from the address, anything else = no filter."""
+    value = value.upper()
+    return value if value in TIERS else ""
+
+
+def _weight_badge(tier, reasons):
+    """Badge "A kluczowe" with the reasons as its tooltip."""
+    return (
+        f"<span class='badge tier {e(tier)}' title='waga: {e(reasons)}'>"
+        f"{e(tier)} {e(TIERS.get(tier, ''))}</span>"
+    )
 
 
 def _layout(title, body, lang="pl"):

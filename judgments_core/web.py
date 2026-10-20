@@ -466,6 +466,8 @@ button{padding:7px 14px;border:0;border-radius:7px;background:var(--accent);colo
 .badge.judgment{background:var(--judgment);color:var(--judgment-t)}.badge.decision{background:var(--decision);color:var(--decision-t)}
 .badge.key{background:var(--key);color:var(--key-t)}
 .badge.cited{background:var(--accent-soft);color:var(--accent)}
+.badge.tier{background:var(--line);color:var(--muted);cursor:help}.badge.tier.A{background:var(--key);color:var(--key-t)}
+.badge.tier.B{background:var(--accent-soft);color:var(--accent)}
 .check{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px;margin:2px 0}
 .check input{width:auto}
 .translated{background:var(--accent-soft);border-radius:8px;padding:8px 12px;font-size:13px;margin:0 0 12px}

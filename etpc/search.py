@@ -194,6 +194,7 @@ class SearchQuery:
     translate: bool = True  # polskie zwroty -> angielskie/francuskie (tylko w treści)
     cites: str = ""  # orzeczenia cytujące skargę o tym numerze
     min_cited: int = 0  # cytowane w co najmniej tylu orzeczeniach
+    weight: str = ""  # A-D: waga co najmniej taka (etpc/weights.py; A = tylko kluczowe)
     citing: int = 0  # orzeczenia cytujące orzeczenie o tym id (ruling_links)
     cited_by: int = 0  # orzeczenia cytowane przez orzeczenie o tym id
     # "" = trafność przy tekście, data przy jego braku; data / najstarsze / cytowane
@@ -219,6 +220,8 @@ class Hit:
     violations: list
     cited_by: int
     rank: int  # miejsce w rankingu cytowań, 0 = brak
+    tier: str = ""  # waga A-D (ruling_weights), "" = nie policzona
+    reasons: str = ""  # dlaczego taka waga
     score: float = 0.0
     itemid: str = ""  # dokument z wycinkiem
     snippet_language: str = ""
@@ -373,6 +376,11 @@ def _ids_query(q, terms, only_ids=None, top=None):
     if q.min_cited:
         where.append("k.cited_by >= %s")
         args.append(q.min_cited)
+    if q.weight:
+        where.append(
+            "EXISTS (SELECT 1 FROM ruling_weights w WHERE w.ruling_id = r.id AND w.tier <= %s)"
+        )
+        args.append(q.weight)
     for column, value in (("r.kind", q.kind), ("r.formation", q.formation)):
         if value:
             where.append(f"{column} = %s")
@@ -457,14 +465,16 @@ def _hits(cur, ids):
              FROM ruling_documents WHERE ruling_id = r.id),
             (SELECT GROUP_CONCAT(article ORDER BY article)
              FROM ruling_articles WHERE ruling_id = r.id AND relation = 'violation'),
-            COALESCE(k.cited_by, 0), COALESCE(k.position, 0)
+            COALESCE(k.cited_by, 0), COALESCE(k.position, 0),
+            COALESCE(w.tier, ''), COALESCE(w.reasons, '')
         FROM rulings r LEFT JOIN ruling_ranks k ON k.ruling_id = r.id
+            LEFT JOIN ruling_weights w ON w.ruling_id = r.id
         WHERE r.id IN ({marks})""",
         ids,
     )
     by_id = {}
     for row in cur.fetchall():
-        *head, states, appnos, appno_count, languages, violations, cited_by, rank = row
+        *head, states, appnos, appno_count, languages, violations, cited_by, rank, tier, why = row
         by_id[row[0]] = Hit(
             *head,
             states=_split(states),
@@ -474,6 +484,8 @@ def _hits(cur, ids):
             violations=_split(violations),
             cited_by=cited_by,
             rank=rank,
+            tier=tier,
+            reasons=why,
         )
     return [by_id[i] for i in ids if i in by_id]
 
@@ -546,6 +558,7 @@ class RulingPage:
     cited_by: list  # [(id, title, date)] orzeczenia cytujące
     cited_by_count: int
     rank: int  # miejsce w rankingu cytowań, 0 = brak
+    weight: tuple = ()  # (waga A-D, powody), () = nie policzona
 
 
 def ruling_page(cur, ruling_id, language=""):
@@ -604,6 +617,8 @@ def ruling_page(cur, ruling_id, language=""):
     cites_rulings, cites_count = _linked(cur, "l.citing_id = %s", "l.cited_id", ruling_id)
     cited_by, cited_by_count = _linked(cur, "l.cited_id = %s", "l.citing_id", ruling_id)
     rank = _column(cur, "SELECT position FROM ruling_ranks WHERE ruling_id = %s", ruling_id)
+    cur.execute("SELECT tier, reasons FROM ruling_weights WHERE ruling_id = %s", (ruling_id,))
+    weight = cur.fetchone() or ()
     return RulingPage(
         ruling,
         states,
@@ -618,6 +633,7 @@ def ruling_page(cur, ruling_id, language=""):
         cited_by,
         cited_by_count,
         rank[0] if rank else 0,
+        tuple(weight),
     )
 
 

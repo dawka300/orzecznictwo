@@ -12,6 +12,7 @@ from etpc import labels, search
 from etpc.labels import label
 from etpc.rag import HUDOC_URL, EtpcRetriever
 from etpc.semantic import EtpcSemantic
+from etpc.weights import TIERS
 from judgments_core.mcp import McpServer, cut, lines
 from judgments_core.rag import render
 from judgments_core.semantic import SemanticUnavailable
@@ -50,6 +51,7 @@ class EtpcMcp(McpServer):
         artykul: str = "",
         wynik: str = "",
         waznosc: int = 0,
+        waga: str = "",
         rok_od: int = 0,
         rok_do: int = 0,
         nr_skargi: str = "",
@@ -66,6 +68,8 @@ class EtpcMcp(McpServer):
         artykul: artykuł Konwencji, np. 6, 6-1, 3, P1-1; sam artykul = powołany w sprawie
           (też odrzucony lub niezbadany), orzeczenia o nim: z wynik. wynik: violation /
           no_violation / concerned (wobec artykul). waznosc: 1 kluczowe ... 4 (co najmniej taka).
+        waga: A / B / C (co najmniej taka; A kluczowe, B ważne, C zwykłe, D rutynowe) - z ważności
+          HUDOC, Wielkiej Izby i liczby cytowań; powód przy każdym wyniku.
         nr_skargi: np. 30210/96. jezyk: ENG / FRE / POL (wersja z fragmentem).
         sortuj: "" trafność / data / najstarsze / cytowane.
         """
@@ -77,6 +81,7 @@ class EtpcMcp(McpServer):
             article=artykul,
             relation=wynik,
             importance=waznosc,
+            weight=_weight(waga),
             year_from=rok_od,
             year_to=rok_do,
             appno=nr_skargi,
@@ -102,6 +107,7 @@ class EtpcMcp(McpServer):
         artykul: str = "",
         wynik: str = "",
         waznosc: int = 0,
+        waga: str = "",
         rok_od: int = 0,
         rok_do: int = 0,
         limit_znakow: int = 0,
@@ -112,7 +118,7 @@ class EtpcMcp(McpServer):
         Po znaki można sięgnąć dalej: orzeczenie(id, od=...).
 
         pytanie: opis problemu po polsku albo angielsku. Filtry jak w szukaj (panstwo: POL ...,
-        artykul: 6, wynik: violation, waznosc: 1-4). limit_znakow: ile tekstu (domyślnie 16000).
+        artykul: 6, wynik: violation, waznosc: 1-4, waga: A-C). limit_znakow: ile tekstu (domyślnie 16000).
         tryb: domyślnie znaczeniowe (szybko); hybrydowe = też po słowach (bywa bardzo wolne).
         """
         q = self.retriever.query(
@@ -123,6 +129,7 @@ class EtpcMcp(McpServer):
             article=artykul,
             relation=wynik,
             importance=waznosc,
+            weight=_weight(waga),
             year_from=rok_od,
             year_to=rok_do,
         )
@@ -157,6 +164,12 @@ class EtpcMcp(McpServer):
             ("ECLI", r["ecli"]),
             ("Skargi", ", ".join(page.applications)),
             ("Państwa", ", ".join(label(labels.STATES, s) for s in page.states)),
+            (
+                "Waga",
+                f"{page.weight[0]} {TIERS[page.weight[0]]} ({page.weight[1]})"
+                if page.weight
+                else "",
+            ),
             ("Ważność", label(labels.IMPORTANCE, r["importance"])),
             (
                 "Artykuły",
@@ -193,13 +206,18 @@ class EtpcMcp(McpServer):
         return "\n\n".join(_hit(h) for h in hits)
 
 
+def _weight(value):
+    value = value.strip().upper()
+    return value if value in TIERS else ""
+
+
 def _hit(h):
     head = f"[id {h.id}] {h.title} - {label(labels.KINDS, h.kind)} z {h.ruling_date}"
     details = lines(
         ("Skargi", ", ".join(h.appnos) + (" ..." if h.appno_count > len(h.appnos) else "")),
         ("Państwa", ", ".join(h.states)),
         ("Naruszenia", ", ".join(h.violations)),
-        ("Ważność", label(labels.IMPORTANCE, h.importance)),
+        ("Waga", f"{h.tier} {TIERS[h.tier]} ({h.reasons})" if h.tier else ""),
         ("Cytowane", h.cited_by or ""),
         ("HUDOC", HUDOC_URL.format(h.itemid) if h.itemid else ""),
     )

@@ -93,13 +93,13 @@ def refresh_ranks(cur):
     scores = pagerank(list(rulings), edges)
     order = sorted(scores, key=lambda i: (-cited_by[i], -scores[i], i))
     rows = [(i, cited_by[i], scores[i], position) for position, i in enumerate(order, 1)]
-    _replace(
+    replace_rows(
         cur,
         "ruling_ranks",
         "INSERT INTO ruling_ranks (ruling_id, cited_by, pagerank, position) VALUES (%s, %s, %s, %s)",
         rows,
     )
-    _replace(
+    replace_rows(
         cur,
         "ruling_links",
         "INSERT INTO ruling_links (citing_id, cited_id) VALUES (%s, %s)",
@@ -113,7 +113,8 @@ def refresh_ranks(cur):
     )
 
 
-def _replace(cur, table, insert, rows):
+def replace_rows(cur, table, insert, rows):
+    """Replace all rows of table with rows, inserted in batches."""
     cur.execute(f"DELETE FROM {table}")
     for start in range(0, len(rows), BATCH):
         cur.executemany(insert, rows[start : start + BATCH])
