@@ -12,6 +12,14 @@ RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu 
 RUN pip install --no-cache-dir pytest ruff
 # Serwery MCP (python -m etpc|nsa mcp, .mcp.json) uruchamiane w kontenerze.
 RUN pip install --no-cache-dir "mcp>=2.3"
+# Pobieranie z HUDOC (ETPC_TRANSPORT, łańcuch requests -> curl -> playwright):
+# curl przechodzi przez Cloudflare, gdy TLS Pythona nie; Chromium (~500 MB), gdy
+# zatrzymany jest też curl. --with-deps doinstalowuje biblioteki systemowe przeglądarki.
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir playwright \
+    && python -m playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HF_HUB_DISABLE_TELEMETRY=1
 CMD ["python", "-m", "portal", "--host", "0.0.0.0", "--port", "8080"]

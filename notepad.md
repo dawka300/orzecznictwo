@@ -252,3 +252,8 @@ Zgodnie z kodem (`judgments_core/rag.py`, ETPC). Baza zabawkowa: Delfi, MTE i In
   - waga orzeczeń (plan): ważne wyżej, trzeba dobrać, ile waży wobec podobieństwa znaczenia.
 - **Dotychczasowe pomiary** (12 pytań ETPC): hybryda MRR 0.670, 17/23 w kontekście, 61 s; samo znaczenie 0.668, 17/23, 2 s (domyślne); reranker 0.688, ale dwa orzeczenia wypadły z kontekstu i 49 s (wyłączony).
 - **Zastrzeżenie:** 12 pytań to mało (jedno pytanie przesuwa MRR o kilka setnych, różnice ~0.02 mogą być przypadkiem). Najważniejszy krok: 50-100 pytań wzorcowych z różnych dziedzin, najlepiej od kogoś, kto zna orzecznictwo.
+
+## Transporty w kontenerze (2026-10-20)
+- Strategia pobierania: `judgments_core/transport.py` (`Transport`, `RequestsTransport`, `CurlTransport`, `FallbackTransport`, rejestr `TRANSPORTS`, `make_transport()`, `is_cloudflare_challenge()`), `judgments_core/browser.py` (`PlaywrightTransport`); łańcuch projektu `etpc/__main__.py` (`requests`, `curl`, `playwright`), nadpisanie `<PREFIKS>_TRANSPORT` (`cli.py`); przerwy i ponawianie w `judgments_core/http.py` `PoliteClient`.
+- Obraz `www` (`python:3.13-slim`) nie miał curla ani Playwrighta, a `.env` ma `ETPC_TRANSPORT=playwright` -> `pobierz` ETPC w kontenerze by nie zadziałał. Dodane do `docker/www.Dockerfile`: curl (apt) i `playwright` + `playwright install --with-deps chromium` (~500 MB).
+- Sprawdzone z kontenera: zapytanie do HUDOC (`/app/query/results`, Handyside 001-57499) przez każdy transport osobno: requests, curl, playwright - wszystkie 200 z danymi, bez Cloudflare.
