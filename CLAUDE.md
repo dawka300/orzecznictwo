@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Shared skeleton for projects that download court judgments into MariaDB and run unattended on shared hosting (seohost, Python, cron). Projects: `nsa/` (Polish administrative courts, CBOSA) and `etpc/` (European Court of Human Rights, HUDOC). Grew out of the local `orzeczenia_SAOS` project (SAOS in Postgres); this repo is MariaDB-only, vectors go to a separate dedicated store later. README.md explains the layout; each project's `notepad.md` has its state and next steps.
+Shared skeleton for projects that download court judgments into MariaDB and run unattended on shared hosting (seohost, Python, cron). Projects: `nsa/` (Polish administrative courts, CBOSA) and `etpc/` (European Court of Human Rights, HUDOC). Grew out of the local `orzeczenia_SAOS` project (SAOS in Postgres); this repo is MariaDB-only, vectors go to a separate dedicated store later. README.md explains the layout; the root and each project's `notepad.md` hold the state and next steps (local working notes, gitignored since 2026-10-21 - not on GitHub).
 
 ## Running
 
