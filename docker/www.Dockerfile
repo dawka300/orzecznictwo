@@ -20,6 +20,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 RUN pip install --no-cache-dir playwright \
     && python -m playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*
+# Kopia bazy (kopia, po pobierz/przetworz): mariadb-dump do serwera db
+# (<PREFIKS>_DUMP_COMMAND w docker-compose.yml).
+RUN apt-get update && apt-get install -y --no-install-recommends mariadb-client \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HF_HUB_DISABLE_TELEMETRY=1
 CMD ["python", "-m", "portal", "--host", "0.0.0.0", "--port", "8080"]
