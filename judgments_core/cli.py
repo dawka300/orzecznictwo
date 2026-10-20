@@ -128,6 +128,13 @@ def build_parser(project):
         help="zakończ po tylu sekundach (domyślnie z ustawień, 0 = bez limitu)",
     )
     derive.add_argument(
+        "--porcja",
+        dest="batch_size",
+        type=int,
+        default=100,
+        help="rekordów w porcji (jedna transakcja; domyślnie 100)",
+    )
+    derive.add_argument(
         "--tylko-pochodne",
         dest="derived_only",
         action="store_true",
@@ -447,15 +454,22 @@ def _derive(project, settings, args):
             store.conn.commit()
             log.info("Gotowe: dane pochodne przeliczone.")
             return 0
+        reader = None
+        if settings.read_connections > 1:
+            reader = db.RawReader(lambda: db.connect(settings.db_dsn), settings.read_connections)
         deriver = project.deriver(
             store,
             from_start=args.from_start,
             limit=args.limit,
             time_budget_s=budget,
+            batch_size=args.batch_size,
+            reader=reader,
         )
         try:
             result = deriver.run()
         finally:
+            if reader is not None:
+                reader.close()
             r = deriver.result
             run.counts.update(pages=r.batches, records=r.records, problems=r.problems)
         if result.records:

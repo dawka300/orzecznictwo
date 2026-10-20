@@ -9,6 +9,10 @@ Deriver feeds it the records changed since the last pass, oldest first, and
 saves how far it got in sync_state together with each batch. After a parser
 change, a pass with from_start re-derives everything without downloading
 anything again.
+
+With a reader (judgments_core.db.RawReader: several connections) the next
+batch is read in the background while the current one is written; reading
+is the slow part of a big pass (random disk reads of the raw texts).
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -51,8 +56,11 @@ class Deriver:
         time_budget_s=0,
         clock=time.monotonic,
         now=utc_now,
+        reader=None,
     ):
         self.store = store
+        # RawReader: porcje czytane w tle kilkoma połączeniami; None = store, po kolei
+        self.reader = reader
         self.source_name = source_name or self.source_name
         # derive(cursor, records); domyślnie TableWriter projektu
         self.derive = derive or self.writer_class()
@@ -72,38 +80,55 @@ class Deriver:
         # zapisane później mają changed_at >= tej granicy, więc nie mogą
         # wpaść przed zapisany znacznik i zostać pominięte.
         before = self.now()
-        while True:
-            size = self.batch_size
-            if self.limit:
-                size = min(size, self.limit - result.records)
-            records = self.store.raw_records_after(self.source_name, after, before, size)
-            if not records:
-                result.finished = True
-                return result
-            last = records[-1]
-            after = (last.changed_at, last.source_id)
-            problems = self.store.derive_batch(
-                self.source_name, self.derive, records, self.state_key, _dump(after)
-            )
-            result.batches += 1
-            result.records += len(records)
-            result.problems += len(problems)
-            for source_id, problem, details in problems:
-                log.warning("problem %s: %s (%s)", source_id, problem, details)
-            log.info(
-                "porcja %d: %d rekordów (łącznie %d, problemów %d), do %s %s",
-                result.batches,
-                len(records),
-                result.records,
-                result.problems,
-                *after,
-            )
-            if self.limit and result.records >= self.limit:
-                result.stopped_by = "limit"
-                return result
-            if self.time_budget_s and self.clock() - started >= self.time_budget_s:
-                result.stopped_by = "czas"
-                return result
+        ahead = ThreadPoolExecutor(1) if self.reader is not None else None
+        pending = None
+        try:
+            while True:
+                if pending is None:
+                    records = self._read(after, before, result.records)
+                else:
+                    records, pending = pending.result(), None
+                if not records:
+                    result.finished = True
+                    return result
+                last = records[-1]
+                after = (last.changed_at, last.source_id)
+                done = result.records + len(records)
+                if ahead is not None and not (self.limit and done >= self.limit):
+                    # następna porcja czyta się, gdy ta jest zapisywana
+                    pending = ahead.submit(self._read, after, before, done)
+                problems = self.store.derive_batch(
+                    self.source_name, self.derive, records, self.state_key, _dump(after)
+                )
+                result.batches += 1
+                result.records += len(records)
+                result.problems += len(problems)
+                for source_id, problem, details in problems:
+                    log.warning("problem %s: %s (%s)", source_id, problem, details)
+                log.info(
+                    "porcja %d: %d rekordów (łącznie %d, problemów %d), do %s %s",
+                    result.batches,
+                    len(records),
+                    result.records,
+                    result.problems,
+                    *after,
+                )
+                if self.limit and result.records >= self.limit:
+                    result.stopped_by = "limit"
+                    return result
+                if self.time_budget_s and self.clock() - started >= self.time_budget_s:
+                    result.stopped_by = "czas"
+                    return result
+        finally:
+            if ahead is not None:
+                ahead.shutdown(wait=True)  # porcja w drodze: dokończ odczyt, nie zapisuj
+
+    def _read(self, after, before, done):
+        size = self.batch_size
+        if self.limit:
+            size = min(size, self.limit - done)
+        source = self.reader or self.store
+        return source.raw_records_after(self.source_name, after, before, size)
 
     def after(self, cur):
         """After a pass that processed records (statistics, rankings ...); nothing by default."""

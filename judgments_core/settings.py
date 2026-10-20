@@ -47,6 +47,9 @@ class Settings:
     # hostingu cron uruchamia przebieg co kilka minut, a hosting zabija zbyt
     # długie procesy - przebieg kończy się sam, a następny wznawia od kursora.
     time_budget_s: int = 0
+    # Ile połączeń czyta naraz teksty porcji w przetworz (judgments_core.db.RawReader).
+    # 1 = jedno połączenie jak dotąd (hosting: limit połączeń); lokalnie na SSD 4.
+    read_connections: int = 1
     log_dir: str = "logs"
     # requests / curl / playwright; puste = domyślny transport projektu
     transport: str = ""

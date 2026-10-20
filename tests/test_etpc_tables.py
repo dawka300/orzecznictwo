@@ -98,6 +98,23 @@ def test_from_start_is_repeatable(conn):
     assert rows(conn, "SELECT COUNT(*) FROM ruling_citations") == before
 
 
+def test_reader_with_several_connections_reads_the_same_batches(conn):
+    from conftest import TEST_DSN
+
+    store = setup(conn)
+    save(store, english(), polish())
+    reader = db.RawReader(lambda: db.connect(TEST_DSN), 2)
+    try:
+        result = derive(store, reader=reader, batch_size=1)
+        assert (result.records, result.batches, result.finished) == (2, 2, True)
+        assert rows(conn, "SELECT COUNT(*) FROM ruling_documents") == ((2,),)
+        result = derive(store, reader=reader, batch_size=1, from_start=True, limit=1)
+        assert (result.records, result.stopped_by) == (1, "limit")
+        assert derive(store, reader=reader).records == 1  # wznowione za porcją z limitu
+    finally:
+        reader.close()
+
+
 def test_document_moved_to_another_ecli_leaves_no_empty_ruling(conn):
     store = setup(conn)
     save(store, english())

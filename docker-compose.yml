@@ -74,6 +74,9 @@ services:
       # kopia bazy z kontenera: mariadb-dump z obrazu łączy się z db (host z DSN);
       # wygrywa z ETPC_DUMP_COMMAND z .env (docker exec - w kontenerze nie ma dockera)
       # (--skip-ssl: klient 11.8 bez tego ostrzega przy każdej kopii; sieć lokalna)
+      # przetworz: teksty porcji czytane naraz 4 połączeniami (judgments_core.db.RawReader)
+      ETPC_READ_CONNECTIONS: "4"
+      NSA_READ_CONNECTIONS: "4"
       ETPC_DUMP_COMMAND: mariadb-dump --skip-ssl
       NSA_DUMP_COMMAND: mariadb-dump --skip-ssl
       # testy (docker compose run --rm www python -m pytest): tylko baza robocza

@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -79,6 +80,67 @@ def parse_dsn(dsn):
 
 def connect(dsn, **kwargs):
     return pymysql.connect(**{**parse_dsn(dsn), "autocommit": False, **kwargs})
+
+
+class RawReader:
+    """raw_records_after with the texts read by several connections at once.
+
+    The batch's keys come from the index alone (no texts, a fraction of a
+    millisecond), then each of `workers` connections fetches its share of the
+    texts. The cost of a batch is waiting for random disk reads; a disk that
+    serves many reads at once (SSD) does them ~3.5x faster with 4 connections
+    (NSA: 156 -> 533 records/s). Used by one thread at a time.
+    """
+
+    def __init__(self, connect, workers):
+        self.connections = [connect() for _ in range(workers)]
+        self.pool = ThreadPoolExecutor(workers)
+
+    def raw_records_after(self, source, after, before, limit):
+        """Same records as MariaDbStore.raw_records_after."""
+        keys = _rows_after(
+            self.connections[0], "source_id, changed_at", source, after, before, limit
+        )
+        ids = [source_id for source_id, _ in keys]
+        shares = [(c, ids[i :: len(self.connections)]) for i, c in enumerate(self.connections)]
+        bodies = {}
+        for part in self.pool.map(
+            lambda share: _bodies(*share, source), [s for s in shares if s[1]]
+        ):
+            bodies.update(part)
+        # zniknięty w międzyczasie rekord pominięty; zmieniony ma nowszy changed_at i wróci
+        return [StoredRecord(i, bodies[i], changed) for i, changed in keys if i in bodies]
+
+    def close(self):
+        self.pool.shutdown()
+        for conn in self.connections:
+            conn.close()
+
+
+def _rows_after(conn, columns, source, after, before, limit):
+    """Rows of raw_records changed after `after` and before `before`, oldest first."""
+    sql = f"SELECT {columns} FROM raw_records WHERE source = %s AND changed_at < %s"
+    params = [source, _naive_utc(before)]
+    if after is not None:
+        sql += " AND (changed_at > %s OR (changed_at = %s AND source_id > %s))"
+        params += [after[0], after[0], after[1]]
+    sql += " ORDER BY changed_at, source_id LIMIT %s"
+    with conn.cursor() as cur:
+        cur.execute(sql, params + [limit])
+        rows = cur.fetchall()
+    conn.commit()  # bez otwartej transakcji między porcjami
+    return rows
+
+
+def _bodies(conn, ids, source):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT source_id, body FROM raw_records WHERE source = %s AND source_id IN %s",
+            (source, ids),
+        )
+        rows = dict(cur.fetchall())
+    conn.commit()
+    return rows
 
 
 def split_statements(sql):
@@ -221,17 +283,7 @@ class MariaDbStore:
         `after` is (changed_at, source_id) of the last record processed, or
         None for all; source_id breaks ties within the same second.
         """
-        sql = "SELECT source_id, body, changed_at FROM raw_records WHERE source = %s"
-        sql += " AND changed_at < %s"
-        params = [source, _naive_utc(before)]
-        if after is not None:
-            sql += " AND (changed_at > %s OR (changed_at = %s AND source_id > %s))"
-            params += [after[0], after[0], after[1]]
-        sql += " ORDER BY changed_at, source_id LIMIT %s"
-        with self.conn.cursor() as cur:
-            cur.execute(sql, params + [limit])
-            rows = cur.fetchall()
-        self.conn.commit()
+        rows = _rows_after(self.conn, "source_id, body, changed_at", source, after, before, limit)
         return [StoredRecord(*row) for row in rows]
 
     def derive_batch(self, source, derive, records, state_key, state):
