@@ -20,6 +20,14 @@ services:
       - "--character-set-server=utf8mb4"
       - "--collation-server=utf8mb4_unicode_ci"
       - "--innodb-buffer-pool-size=4G"
+      # Masowy zapis (przetworz NSA/ETPC, notepad.md "Przyspieszenie przetwarzania"):
+      # commit bez fsync na każdą porcję (przebiegi są wznawialne), większy dziennik,
+      # tempo zapisu dla SSD, większy bufor FULLTEXT. Pomiar: 2840 -> 4860 rekordów/min.
+      - "--innodb-flush-log-at-trx-commit=2"
+      - "--innodb-log-file-size=1G"
+      - "--innodb-io-capacity=2000"
+      - "--innodb-io-capacity-max=4000"
+      - "--innodb-ft-cache-size=80000000"
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s
