@@ -349,3 +349,14 @@ Pomiar plików InnoDB (`information_schema.INNODB_SYS_TABLESPACES`, rozmiar logi
 - **Ciężkie zadania - po kolei:** `przetworz`, `wektory`, zrzuty jednego projektu naraz. 2026-10-20 szły jednocześnie przetwarzanie ETPC i NSA, kopia i wektory - Claude Code dwa razy ubił procesy z braku pamięci.
 - **Strony i MCP - razem:** bge-m3 wczytany raz dla obu projektów, same strony lekkie.
 - Propozycja: jedna baza i jeden portal jak teraz, ciężkie zadania po kolei, NSA w Qdrancie najpierw poziom 1. Opcjonalnie profile compose `etpc` / `nsa` (np. sam portal ETPC i tylko jego kolekcja w RAM) - nie zrobione, do decyzji.
+
+## Pierwsza kopia na G: przerwana - dysk do naprawy (2026-10-20 23:56)
+- `narzedzia/kopia-na-dysk.sh` przerwał się przy lustrze: po 7.5 min i 17.4 GB robocopy dostał błędy 433 („Określono nieistniejące urządzenie”) i 3 („nie można odnaleźć ścieżki”) - dysk G: (zewnętrzny, USB „USB3.0 Super Speed”) na chwilę zniknął. Kod robocopy 11 -> skrypt przerwany przed archiwami i Qdrantem (foldery `_archiwa/2026-10-20_2348`, `_bazy/qdrant` puste).
+- Windows: wolumen G: `HealthStatus: Warning`, `OperationalStatus: Full Repair Needed` (błędy systemu plików). Do naprawy nic tam nie zapisywać.
+- Stan na G:: stara kopia z 19.10 jest, lustro częściowo zaktualizowane (git w lustrze już `8821ff9`), `nsa/database` niekompletne (~14 GB brakuje).
+- Do zrobienia przez użytkownika: kabel/port (USB z tyłu albo zasilany hub), wyłączyć usypianie USB („Ustawienie wstrzymywania selektywnego USB”), `chkdsk G: /scan` (tylko odczyt) jako administrator, przy błędach `chkdsk G: /f`. Potem ponownie skrypt - robocopy dokopiuje brakujące i zmienione pliki.
+
+## Qdrant: wektory na dysku z pamięcią podręczną zamiast RAM (2026-10-20)
+- `always_ram=false` = wektory w pliku mapowanym w pamięć (mmap): system trzyma w RAM często używane części (pamięć podręczna plików) i oddaje je innym programom, gdy brakuje pamięci. Używane NSA - gorące części w RAM, prawie jak pełny RAM; praca na ETPC - RAM po NSA przejmuje MariaDB/ETPC. Minus: pierwsze zapytania po przerwie czytają z dysku (graf HNSW skacze losowo - dziesiątki-setki ms na SSD).
+- **Kwantyzacja binarna:** 1 bit na wymiar zamiast 1 bajtu; 18 mln fragmentów NSA ~2.3 GB RAM zamiast ~18 GB, dokładne wektory z dysku poprawiają kolejność najlepszych (rescoring, oversampling). Qdrant zaleca dla >= 1024 wymiarów (bge-m3 ma 1024) - jakość zmierzyć `ocen` przed użyciem.
+- Plan: ETPC i NSA poziom 1 w RAM jak teraz (int8); pełne fragmenty NSA - mmap z pamięcią podręczną albo kwantyzacja binarna, zależnie od `ocen`.
