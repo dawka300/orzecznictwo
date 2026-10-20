@@ -63,8 +63,9 @@ class EtpcMcp(McpServer):
           "dokładna fraza", -wykluczone; polskie zwroty tłumaczone na angielski/francuski.
         tryb: "" hybrydowe (domyślnie) / pelnotekstowe / znaczeniowe.
         rodzaj: judgment (wyrok) / decision (decyzja). panstwo: kod, np. POL, TUR, RUS.
-        artykul: artykuł Konwencji, np. 6, 6-1, 3, P1-1. wynik: violation / no_violation
-          / concerned (wobec artykul). waznosc: 1 kluczowe ... 4 (co najmniej taka).
+        artykul: artykuł Konwencji, np. 6, 6-1, 3, P1-1; sam artykul = powołany w sprawie
+          (też odrzucony lub niezbadany), orzeczenia o nim: z wynik. wynik: violation /
+          no_violation / concerned (wobec artykul). waznosc: 1 kluczowe ... 4 (co najmniej taka).
         nr_skargi: np. 30210/96. jezyk: ENG / FRE / POL (wersja z fragmentem).
         sortuj: "" trafność / data / najstarsze / cytowane.
         """

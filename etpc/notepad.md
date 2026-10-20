@@ -130,3 +130,11 @@ Judgments and decisions of the European Court of Human Rights from HUDOC, https:
 
 ## RAG (2026-10-19)
 - `etpc/rag.py` (retriever, potomek `Retriever`), narzędzie MCP `fragmenty`, `python -m etpc fragmenty "pytanie"`, `python -m etpc ocen` na `etpc/pytania.json`. Pierwszy pomiar: ETPC 12 pytań: MRR 0.670, 74% oczekiwanych w kontekście. Plan i następne kroki: główny [`../notepad.md`](../notepad.md), sekcja RAG.
+
+## Ranking cytowań: poprawka (2026-10-20)
+Wyszło przy szukaniu przez MCP ciekawych wyroków o wolności słowa: Handyside 8 cytowań, Lingens 5, Delfi Wielka Izba 0 (Izba 198), Morice i Perinçek (Wielka Izba) 0.
+- **Przyczyna 1:** cytowania tylko z `extractedappno` (numery skarg w tekście). Stare wyroki cytuje się bez numeru („Handyside judgment of 7 December 1976, Series A no. 24”). HUDOC ma pole `sclappnos` - numery skarg rozwiązane z sekcji orzecznictwa, także dla serii A. Teraz `etpc/parser.py` `_cited_appnos` = `extractedappno` + `sclappnos`. Próbka 1500 wyroków: +2% powiązań, ale Handyside 1 -> 17.
+- **Przyczyna 2:** cytowanie szło do najwcześniejszego wyroku z tym numerem skargi, czyli do wyroku Izby, choć po wyroku Wielkiej Izby cytuje się Wielką Izbę. Teraz `etpc/ranks.py` `citation_edges`: wyrok Wielkiej Izby (`formation = GRANDCHAMBER`), jeśli zapadł nie później niż cytujące orzeczenie; inaczej jak dotąd (najwcześniejszy wyrok, potem decyzja).
+- `python -m etpc przetworz --od-poczatku` w kontenerze (z `-e ETPC_BACKUP_DIR=`): 127 018 rekordów, 2 h 44 min, status ok; `pusty_tekst` 677 (jak dotąd).
+- **Wynik:** powiązania 446 831 -> 467 102, `ruling_citations` 561 652 -> 584 816. Handyside 8 -> 363 (miejsce 9101 -> 118), Lingens 5 -> 291 (12333 -> 183), Delfi GC 0 -> 199, Morice GC 0 -> 418 (miejsce 83), Perinçek GC 0 -> 225; Delfi Izba 198 -> 0; „T.A. v. Turkey” (Izba) 3656 -> 0, a Tahsin Acar GC (to samo, jednostronna deklaracja) 3657, miejsce 3. Góra: Frydlender, Kudła, Tahsin Acar, Josipović, Labita.
+- MCP `szukaj`: opis `artykul` mówi, że sam artykuł = powołany w sprawie (relacja HUDOC „concerned”, np. Labita i Baranowski przy art. 10), a orzeczenia rozstrzygające o artykule: z `wynik`.

@@ -1,10 +1,11 @@
 """ruling_ranks and ruling_links: the citation graph between rulings, ranked.
 
-HUDOC lists the application numbers a ruling cites (extractedappno ->
-ruling_citations). A citation counts for the earliest judgment with that
-application number dated no later than the citing ruling (the merits judgment
-rather than its later just-satisfaction one); without such a judgment for the
-earliest decision.
+HUDOC lists the application numbers a ruling cites (extractedappno and
+sclappnos -> ruling_citations). A citation counts for the Grand Chamber
+judgment with that application number dated no later than the citing ruling
+(the Chamber judgment in the same case is cited as "[GC]" once the Grand
+Chamber has ruled), else for the earliest such judgment (the merits judgment
+rather than its later just-satisfaction one), else for the earliest decision.
 
 The position follows the number of citing rulings. PageRank (a citation from
 a much-cited ruling weighs more) only breaks ties: on its own it pushes 1999
@@ -20,6 +21,7 @@ from collections import defaultdict
 
 log = logging.getLogger(__name__)
 
+GRAND_CHAMBER = "GRANDCHAMBER"
 DAMPING = 0.85
 ITERATIONS = 40
 BATCH = 5000
@@ -28,23 +30,28 @@ BATCH = 5000
 def citation_edges(rulings, applications, citations):
     """Distinct (citing id, cited id) pairs.
 
-    rulings: {id: (kind, date)}; applications: [(appno, ruling id)];
+    rulings: {id: (kind, date, formation)}; applications: [(appno, ruling id)];
     citations: [(citing ruling id, cited appno)].
     """
     by_appno = defaultdict(list)
     for appno, ruling_id in applications:
-        kind, date = rulings[ruling_id]
+        kind, date, formation = rulings[ruling_id]
         # wyroki przed decyzjami, w każdej grupie najwcześniejsze najpierw
-        by_appno[appno].append((kind != "judgment", date, ruling_id))
+        grand = kind == "judgment" and formation == GRAND_CHAMBER
+        by_appno[appno].append((kind != "judgment", date, ruling_id, grand))
     for candidates in by_appno.values():
         candidates.sort()
     edges = set()
     for citing, appno in citations:
         citing_date = rulings[citing][1]
-        for _, date, cited in by_appno.get(appno, ()):
-            if cited != citing and date <= citing_date:
-                edges.add((citing, cited))
-                break
+        known = [
+            (cited, grand)
+            for _, date, cited, grand in by_appno.get(appno, ())
+            if cited != citing and date <= citing_date
+        ]
+        if known:
+            cited = next((c for c, grand in known if grand), known[0][0])
+            edges.add((citing, cited))
     return edges
 
 
@@ -73,8 +80,8 @@ def pagerank(nodes, edges, damping=DAMPING, iterations=ITERATIONS):
 def refresh_ranks(cur):
     """Rebuild ruling_ranks from the citation tables; the caller commits."""
     started = time.monotonic()
-    cur.execute("SELECT id, kind, ruling_date FROM rulings")
-    rulings = {i: (kind, date) for i, kind, date in cur.fetchall()}
+    cur.execute("SELECT id, kind, ruling_date, formation FROM rulings")
+    rulings = {i: (kind, date, formation) for i, kind, date, formation in cur.fetchall()}
     cur.execute("SELECT appno, ruling_id FROM ruling_applications")
     applications = cur.fetchall()
     cur.execute("SELECT ruling_id, cited_appno FROM ruling_citations")

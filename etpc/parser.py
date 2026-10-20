@@ -146,11 +146,19 @@ def parse_ruling(columns):
         ],
         keywords=[int(k) for k in split_list(columns.get("kpthesaurus")) if k.isdigit()],
         citations=[
-            a
-            for a in split_list(columns.get("extractedappno"))
-            if a not in applications and len(a) <= 32
+            a for a in split_list(_cited_appnos(columns)) if a not in applications and len(a) <= 32
         ],
     )
+
+
+def _cited_appnos(columns):
+    """Application numbers found in the text (extractedappno) and in the case-law
+    section (sclappnos).
+
+    sclappnos also resolves old cases cited without an application number
+    ("Handyside judgment of 7 December 1976, Series A no. 24"), absent from the text.
+    """
+    return ";".join(columns.get(key) or "" for key in ("extractedappno", "sclappnos"))
 
 
 def ruling_date(columns):

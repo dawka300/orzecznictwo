@@ -69,6 +69,7 @@ def test_ruling_lists_and_fallbacks():
             "representedby": "N/A",
             "judges": "A;B",
             "extractedappno": "2/02;3/03",
+            "sclappnos": "3/03;5493/72",
         }
     )
     assert (r.group_key, r.ecli, r.kind, r.ruling_date) == (
@@ -86,7 +87,7 @@ def test_ruling_lists_and_fallbacks():
         ("no_violation", "6-1"),
     ]
     assert (r.separate_opinion, r.represented_by, r.judges) == (True, None, "A; B")
-    assert r.citations == ["3/03"]
+    assert r.citations == ["3/03", "5493/72"]
 
 
 def test_helpers():
