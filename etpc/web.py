@@ -44,6 +44,18 @@ class EtpcWebApp(WebApp):
     semantic: etpc.semantic.EtpcSemantic; by default the settings' query embedders + Qdrant.
     """
 
+    description = (
+        "Wyroki i decyzje Europejskiego Trybunału Praw Człowieka z bazy HUDOC: teksty"
+        " po angielsku i francusku (część po polsku), artykuły Konwencji, naruszenia, cytowania."
+    )
+
+    def facts(self, cur):
+        stats = read_stats(cur)
+        if not stats:
+            return []
+        total = stats["total"][0]
+        return [(_n(total[1]), "orzeczeń"), (_n(total[2]), "wyroków"), (_n(total[3]), "decyzji")]
+
     def __init__(self, settings, semantic=None):
         super().__init__(settings)
         if semantic is None:

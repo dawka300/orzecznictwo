@@ -46,6 +46,22 @@ _FRAGMENT = re.compile(r"^(\d+)-(\d+)$")
 
 
 class NsaWebApp(WebApp):
+    description = (
+        "Orzeczenia Naczelnego Sądu Administracyjnego i wojewódzkich sądów administracyjnych"
+        " z bazy CBOSA: wyroki, postanowienia, uchwały; teza, sentencja, uzasadnienie."
+    )
+
+    def facts(self, cur):
+        stats = read_stats(cur)
+        if not stats:
+            return []
+        total = stats["total"][0]
+        return [
+            (number(total[1]), "orzeczeń"),
+            (number(total[2]), "wyroków"),
+            (number(total[4]), "NSA"),
+        ]
+
     def __init__(self, settings, semantic=None):
         super().__init__(settings)
         if semantic is None:

@@ -9,6 +9,7 @@ hosting under Passenger.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 from abc import ABC, abstractmethod
@@ -16,6 +17,8 @@ from html import escape
 from socketserver import ThreadingMixIn
 from urllib.parse import parse_qs, urlencode
 from wsgiref.simple_server import WSGIRequestHandler, WSGIServer, make_server
+
+import pymysql
 
 from judgments_core import db
 
@@ -64,6 +67,9 @@ def e(value):
 class WebApp(ABC):
     """WSGI application of a project: app(environ, start_response)."""
 
+    # opis projektu na stronie głównej portalu
+    description = ""
+
     def __init__(self, settings):
         self.settings = settings
 
@@ -96,6 +102,21 @@ class WebApp(ABC):
     def error_page(self):
         return Response("<p>Błąd serwera - szczegóły w logu.</p>", "500 Internal Server Error")
 
+    def summary(self):
+        """facts() for the portal's home page; [] when the database can't be read."""
+        if type(self).facts is WebApp.facts:  # projekt bez liczb: bez łączenia z bazą
+            return []
+        try:
+            with contextlib.closing(self.connect()) as conn, conn.cursor() as cur:
+                return self.facts(cur)
+        except pymysql.Error as error:
+            log.warning("www: liczby na stronę główną niedostępne: %s", error)
+            return []
+
+    def facts(self, cur):
+        """[(value, label)]: a few numbers of the project, e.g. ("82 976", "orzeczeń")."""
+        return []
+
 
 # href="/...", action='/...', src=/... (ale nie //host): link od korzenia serwera.
 _ROOT_LINK = re.compile(rb"""((?:href|action|src)=["']?)/(?!/)""")
@@ -103,7 +124,8 @@ _ROOT_LINK = re.compile(rb"""((?:href|action|src)=["']?)/(?!/)""")
 
 class Portal:
     """Several projects' WebApps on one server: /<name>/... = that project's pages
-    (it sees itself at "/" with SCRIPT_NAME=/<name>), "/" = the list of projects.
+    (it sees itself at "/" with SCRIPT_NAME=/<name>), "/" = the home page with a
+    card per project. Every HTML page gets a bar of tabs: home and the projects.
 
     apps: {name: (title, WSGI app)} in display order. default: the project that old
     addresses without a prefix (/orzeczenie/1, /?q=...) are redirected to.
@@ -117,33 +139,76 @@ class Portal:
     def __call__(self, environ, start_response):
         path = environ.get("PATH_INFO", "/") or "/"
         query = environ.get("QUERY_STRING", "")
+        root = environ.get("SCRIPT_NAME", "").rstrip("/")
         if path == "/favicon.ico":
             return Response(b"", "204 No Content", "image/x-icon")(start_response)
         name, slash, rest = path[1:].partition("/")
         if name in self.apps:
             if not slash:  # /etpc -> /etpc/
-                return _redirect(start_response, f"/{name}/", query)
-            inner = dict(
-                environ,
-                SCRIPT_NAME=environ.get("SCRIPT_NAME", "").rstrip("/") + f"/{name}",
-                PATH_INFO="/" + rest,
-            )
-            return self.apps[name][1](inner, start_response)
+                return _redirect(start_response, f"{root}/{name}/", query)
+            inner = dict(environ, SCRIPT_NAME=f"{root}/{name}", PATH_INFO="/" + rest)
+            return self._with_tabs(self.apps[name][1], inner, start_response, root, name)
         if path == "/" and not query:
-            return Response(self.home())(start_response)
+            # linki od korzenia; przedrostek dopisuje niżej _ROOT_LINK
+            page = self.home().replace("<body>", "<body>" + self.tabs("", ""), 1)
+            response = Response(page)
+            if root:
+                response.body = _ROOT_LINK.sub(
+                    lambda m: m.group(1) + root.encode("utf-8") + b"/", response.body
+                )
+            return response(start_response)
         if self.default:
-            return _redirect(start_response, f"/{self.default}{path}", query)
+            return _redirect(start_response, f"{root}/{self.default}{path}", query)
         return Response("<p>Nie ma takiej strony.</p>", "404 Not Found")(start_response)
 
+    def tabs(self, root, current):
+        """The bar of tabs: home page, then the projects; current = active project name."""
+        links = [
+            f'<a class="home{" on" if not current else ""}" href="{root}/">{e(self.title)}</a>'
+        ]
+        for name in self.apps:
+            on = " class=on" if name == current else ""
+            links.append(f'<a{on} href="{root}/{name}/">{e(name.upper())}</a>')
+        return f"<nav class=portal-tabs>{''.join(links)}</nav>"
+
+    def _with_tabs(self, app, environ, start_response, root, name):
+        """Run a project's app; its HTML page gets the bar of tabs after <body>."""
+        answer = {}
+
+        def capture(status, headers, exc_info=None):
+            answer.update(status=status, headers=headers)
+
+        body = b"".join(app(environ, capture))
+        headers = answer["headers"]
+        kind = next((v for k, v in headers if k.lower() == "content-type"), "")
+        if kind.startswith("text/html") and b"<body>" in body:
+            bar = self.tabs(root, name).encode("utf-8")
+            body = body.replace(b"<body>", b"<body>" + bar, 1)
+            headers = [(k, v) for k, v in headers if k.lower() != "content-length"]
+            headers.append(("Content-Length", str(len(body))))
+        start_response(answer["status"], headers)
+        return [body]
+
     def home(self):
-        cards = "".join(
-            f'<section class=vectors><h2><a href="/{name}/">{e(title)}</a></h2>'
-            f'<p><a href="/{name}/">Szukaj</a> · <a href="/{name}/statystyki">Statystyki</a></p>'
-            "</section>"
-            for name, (title, _) in self.apps.items()
-        )
-        nav = tuple((f"/{name}/", title) for name, (title, _) in self.apps.items())
-        return layout(self.title, cards, self.title, nav=nav)
+        cards = "".join(self._card(name, title, app) for name, (title, app) in self.apps.items())
+        body = f"""<div class=intro><h1>{e(self.title)}</h1>
+<p>Wyszukiwarki orzeczeń: po słowach i po znaczeniu, z filtrami i statystykami.
+Wybierz bazę albo zacznij od pytania.</p></div>
+<div class=projects>{cards}</div>"""
+        return layout(self.title, body, self.title, nav=(), header=False)
+
+    def _card(self, name, title, app):
+        description = getattr(app, "description", "")
+        summary = getattr(app, "summary", None)
+        facts = summary() if summary else []
+        numbers = "".join(f"<div><b>{e(v)}</b><span>{e(t)}</span></div>" for v, t in facts)
+        return f"""<section class=project>
+<h2><a href="/{name}/">{e(title)}</a></h2>
+{f"<p>{e(description)}</p>" if description else ""}
+{f"<div class=facts>{numbers}</div>" if numbers else ""}
+<form class=query action="/{name}/"><input type=search name=q placeholder="Szukaj w {e(name.upper())}"><button>Szukaj</button></form>
+<p class=links><a href="/{name}/">Wyszukiwanie z filtrami</a> · <a href="/{name}/statystyki">Statystyki</a></p>
+</section>"""
 
 
 def _redirect(start_response, location, query=""):
@@ -295,17 +360,16 @@ def vectors_card(progress, command, order_note=""):
 <p class=hint>{e(order_note)} Odśwież stronę, żeby zobaczyć postęp.</p></section>"""
 
 
-def layout(title, body, brand, nav=(("/", "Szukaj"), ("/statystyki", "Statystyki"))):
+def layout(title, body, brand, nav=(("/", "Szukaj"), ("/statystyki", "Statystyki")), header=True):
     """A whole HTML page in the common look (light and dark theme)."""
     links = "".join(f'<a href="{e(href)}">{e(text)}</a>' for href, text in nav)
+    top = f'<header><a class=brand href="/">{e(brand)}</a>\n<nav>{links}</nav></header>\n'
     return f"""<!doctype html>
 <html lang=pl><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width, initial-scale=1">
 <title>{e(title)} - {e(brand)}</title>
 <style>{CSS}</style></head>
-<body><header><a class=brand href="/">{e(brand)}</a>
-<nav>{links}</nav></header>
-<main>{body}</main></body></html>"""
+<body>{top if header else ""}<main>{body}</main></body></html>"""
 
 
 # Wspólny wygląd stron projektów (zmienne kolorów: jasny i ciemny motyw).
@@ -326,6 +390,20 @@ CSS = """
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.portal-tabs{display:flex;align-items:stretch;gap:4px;padding:0 24px;background:var(--accent);overflow-x:auto}
+.portal-tabs a{color:#fff;opacity:.8;padding:8px 14px;font-size:14px;font-weight:600;white-space:nowrap;border-bottom:3px solid transparent}
+.portal-tabs a:hover{opacity:1;text-decoration:none}.portal-tabs a.on{opacity:1;border-bottom-color:#fff}
+.portal-tabs a.home{margin-right:12px}
+@media (prefers-color-scheme:dark){.portal-tabs{background:#233050}}
+.intro{max-width:760px;margin:12px 0 24px}.intro h1{font-size:28px;margin:8px 0}.intro p{color:var(--muted);font-size:16px;margin:0}
+.projects{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px}
+.project{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+.project h2{font-size:19px;margin:0 0 6px}.project p{margin:6px 0;color:var(--muted)}
+.facts{display:flex;flex-wrap:wrap;gap:8px 24px;margin:14px 0}
+.facts div{display:flex;flex-direction:column}.facts b{font-size:20px}.facts span{color:var(--muted);font-size:13px}
+.project .query{margin:14px 0 8px}.project .links{font-size:14px}
+@media (max-width:600px){.portal-tabs,header{padding-left:16px;padding-right:16px}main{padding-left:16px;padding-right:16px}
+.projects{grid-template-columns:1fr}}
 header{display:flex;align-items:center;gap:24px;padding:12px 24px;background:var(--panel);border-bottom:1px solid var(--line)}
 .brand{font-weight:700;font-size:17px;color:var(--text)}header nav{display:flex;gap:16px}
 main{max-width:1280px;margin:0 auto;padding:20px 24px 60px}

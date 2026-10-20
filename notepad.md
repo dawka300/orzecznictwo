@@ -277,3 +277,10 @@ docker compose run -d --rm --name etpc-wektory  www python -m etpc wektory --bud
 - **Dlaczego nie `docker compose exec www ...`:** exec działa w kontenerze strony `www-1`: ma obraz i zmienne z chwili jego startu (nie widzi przebudowy obrazu ani zmian w compose), a `docker compose up -d www` / restart po zmianie kodu zabija wszystkie zadania uruchomione przez exec.
 - Nakładanie się: drugi taki sam przebieg kończy się sam („Poprzedni przebieg (nsa:baza) jeszcze trwa”, blokada `GET_LOCK`); `wektory` mają osobną blokadę i mogą iść obok `przetworz`. Wyłączenie Docker Desktop zatrzymuje wszystko (wznowić tym samym poleceniem).
 - Kopia po przebiegu: z `<PREFIKS>_BACKUP_DIR` w `.env` robi się sama; wyłączenie dla jednego przebiegu: `-e ETPC_BACKUP_DIR=` przed `www`.
+
+## Strona główna i zakładki portalu (2026-10-20)
+- `/` = strona główna: wstęp + karta na projekt (nazwa, opis, liczby, pole „Szukaj w ETPC/NSA” prosto do wyszukiwarki projektu, linki do wyszukiwania z filtrami i statystyk). Każda strona ma u góry pasek zakładek **Orzecznictwo | ETPC | NSA** z zaznaczoną bieżącą.
+- Rdzeń (`judgments_core/web.py`): `Portal.tabs()` buduje pasek, `Portal._with_tabs()` dokleja go za `<body>` w odpowiedziach HTML projektów (po przepisaniu ich linków, z poprawionym Content-Length; strony projektów bez zmian); `Portal.home()` / `_card()`; `layout(..., header=False)` dla strony głównej; klasa CSS `.portal-tabs` (`.tabs` jest zajęte przez zakładki wersji językowych orzeczenia ETPC).
+- Projekty: `WebApp.description` (opis karty) i `WebApp.facts(cur)` -> `[(liczba, opis)]` (ETPC: orzeczenia, wyroki, decyzje z `ruling_stats`; NSA: orzeczenia, wyroki, NSA z `judgment_stats`); `WebApp.summary()` w rdzeniu łączy się z bazą tylko, gdy projekt nadpisał `facts`, a błąd bazy = karta bez liczb.
+- Pod przedrostkiem (hosting w podkatalogu) linki zakładek i strony głównej dostają go raz (test `test_under_a_prefix_tabs_and_home_links_get_it_once`). Sprawdzone zrzutami Playwrighta: jasny i ciemny motyw, telefon (390 px), strona orzeczenia ETPC.
+- Usługa `www` widzi zmianę po `docker compose restart www` (przerywa zadania uruchomione przez `exec` w `www-1`).
