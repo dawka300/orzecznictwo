@@ -56,12 +56,21 @@ class Numbers(Page):
         return [("1 234", "orzeczeń")]
 
 
-def test_home_has_a_card_per_project_with_facts_and_search():
+def test_home_has_one_search_with_a_choice_and_the_databases():
     app = Portal({"etpc": ("ETPC", Numbers(None)), "nsa": ("NSA", Page(None))})
     _, _, body = get(app, "/")
-    assert "Opis bazy" in body and "<b>1 234</b><span>orzeczeń</span>" in body
-    assert 'action="/etpc/"' in body and 'action="/nsa/"' in body
+    assert 'action="/szukaj"' in body and body.count("type=radio name=baza") == 2
+    assert 'value="etpc" checked' in body
+    assert "Opis bazy" in body and "<b>1 234</b> orzeczeń" in body
     assert '<a class="home on" href="/">' in body
+
+
+def test_search_from_home_goes_to_the_chosen_database():
+    assert get(portal(), "/szukaj", "baza=nsa&q=podatek+rolny")[1]["Location"] == (
+        "/nsa/?q=podatek+rolny"
+    )
+    assert get(portal(), "/szukaj", "baza=nsa")[1]["Location"] == "/nsa/"
+    assert get(portal(), "/szukaj", "baza=xyz&q=a")[1]["Location"] == "/"
 
 
 class Full(WebApp):

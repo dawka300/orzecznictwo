@@ -148,6 +148,14 @@ class Portal:
                 return _redirect(start_response, f"{root}/{name}/", query)
             inner = dict(environ, SCRIPT_NAME=f"{root}/{name}", PATH_INFO="/" + rest)
             return self._with_tabs(self.apps[name][1], inner, start_response, root, name)
+        if path == "/szukaj":  # wyszukiwanie ze strony głównej -> wyszukiwarka wybranej bazy
+            params = {k: v[-1] for k, v in parse_qs(query).items()}
+            name = params.get("baza", "")
+            if name in self.apps:
+                return _redirect(
+                    start_response, f"{root}/{name}/", url("", q=params.get("q", ""))[1:]
+                )
+            return _redirect(start_response, f"{root}/")
         if path == "/" and not query:
             # linki od korzenia; przedrostek dopisuje niżej _ROOT_LINK
             page = self.home().replace("<body>", "<body>" + self.tabs("", ""), 1)
@@ -164,7 +172,7 @@ class Portal:
     def tabs(self, root, current):
         """The bar of tabs: home page, then the projects; current = active project name."""
         links = [
-            f'<a class="home{" on" if not current else ""}" href="{root}/">{e(self.title)}</a>'
+            f'<a class="home{" on" if not current else ""}" href="{root}/">⌂ Strona główna</a>'
         ]
         for name in self.apps:
             on = " class=on" if name == current else ""
@@ -190,25 +198,34 @@ class Portal:
         return [body]
 
     def home(self):
-        cards = "".join(self._card(name, title, app) for name, (title, app) in self.apps.items())
-        body = f"""<div class=intro><h1>{e(self.title)}</h1>
-<p>Wyszukiwarki orzeczeń: po słowach i po znaczeniu, z filtrami i statystykami.
-Wybierz bazę albo zacznij od pytania.</p></div>
-<div class=projects>{cards}</div>"""
+        """One search with a choice of database (/szukaj), below the databases."""
+        choices = "".join(
+            f'<label><input type=radio name=baza value="{name}"{" checked" if i == 0 else ""}>'
+            f"<span>{e(name.upper())}</span></label>"
+            for i, name in enumerate(self.apps)
+        )
+        rows = "".join(self._row(name, title, app) for name, (title, app) in self.apps.items())
+        body = f"""<section class=hero><h1>{e(self.title)}</h1>
+<p>Wyszukiwarki orzeczeń: po słowach i po znaczeniu, z filtrami i statystykami.</p>
+<form class=home-search action="/szukaj">
+<div class=choices>{choices}</div>
+<div class=query><input type=search name=q placeholder="np. wolność wypowiedzi dziennikarza, przewlekłość postępowania" autofocus>
+<button>Szukaj</button></div></form></section>
+<h2 class=bases-title>Bazy</h2>
+<div class=bases>{rows}</div>"""
         return layout(self.title, body, self.title, nav=(), header=False)
 
-    def _card(self, name, title, app):
+    def _row(self, name, title, app):
         description = getattr(app, "description", "")
         summary = getattr(app, "summary", None)
         facts = summary() if summary else []
-        numbers = "".join(f"<div><b>{e(v)}</b><span>{e(t)}</span></div>" for v, t in facts)
-        return f"""<section class=project>
-<h2><a href="/{name}/">{e(title)}</a></h2>
+        numbers = " · ".join(f"<b>{e(v)}</b> {e(t)}" for v, t in facts)
+        return f"""<div class=base>
+<div><h3><a href="/{name}/">{e(title)}</a></h3>
 {f"<p>{e(description)}</p>" if description else ""}
-{f"<div class=facts>{numbers}</div>" if numbers else ""}
-<form class=query action="/{name}/"><input type=search name=q placeholder="Szukaj w {e(name.upper())}"><button>Szukaj</button></form>
-<p class=links><a href="/{name}/">Wyszukiwanie z filtrami</a> · <a href="/{name}/statystyki">Statystyki</a></p>
-</section>"""
+{f"<p class=facts>{numbers}</p>" if numbers else ""}</div>
+<p class=links><a href="/{name}/">Wyszukiwanie z filtrami</a><a href="/{name}/statystyki">Statystyki</a></p>
+</div>"""
 
 
 def _redirect(start_response, location, query=""):
@@ -395,15 +412,22 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .portal-tabs a:hover{opacity:1;text-decoration:none}.portal-tabs a.on{opacity:1;border-bottom-color:#fff}
 .portal-tabs a.home{margin-right:12px}
 @media (prefers-color-scheme:dark){.portal-tabs{background:#233050}}
-.intro{max-width:760px;margin:12px 0 24px}.intro h1{font-size:28px;margin:8px 0}.intro p{color:var(--muted);font-size:16px;margin:0}
-.projects{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px}
-.project{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
-.project h2{font-size:19px;margin:0 0 6px}.project p{margin:6px 0;color:var(--muted)}
-.facts{display:flex;flex-wrap:wrap;gap:8px 24px;margin:14px 0}
-.facts div{display:flex;flex-direction:column}.facts b{font-size:20px}.facts span{color:var(--muted);font-size:13px}
-.project .query{margin:14px 0 8px}.project .links{font-size:14px}
+.hero{max-width:820px;margin:28px auto 36px;text-align:center}.hero h1{font-size:30px;margin:0 0 6px}
+.hero>p{color:var(--muted);font-size:16px;margin:0 0 20px}
+.home-search{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;text-align:left}
+.choices{display:flex;gap:6px;margin-bottom:10px}
+.choices label{cursor:pointer}.choices input{position:absolute;opacity:0;width:1px}
+.choices span{display:inline-block;padding:4px 14px;border:1px solid var(--line);border-radius:16px;font-size:14px;font-weight:600;color:var(--muted)}
+.choices input:checked+span{background:var(--accent);border-color:var(--accent);color:var(--panel)}
+.choices input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
+.home-search .query input{font-size:16px;padding:10px 12px}.home-search button{padding:10px 20px}
+.bases-title{max-width:820px;margin:0 auto 8px;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.05em}
+.bases{max-width:820px;margin:0 auto;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.base{display:flex;justify-content:space-between;gap:24px;padding:16px 20px}.base+.base{border-top:1px solid var(--line)}
+.base h3{font-size:17px;margin:0 0 4px}.base p{margin:4px 0;color:var(--muted);font-size:14px}
+.base .facts{color:var(--text)}.base .links{display:flex;flex-direction:column;gap:4px;white-space:nowrap;margin:2px 0 0}
 @media (max-width:600px){.portal-tabs,header{padding-left:16px;padding-right:16px}main{padding-left:16px;padding-right:16px}
-.projects{grid-template-columns:1fr}}
+.base{flex-direction:column;gap:6px}.base .links{flex-direction:row;gap:16px}.hero{margin-top:12px}}
 header{display:flex;align-items:center;gap:24px;padding:12px 24px;background:var(--panel);border-bottom:1px solid var(--line)}
 .brand{font-weight:700;font-size:17px;color:var(--text)}header nav{display:flex;gap:16px}
 main{max-width:1280px;margin:0 auto;padding:20px 24px 60px}
