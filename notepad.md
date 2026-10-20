@@ -263,3 +263,17 @@ Zgodnie z kodem (`judgments_core/rag.py`, ETPC). Baza zabawkowa: Delfi, MTE i In
 - Teraz: obraz `www` ma `mariadb-client` (Debian trixie: mariadb-dump 11.8, zrzuca serwer 10.11 bez problemu); compose ustawia `ETPC_DUMP_COMMAND` i `NSA_DUMP_COMMAND` = `mariadb-dump --skip-ssl` (środowisko wygrywa z `.env`; host `db` z DSN; `--skip-ssl`, bo klient 11.8 ostrzega przy każdej kopii o certyfikacie). Sprawdzone `dump_database` na `szkielet_test`.
 - Zrzut zaczyna się od `/*M!999999\- enable the sandbox mode */` (tak samo robił mariadb-dump 10.11.19 z kontenera db) - przy wczytywaniu na hostingu sprawdzić wersję klienta (starsze niż 10.5.25 / 10.6.18 / 10.11.8 tej linii nie rozumieją; wtedy usunąć pierwszą linię).
 - **Uwaga:** działający kontener `www-1` ma stary obraz i stare zmienne. `docker compose exec www ...` dostanie nowe dopiero po `docker compose up -d www`, a to zabija przebiegi uruchomione przez `exec` w `www-1`. Długie zadania lepiej przez `docker compose run --rm www ...` (osobny kontener, zawsze bieżący obraz i zmienne).
+
+## Długie zadania przez `docker compose run` (2026-10-20)
+**Uruchomienie w tle** (terminal można zamknąć, kontener po zakończeniu sam znika):
+```
+docker compose run -d --rm --name nsa-przetworz www python -m nsa przetworz
+docker compose run -d --rm --name etpc-wektory  www python -m etpc wektory --budzet 3600
+```
+- `-d` = w tle, `--rm` = usuń kontener po zakończeniu, `--name` = stała nazwa do podglądu i zatrzymania (dwa zadania nie mogą mieć tej samej nazwy).
+- **Podgląd:** `docker logs -f nsa-przetworz` (Ctrl+C kończy tylko podgląd, nie zadanie); log też w `logs/www/`. Czy działa: `docker ps --filter name=nsa-przetworz`. Stan bazy: `docker compose run --rm www python -m nsa stan`; przebiegi w tabeli `fetch_runs`.
+- **Zatrzymanie:** `docker stop nsa-przetworz` - trwa ~10 s (python jako proces nr 1 w kontenerze ignoruje SIGTERM, Docker dobija go po 10 s), albo od razu `docker kill nsa-przetworz`. Bezpieczne: przebiegi są wznawialne (strona/porcja w jednej transakcji), to samo polecenie ponownie = kontynuacja.
+- **Na pierwszym planie** (bez `-d`): `docker compose run --rm www python -m nsa przetworz`; Ctrl+C przerywa zadanie. Gdy zamknie się terminal albo zabije sam klient `docker compose` (tak Claude Code ubił klienta przy braku pamięci), kontener **działa dalej**, ale `--rm` już go nie usunie: po końcu został zatrzymany kontener `...-www-run-<id>` -> `docker ps -a --filter status=exited` i `docker rm <nazwa>`.
+- **Dlaczego nie `docker compose exec www ...`:** exec działa w kontenerze strony `www-1`: ma obraz i zmienne z chwili jego startu (nie widzi przebudowy obrazu ani zmian w compose), a `docker compose up -d www` / restart po zmianie kodu zabija wszystkie zadania uruchomione przez exec.
+- Nakładanie się: drugi taki sam przebieg kończy się sam („Poprzedni przebieg (nsa:baza) jeszcze trwa”, blokada `GET_LOCK`); `wektory` mają osobną blokadę i mogą iść obok `przetworz`. Wyłączenie Docker Desktop zatrzymuje wszystko (wznowić tym samym poleceniem).
+- Kopia po przebiegu: z `<PREFIKS>_BACKUP_DIR` w `.env` robi się sama; wyłączenie dla jednego przebiegu: `-e ETPC_BACKUP_DIR=` przed `www`.
