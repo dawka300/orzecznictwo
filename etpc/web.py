@@ -470,6 +470,12 @@ def _ruling(cur, request, ruling_id, semantic=None):
         )
         for d in page.documents
     )
+    if len(page.documents) == 1 and doc and doc["language"] != "POL":
+        # Wyroki Izby wychodzą w jednym języku urzędowym; inne wersje (jeśli w ogóle) później.
+        tabs += (
+            "<span class=hint>jedyna wersja w HUDOC - po polsku: prawy przycisk"
+            " → Przetłumacz na polski (Pobierz PDF zapisze tłumaczenie)</span>"
+        )
     fragment = _FRAGMENT.match(request.get("fragment"))
     passage = None
     if fragment:

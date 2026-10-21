@@ -514,7 +514,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .ruling{display:grid;grid-template-columns:1fr 360px;gap:24px;align-items:start}
 .ruling article{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 28px 28px;min-width:0}
 .tabs{display:flex;flex-wrap:wrap;gap:6px;padding:10px 0;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}
-.tabs a,.tabs b{padding:3px 10px;border-radius:7px;font-size:13px}.tabs b{background:var(--accent-soft)}
+.tabs a,.tabs b{padding:3px 10px;border-radius:7px;font-size:13px}.tabs .hint{margin:0;align-self:center}.tabs b{background:var(--accent-soft)}
 .found{color:var(--muted);font-size:13px}
 .text{font-family:Georgia,"Times New Roman",serif;font-size:16px;line-height:1.65;overflow-wrap:anywhere}
 .text p{margin:0 0 .8em}.text .caps{font-family:system-ui,sans-serif;font-weight:700;font-size:14px;letter-spacing:.02em;margin-top:1.4em}
