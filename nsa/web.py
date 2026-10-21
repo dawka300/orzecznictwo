@@ -23,6 +23,7 @@ from judgments_core.web import (
     highlight,
     layout,
     number,
+    print_button,
     text_html,
     url,
     vectors_card,
@@ -399,6 +400,8 @@ def _judgment(cur, request, judgment_id, semantic):
     title = f"{j['docket_number'] or '(bez sygnatury)'} - {j['judgment_type']}"
     body = f"""<p class=back><a href="/" onclick="if(history.length>1){{history.back();return false}}">« wróć</a></p>
 <h1>{e(title)}</h1>
+<p class=doc-tools translate=no>{print_button()}</p>
+<p class=print-only>{date_pl(j["judgment_date"])} · {e(j["court"])} · {e(cbosa)}</p>
 <div class=ruling>
 <article>{found}{missing}<div class=text>{text}</div></article>
 <aside><dl>{meta}</dl>{side}</aside>

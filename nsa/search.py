@@ -220,6 +220,8 @@ def _hybrid(cur, q, semantic):
     by_meaning = [i for i in passages if i in allowed]
     scores = rrf((by_meaning, by_words))
     ids = sorted(scores, key=lambda i: -scores[i])
+    if not q.sort and ids:
+        ids = _reasons_first(cur, ids)
     if q.sort and ids:
         ids = [row[0] for row in _run(cur, *_ids_query(q, None, only_ids=ids, top=len(ids)))]
     page = max(q.page, 1)
@@ -244,6 +246,14 @@ def _run(cur, sql, args, limit_s=MAX_STATEMENT_S):
             ) from e
         raise
     return cur.fetchall()
+
+
+def _reasons_first(cur, ids):
+    """ids with judgments that have reasons first, each group in the given order."""
+    marks = ", ".join(["%s"] * len(ids))
+    cur.execute(f"SELECT id FROM judgments WHERE id IN ({marks}) AND reasons IS NULL", ids)
+    without = {row[0] for row in cur.fetchall()}
+    return [i for i in ids if i not in without] + [i for i in ids if i in without]
 
 
 def _ids_query(q, terms, only_ids=None, top=None):
@@ -294,7 +304,11 @@ def _ids_query(q, terms, only_ids=None, top=None):
         where.append(f"j.id IN ({', '.join(['%s'] * len(only_ids))})")
         args += only_ids
     order = {"data": "j.judgment_date DESC, j.id DESC", "najstarsze": "j.judgment_date, j.id"}.get(
-        q.sort, "score DESC, j.judgment_date DESC" if terms else "j.judgment_date DESC, j.id DESC"
+        q.sort,
+        # przy trafności najpierw orzeczenia z uzasadnieniem (sama sentencja mało mówi)
+        "(j.reasons IS NULL), score DESC, j.judgment_date DESC"
+        if terms
+        else "j.judgment_date DESC, j.id DESC",
     )
     sql = f"""SELECT SQL_CALC_FOUND_ROWS j.id, {score} score FROM judgments j
         {"WHERE " + " AND ".join(where) if where else ""}

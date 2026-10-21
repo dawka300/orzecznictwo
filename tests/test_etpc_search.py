@@ -218,6 +218,7 @@ def test_pages(ruling_db):
     html = get(app, f"/orzeczenie/{ruling_id}", "jezyk=ENG")[1]
     assert "<html lang=en>" in html and "<div class=text lang=en>" in html
     assert "<aside lang=pl translate=no>" in html
+    assert "window.print()" in html and "hudoc.echr.coe.int/app/conversion/pdf/" in html
     assert "<span class='badge tier D' title='waga: bez wyróżnień'>D rutynowe</span>" in html
     assert get(app, "/", "q=satisfaction&waga=C")[1].count("class=title") == 0
     assert get(app, "/statystyki")[0].startswith("200")

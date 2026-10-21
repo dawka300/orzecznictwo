@@ -377,6 +377,16 @@ def vectors_card(progress, command, order_note=""):
 <p class=hint>{e(order_note)} Odśwież stronę, żeby zobaczyć postęp.</p></section>"""
 
 
+def print_button(label="Pobierz PDF"):
+    """Button opening the browser's print dialog ("Save as PDF"): the page as shown,
+    also after the browser translated it; the print style keeps only the text."""
+    return (
+        '<button type=button class=print onclick="window.print()" title="W oknie drukowania'
+        " wybierz Zapisz jako PDF. Strona przetłumaczona w przeglądarce zapisze się"
+        f' po przetłumaczeniu.">{e(label)}</button>'
+    )
+
+
 def layout(
     title,
     body,
@@ -442,6 +452,13 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .base .facts{color:var(--text)}.base .links{display:flex;flex-direction:column;gap:4px;white-space:nowrap;margin:2px 0 0}
 @media (max-width:600px){.portal-tabs,header{padding-left:16px;padding-right:16px}main{padding-left:16px;padding-right:16px}
 .base{flex-direction:column;gap:6px}.base .links{flex-direction:row;gap:16px}.hero{margin-top:12px}}
+.print-only{display:none}
+.doc-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin:-8px 0 14px;font-size:14px}
+@media print{.portal-tabs,header,aside,.back,.doc-tools,.tabs,.found,.notice,form{display:none!important}
+body{background:#fff;color:#000;font:11pt/1.45 Georgia,"Times New Roman",serif}main{max-width:none;padding:0}
+.ruling{display:block!important}h1{font-size:15pt}.print-only{display:block;font-size:9pt;margin:0 0 10pt}
+article{border:0!important;padding:0!important;background:none!important;box-shadow:none!important}a{color:#000;text-decoration:none}
+mark{background:none;color:inherit}.text p.passage{background:none;border:0;margin-left:0;padding-left:0}}
 header{display:flex;align-items:center;gap:24px;padding:12px 24px;background:var(--panel);border-bottom:1px solid var(--line)}
 .brand{font-weight:700;font-size:17px;color:var(--text)}header nav{display:flex;gap:16px}
 main{max-width:1280px;margin:0 auto;padding:20px 24px 60px}

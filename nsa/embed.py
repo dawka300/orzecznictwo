@@ -6,7 +6,8 @@ nsa.parser.judgment_body) is chunked by NsaChunker, with filterable metadata
 to embed at once, so the order says what is searchable first: resolutions,
 judgments with a thesis or published in the official collection, NSA
 judgments, WSA judgments with reasoning, then the rest (mostly procedural
-orders). judgment_vectors records what is done; the loop, resuming and
+orders); rulings with neither reasons nor a thesis (a bare operative part says
+little) come after all of them. judgment_vectors records what is done; the loop, resuming and
 progress are common (judgments_core/embed.py).
 """
 
@@ -33,7 +34,7 @@ CANDIDATES_SQL = f"""
 SELECT j.id, j.cbosa_id, j.text_sha256, j.text_length FROM judgments j
 LEFT JOIN judgment_vectors v ON v.judgment_id = j.id
 WHERE v.judgment_id IS NULL OR v.body_sha256 <> j.text_sha256 OR v.model <> %s
-ORDER BY CASE
+ORDER BY (j.reasons IS NULL AND j.thesis IS NULL AND j.kind <> 'uchwala'), CASE
     WHEN j.kind = 'uchwala' THEN 0
     WHEN j.thesis IS NOT NULL
         OR EXISTS (SELECT 1 FROM judgment_publications p WHERE p.judgment_id = j.id) THEN 1

@@ -20,7 +20,16 @@ from judgments_core.embed import read_progress
 from judgments_core.embeddings import make_embedder
 from judgments_core.qdrant import QdrantStore, collection_name
 from judgments_core.semantic import SemanticUnavailable
-from judgments_core.web import Response, WebApp, e, layout, url, vectors_card, vectors_line
+from judgments_core.web import (
+    Response,
+    WebApp,
+    e,
+    layout,
+    print_button,
+    url,
+    vectors_card,
+    vectors_line,
+)
 from judgments_core.web import bar as _bar
 from judgments_core.web import date_pl as _date
 from judgments_core.web import details as _details
@@ -482,8 +491,20 @@ def _ruling(cur, request, ruling_id, semantic=None):
     # Język strony = język wersji w tekście: przeglądarka proponuje tłumaczenie
     # (np. z angielskiego), polski interfejs obok jest wyłączony z tłumaczenia.
     lang = labels.LANG_CODES.get(doc["language"], "pl") if doc else "pl"
+    official = ""
+    if doc:
+        pdf = url(HUDOC_PDF, library="ECHR", id=doc["itemid"], filename=f"{doc['itemid']}.pdf")
+        version = label(labels.LANGUAGES, doc["language"])
+        official = f'<a href="{e(pdf)}" target=_blank rel="noopener noreferrer">PDF z HUDOC ({e(version)})</a>'
+    tools = f"<p class=doc-tools lang=pl translate=no>{print_button()}{official}</p>"
+    # na wydruku/PDF panelu bocznego nie ma: data, skład i źródło w jednej linii
+    tools += (
+        f"<p class=print-only lang=pl translate=no>{_date(r['ruling_date'])} · "
+        f"{e(label(labels.FORMATIONS, r['formation']))} · {e(hudoc)}</p>"
+    )
     body = f"""<p class=back lang=pl translate=no><a href="/" onclick="if(history.length>1){{history.back();return false}}">« wróć</a></p>
 <h1>{e(r["title"])}</h1>
+{tools}
 <div class=ruling>
 <article>
 <nav class=tabs lang=pl translate=no>{tabs}</nav>
@@ -659,6 +680,8 @@ def _most_cited(cur, limit=50):
 
 
 BRAND = "Orzecznictwo ETPC"
+# Oficjalny PDF wersji językowej z HUDOC (działa też dla tłumaczeń).
+HUDOC_PDF = "https://hudoc.echr.coe.int/app/conversion/pdf/"
 COMMAND_EMBED = "python -m etpc wektory"
 ORDER_NOTE = "Najpierw wyroki (od kluczowych i najnowszych), potem decyzje."
 

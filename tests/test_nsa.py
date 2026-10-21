@@ -211,6 +211,16 @@ def test_search_fulltext_filters_and_hybrid(nsa_db):
     assert down.notice == "niedostępne" and down.total >= 1
 
 
+def test_judgments_with_reasons_come_first(nsa_db):
+    with nsa_db.cursor() as cur:
+        cur.execute("SELECT id FROM judgments WHERE reasons IS NOT NULL ORDER BY id LIMIT 2")
+        a, b = (row[0] for row in cur.fetchall())
+        cur.execute("UPDATE judgments SET reasons = NULL WHERE id = %s", (a,))
+        assert search._reasons_first(cur, [a, b]) == [b, a]
+        assert search._reasons_first(cur, [b, a]) == [b, a]
+    nsa_db.rollback()
+
+
 def test_pages(nsa_db):
     app = NsaWebApp(Settings(db_dsn=TEST_DSN), semantic=Up(nsa_db.target))
     status, html = get(app, "/", "q=zzzzz")
@@ -219,6 +229,7 @@ def test_pages(nsa_db):
     assert status.startswith("200") and "id=fragment" in html and "Podobne orzeczenia" in html
     assert "orzeczenia.nsa.gov.pl/doc/B51A16D504" in html
     assert "Uzasadnienia nie ma w zbiorze" not in html
+    assert "window.print()" in html and "<p class=print-only>" in html
     with nsa_db.cursor() as cur:  # wyrok sprzed sporządzenia uzasadnienia
         cur.execute("UPDATE judgments SET reasons = NULL WHERE id = %s", (nsa_db.target,))
     nsa_db.commit()
