@@ -36,6 +36,8 @@ from nsa.stats import NSA_COURT, read_stats, symbol_names
 log = logging.getLogger(__name__)
 
 BRAND = "Orzecznictwo sądów administracyjnych"
+# Stan CBOSA w zbiorze JuDDGES/pl-nsa (nsa/juddges.py): pobrane do tego dnia.
+DATA_AS_OF = "5.03.2025"
 COMMAND_EMBED = "python -m nsa wektory"
 ORDER_NOTE = "Najpierw uchwały, orzeczenia z tezą lub publikacją, wyroki NSA, wyroki WSA, potem postanowienia."
 SEMANTIC_TIMEOUT_S = 20
@@ -382,11 +384,20 @@ def _judgment(cur, request, judgment_id, semantic):
             if marks
             else "<p class=found>Szukane słowa nie występują w tekście.</p>"
         )
+    missing = ""
+    if j["kind"] in ("wyrok", "postanowienie", "uchwala") and not (j["reasons"] or "").strip():
+        # Zbiór JuDDGES to CBOSA z jednego dnia: uzasadnienie sporządzone później
+        # (zwykle tygodnie po wyroku) albo nigdy nieopublikowane go nie ma.
+        missing = (
+            f"<p class=notice>Uzasadnienia nie ma w zbiorze (CBOSA w stanie z {DATA_AS_OF})"
+            " - sąd mógł je sporządzić albo opublikować później."
+            f' <a href="{e(cbosa)}" rel=noreferrer>Sprawdź w CBOSA</a>.</p>'
+        )
     title = f"{j['docket_number'] or '(bez sygnatury)'} - {j['judgment_type']}"
     body = f"""<p class=back><a href="/" onclick="if(history.length>1){{history.back();return false}}">« wróć</a></p>
 <h1>{e(title)}</h1>
 <div class=ruling>
-<article>{found}<div class=text>{text}</div></article>
+<article>{found}{missing}<div class=text>{text}</div></article>
 <aside><dl>{meta}</dl>{side}</aside>
 </div>"""
     return Response(_layout(title, body))

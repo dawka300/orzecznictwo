@@ -218,6 +218,12 @@ def test_pages(nsa_db):
     status, html = get(app, f"/orzeczenie/{nsa_db.target}", "q=zzzzz&fragment=0-50")
     assert status.startswith("200") and "id=fragment" in html and "Podobne orzeczenia" in html
     assert "orzeczenia.nsa.gov.pl/doc/B51A16D504" in html
+    assert "Uzasadnienia nie ma w zbiorze" not in html
+    with nsa_db.cursor() as cur:  # wyrok sprzed sporządzenia uzasadnienia
+        cur.execute("UPDATE judgments SET reasons = NULL WHERE id = %s", (nsa_db.target,))
+    nsa_db.commit()
+    html = get(app, f"/orzeczenie/{nsa_db.target}")[1]
+    assert "Uzasadnienia nie ma w zbiorze (CBOSA w stanie z 5.03.2025)" in html
     assert get(app, "/statystyki")[0].startswith("200")
     assert get(app, "/orzeczenie/999999")[0].startswith("404")
 
