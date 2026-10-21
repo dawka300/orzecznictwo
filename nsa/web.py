@@ -368,7 +368,10 @@ def _judgment(cur, request, judgment_id, semantic):
             row("Skarżony organ", e(j["challenged_authority"])),
             row("Wynik", "<br>".join(e(r) for r in page.results)),
             row("Publikacje i glosy", publications),
-            row("CBOSA", f'<a href="{e(cbosa)}" rel=noreferrer>{e(j["cbosa_id"])}</a>'),
+            row(
+                "CBOSA",
+                f'<a href="{e(cbosa)}" target=_blank rel="noopener noreferrer">{e(j["cbosa_id"])}</a>',
+            ),
         ]
     )
     side = ""
@@ -391,7 +394,7 @@ def _judgment(cur, request, judgment_id, semantic):
         missing = (
             f"<p class=notice>Uzasadnienia nie ma w zbiorze (CBOSA w stanie z {DATA_AS_OF})"
             " - sąd mógł je sporządzić albo opublikować później."
-            f' <a href="{e(cbosa)}" rel=noreferrer>Sprawdź w CBOSA</a>.</p>'
+            f' <a href="{e(cbosa)}" target=_blank rel="noopener noreferrer">Sprawdź w CBOSA</a>.</p>'
         )
     title = f"{j['docket_number'] or '(bez sygnatury)'} - {j['judgment_type']}"
     body = f"""<p class=back><a href="/" onclick="if(history.length>1){{history.back();return false}}">« wróć</a></p>
