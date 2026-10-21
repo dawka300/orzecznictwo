@@ -15,7 +15,7 @@ import re
 from abc import ABC, abstractmethod
 from html import escape
 from socketserver import ThreadingMixIn
-from urllib.parse import parse_qs, urlencode
+from urllib.parse import parse_qs, quote, urlencode
 from wsgiref.simple_server import WSGIRequestHandler, WSGIServer, make_server
 
 import pymysql
@@ -387,6 +387,18 @@ def print_button(label="Pobierz PDF"):
     )
 
 
+# Ikona karty przeglądarki: biała waga na kolorze stron, SVG w adresie data: (bez pliku).
+FAVICON_SVG = (
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
+    "<rect width='32' height='32' rx='7' fill='#1f4fa3'/>"
+    "<g fill='none' stroke='#fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
+    "<path d='M16 6v19M11 25h10M6 10h20M6 10l-2.5 7M6 10l2.5 7M26 10l-2.5 7M26 10l2.5 7'/></g>"
+    "<g fill='#fff'><path d='M3 17h6a3 3 0 0 1-6 0zM23 17h6a3 3 0 0 1-6 0z'/>"
+    "<circle cx='16' cy='6' r='1.6'/></g></svg>"
+)
+FAVICON = "data:image/svg+xml," + quote(FAVICON_SVG)
+
+
 def layout(
     title,
     body,
@@ -409,6 +421,7 @@ def layout(
 <html lang={e(lang)}><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width, initial-scale=1">
 <title>{e(title)} - {e(brand)}</title>
+<link rel=icon type="image/svg+xml" href="{FAVICON}">
 <style>{CSS}</style></head>
 <body>{top if header else ""}<main>{body}</main></body></html>"""
 

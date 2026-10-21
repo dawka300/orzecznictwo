@@ -63,6 +63,7 @@ def test_home_has_one_search_with_a_choice_and_the_databases():
     assert 'value="etpc" checked' in body
     assert "Opis bazy" in body and "<b>1 234</b> orzeczeń" in body
     assert '<a class="home on" href="/">' in body
+    assert '<link rel=icon type="image/svg+xml" href="data:image/svg+xml,' in body
 
 
 def test_search_from_home_goes_to_the_chosen_database():
