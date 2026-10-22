@@ -2,6 +2,8 @@
 
 Wspólny szkielet projektów, które pobierają orzeczenia sądów z publicznych baz do własnej bazy **MariaDB** i mają działać bez przerwy na zwykłym hostingu z Pythonem (seohost). Wyrósł z lokalnego projektu `orzeczenia_SAOS` (polskie orzeczenia z SAOS w Postgresie).
 
+**Polecenia** (Docker, pobieranie, przetwarzanie, wektory, paczki, szukanie, testy) z opisem opcji: [`komendy.md`](komendy.md).
+
 Projekty w tym repozytorium:
 
 | Katalog | Co pobiera | Źródło | Stan |

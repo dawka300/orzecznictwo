@@ -1,0 +1,217 @@
+# Polecenia: ściąga
+
+Wszystkie polecenia projektu w jednym miejscu: Docker, pobieranie, przetwarzanie, wektory (też w paczkach na innych komputerach), szukanie i RAG, strony, testy.
+
+## Najczęstsze polecenia w całości (do skopiowania)
+
+Z katalogu repo, w PowerShell albo Git Bash. Zamiast `etpc` można wpisać `nsa`.
+
+```
+# Docker: wstawanie i stan
+docker compose up -d                                   # baza (3306), Qdrant (6333), portal http://127.0.0.1:8080
+docker compose ps                                      # co działa
+docker compose restart www                             # portal po zmianie kodu
+
+# baza i stan
+docker compose run --rm --no-deps www python -m etpc migracje            # tabele (po git pull / na nowej bazie)
+docker compose run --rm --no-deps www python -m etpc stan                # gdzie stanęło, ile rekordów, blokady
+docker compose run --rm --no-deps www python -m etpc stan --problemy     # plus lista problemów
+
+# import ze źródła (HUDOC / CBOSA)
+docker compose run --rm --no-deps www python -m etpc pobierz                     # dalej od kursora, do końca
+docker compose run --rm --no-deps www python -m etpc pobierz --limit 20          # próba: 20 rekordów
+docker compose run --rm --no-deps www python -m etpc pobierz --budzet 3600       # najwyżej godzinę
+docker compose run --rm --no-deps www python -m etpc pobierz --na-sucho --limit 5   # tylko podgląd, bez bazy
+docker compose run --rm --no-deps www python -m nsa pobierz --brakujace          # tylko braki znalezione przez sprawdz
+
+# przetwarzanie (raw_records -> tabele, bez pobierania)
+docker compose run --rm --no-deps www python -m etpc przetworz                   # nowe i zmienione
+docker compose run --rm --no-deps www python -m etpc przetworz --od-poczatku     # wszystko od nowa (po zmianie parsera)
+docker compose run --rm --no-deps www python -m etpc przetworz --tylko-pochodne  # tylko statystyki/rankingi
+
+# wektory (LM Studio z bge-m3 musi działać)
+docker compose run --rm --no-deps www python -m etpc wektory                     # brakujące i zmienione
+docker compose run --rm --no-deps www python -m etpc wektory --budzet 3600       # najwyżej godzinę
+docker compose run --rm --no-deps www python -m etpc wektory --limit 50          # próba
+
+# wektory podzielone na paczki (liczone na innym komputerze z kartą NVIDIA)
+docker compose run --rm --no-deps www python -m nsa paczki                                 # 1 paczka 200000 fragmentów
+docker compose run --rm --no-deps www python -m nsa paczki --ile 3 --fragmentow 100000     # 3 mniejsze paczki
+docker compose run --rm --no-deps www python -m nsa paczki --od-konca                      # z końca kolejki
+docker compose run --rm --no-deps www python -m nsa paczki --lista                         # wydane / wczytane / porzucone
+docker compose run --rm --no-deps www python -m nsa paczki --zwolnij nsa-0002              # porzuć paczkę
+docker compose run --rm --no-deps www python -m nsa paczka-import nsa-0001                 # wczytaj policzoną paczkę
+
+# długie zadanie w tle (terminal można zamknąć)
+docker compose run -d --rm --no-deps --name nsa-wektory www python -m nsa wektory
+docker logs -f nsa-wektory        # podgląd
+docker stop nsa-wektory           # zatrzymaj (wznawialne: to samo polecenie idzie dalej)
+
+# szukanie / RAG
+docker compose run --rm --no-deps www python -m etpc fragmenty "odpowiedzialność portalu za komentarze"
+docker compose run --rm --no-deps www python -m nsa zapytaj "czy wiata to budowla?" --limit-znakow 8000
+
+# kopia bazy, testy, lint
+docker compose run --rm --no-deps www python -m etpc kopia
+docker compose run --rm --no-deps www python -m pytest
+docker compose run --rm --no-deps www sh -c "ruff format . && ruff check ."
+```
+
+Niżej opis każdego polecenia i każdej opcji.
+
+Wszystko z katalogu repo, Docker Desktop musi działać (`db`, `qdrant`, `www` wstają same).
+Polecenia projektów idą w jednorazowym kontenerze:
+
+```
+docker compose run --rm --no-deps www python -m <projekt> <polecenie> [opcje]
+```
+
+`<projekt>` = `etpc` albo `nsa`. W tabelach niżej jest tylko `<polecenie> [opcje]`.
+
+- **`--rm`** = usuń kontener zaraz po zakończeniu polecenia. `run` za każdym razem tworzy nowy, jednorazowy kontener; bez `--rm` po każdym `stan` czy `pobierz` zostaje zatrzymany `...-www-run-<id>` (lista w `docker ps -a`, miejsce na dysku). Logi i dane są poza kontenerem (`logs/www/`, baza, Qdrant), więc nic się nie traci. Wyjątek: po zamknięciu terminala / zabiciu klienta `docker compose` kontener działa dalej, ale `--rm` go już nie usunie (sprzątanie niżej).
+- **`--no-deps`** = nie ruszaj usług, od których zależy `www` (`db`, `qdrant`); uruchom tylko ten kontener. **Zawsze.** Bez tego compose sprawdza `db` i po każdej zmianie usługi `db` w `docker-compose.yml` odtwarza kontener bazy: MariaDB zabita w trakcie pracy (SIGKILL), odzyskiwanie po awarii, wszystkie przebiegi i połączenia zerwane (stało się 2026-10-20). `db` i `qdrant` i tak wstają z Docker Desktop. Skutek uboczny: gdy `db` akurat nie działa, polecenie kończy się błędem połączenia, wtedy `docker compose up -d`.
+
+**Sugestia: skrót `orz` w PowerShell** (jeszcze nie dodany do `$PROFILE`). Zamiast całego przedrostka pisze się `orz etpc stan`, `orz nsa pobierz --limit 20` itd.
+```powershell
+# 1. raz: pozwolić PowerShellowi wczytywać profil (domyślnie skrypty są zablokowane)
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+
+# 2. otworzyć profil (utworzyć, jeśli go nie ma)
+if (-not (Test-Path $PROFILE)) { New-Item -ItemType File -Path $PROFILE -Force }
+notepad $PROFILE
+
+# 3. wkleić do profilu i zapisać
+function orz {
+    docker compose -f "C:\Users\dawaw\PycharmProjects\orzecznictwo-szkielet\docker-compose.yml" `
+        run --rm --no-deps www python -m @args
+}
+
+# 4. nowe okno PowerShell (albo: . $PROFILE) i sprawdzić
+orz etpc stan
+```
+`-f` z pełną ścieżką: skrót działa z każdego katalogu, nie tylko z repo. W tle albo z `-e` dalej pełne polecenie (`docker compose run -d --rm --no-deps --name ... www ...`).
+
+## Docker: usługi
+| Polecenie | Co robi |
+|---|---|
+| `docker compose up -d` | uruchom `db` (MariaDB 3306), `qdrant` (6333), `www` (portal 8080) |
+| `docker compose ps` | co działa |
+| `docker compose restart www` | portal widzi zmiany w kodzie (przerywa zadania z `exec` w `www-1`) |
+| `docker compose up -d www` | portal z nowym obrazem / nowymi zmiennymi z compose |
+| `docker compose build www` | przebuduj obraz po zmianie `docker/www.Dockerfile` albo `requirements.txt` |
+| `docker compose logs -f www` | log portalu (też `logs/www/`) |
+
+## Docker: sposoby uruchamiania zadań
+```
+# na pierwszym planie (Ctrl+C przerywa)
+docker compose run --rm --no-deps www python -m nsa przetworz
+
+# w tle, ze stałą nazwą (terminal można zamknąć, kontener sam znika po końcu)
+docker compose run -d --rm --no-deps --name nsa-przetworz www python -m nsa przetworz
+docker logs -f nsa-przetworz            # podgląd (Ctrl+C kończy tylko podgląd)
+docker ps --filter name=nsa-przetworz   # czy jeszcze działa
+docker stop nsa-przetworz               # zatrzymaj (~10 s; od razu: docker kill)
+
+# jednorazowo inne zmienne: -e przed "www"
+docker compose run --rm --no-deps -e ETPC_BACKUP_DIR= www python -m etpc pobierz   # bez kopii
+docker compose run --rm --no-deps -e ETPC_LOG_DIR=logs www python -m etpc stan       # log gdzie indziej
+
+# sprzątanie po zabitym kliencie compose (kontener ...-www-run-<id> został)
+docker ps -a --filter status=exited
+docker rm <nazwa>
+```
+Przebiegi są wznawialne: to samo polecenie po przerwaniu = kontynuacja. Drugi taki sam przebieg sam się kończy (blokada); `wektory` mogą iść obok `przetworz`. Nie używać `docker compose exec www ...` do długich zadań (ginie przy restarcie `www`).
+
+## Baza i stan
+| Polecenie | Co daje | Kiedy / przykład |
+|---|---|---|
+| `migracje` | tworzy brakujące tabele i kolumny; już zastosowane migracje pomija, więc można puszczać zawsze | po `git pull`, w którym doszedł plik w `*/migrations/`; na nowej bazie przed pierwszym `pobierz` |
+| `stan` | kursor (gdzie stanęło pobieranie), ile rekordów surowych i przetworzonych, ostatnie przebiegi z czasem i wynikiem, kto trzyma blokadę, liczba problemów | „czy nocny przebieg doszedł do końca?”, „czy coś jeszcze liczy?”: `stan` |
+| `stan --problemy` | to samo plus lista otwartych problemów (brakujące rekordy, błędy parsera) | po `sprawdz`, żeby zobaczyć, czego brakuje |
+| `sprawdz` | dla każdego roku porównuje liczbę orzeczeń w źródle z bazą; różnice zapisuje jako problemy | raz na jakiś czas, czy pobieranie niczego nie zgubiło |
+| `sprawdz --od 2020 --do 2022` | to samo tylko dla tych lat (szybciej, mniej zapytań do źródła) | podejrzenie dziury w jednym okresie: `sprawdz --od 2021 --do 2021` |
+| `kopia` | zrzut całej bazy projektu do `<PREFIKS>_BACKUP_DIR/<projekt>.sql.gz` (nadpisuje poprzedni) | przed ryzykowną migracją albo `przetworz --od-poczatku`; ETPC lokalnie trafia do `etpc/database/` |
+
+## Pobieranie (`pobierz`)
+Bez opcji pobiera dalej od miejsca, w którym skończył poprzedni przebieg (kursor w bazie). Domyślnie bez limitu czasu (`<PREFIKS>_TIME_BUDGET_S=0`).
+
+| Opcja | Co daje | Kiedy / przykład |
+|---|---|---|
+| `--limit N` | koniec po N zapisanych rekordach (kursor zapisany, następny przebieg pójdzie dalej) | szybka próba po zmianie źródła: `pobierz --limit 20` |
+| `--budzet S` | koniec po S sekundach, równo po zapisanej stronie; nic się nie gubi | cron na hostingu co kilka minut: `pobierz --budzet 240`; lokalnie „tylko godzinę”: `--budzet 3600` |
+| `--od-poczatku` | ignoruje kursor i idzie od początku źródła; niezmienione rekordy tylko się porównują (zmienione dostają nowe `changed_at`) | źródło poprawiło stare orzeczenia albo zmienił się zakres zapytania |
+| `--na-sucho` | pobiera i wypisuje rekordy na ekran, nic nie zapisuje do bazy (zawsze od początku) | sprawdzenie, czy źródło odpowiada i co zwraca: `pobierz --na-sucho --limit 5` |
+| `--brakujace` | pobiera tylko rekordy, które `sprawdz` oznaczył jako brakujące; kursora nie rusza | po `sprawdz` z brakami: `pobierz --brakujace` |
+
+ETPC: sposób łączenia z HUDOC z `ETPC_TRANSPORT` (`requests`, `curl`, `playwright`; puste = domyślny łańcuch projektu po kolei, następny przy blokadzie Cloudflare; w `.env` jest `playwright`). Jednorazowo inny: `docker compose run --rm --no-deps -e ETPC_TRANSPORT=curl www python -m etpc pobierz --limit 10`.
+
+## Przetwarzanie (`przetworz`: raw_records -> tabele projektu)
+Bez opcji bierze tylko rekordy nowe i zmienione od ostatniego przetworzenia. Niczego nie pobiera ze źródła.
+
+| Opcja | Co daje | Kiedy / przykład |
+|---|---|---|
+| `--od-poczatku` | przetwarza wszystkie rekordy jeszcze raz | po zmianie parsera (nowe pole, poprawka wyciągania sygnatury); NSA to wiele godzin, najlepiej w tle z `--name` |
+| `--tylko-pochodne` | nie rusza rekordów, tylko przelicza dane pochodne (ETPC: statystyki, ranking cytowań, wagi orzeczeń; NSA: statystyki) | zmienił się sposób liczenia statystyk: `przetworz --tylko-pochodne` (minuty zamiast godzin) |
+| `--porcja N` | ile rekordów idzie w jednej transakcji (domyślnie 100); większa = szybciej, ale dłuższe transakcje i więcej pamięci | szybka maszyna lokalnie: `--porcja 500`; słaby hosting: `--porcja 50` |
+| `--limit N` | koniec po N rekordach | test nowego parsera: `przetworz --od-poczatku --limit 200`, potem obejrzeć wynik na stronie |
+| `--budzet S` | koniec po S sekundach (wznawialne) | cron: `przetworz --budzet 240` |
+
+## Wektory (Qdrant, kolekcje `etpc_<model>`, `nsa_<model>`)
+`wektory` bez opcji liczy embeddingi orzeczeń, które jeszcze ich nie mają albo zmieniły się od ostatniego liczenia. Potrzebne LM Studio z bge-m3 na komputerze. Ma osobną blokadę, więc może iść równolegle z `przetworz`.
+
+| Polecenie / opcja | Co daje | Kiedy / przykład |
+|---|---|---|
+| `wektory --budzet 3600` | liczy najwyżej godzinę, potem koniec; następny przebieg idzie dalej | żeby komputer nie mielił całą noc: `wektory --budzet 3600` |
+| `wektory --limit N` | koniec po N orzeczeniach | test po zmianie modelu / LM Studio: `wektory --limit 50` |
+| `wektory --od-poczatku` | liczy wszystko od nowa | po zmianie krojenia na fragmenty (chunker); po zmianie modelu i tak powstaje nowa kolekcja |
+| `paczki` | wycina 1 paczkę fragmentów (200000) do policzenia na innym komputerze; te orzeczenia `wektory` tutaj pomija | kolega z kartą NVIDIA ma czas: `paczki`, potem wysłać plik `<projekt>/database/paczki/nsa-0001.jsonl.gz` |
+| `paczki --ile 3 --fragmentow 100000` | 3 mniejsze paczki | kilku kolegów albo słabsze karty: mniejsze paczki = krótsze liczenie i mniej strat przy przerwaniu |
+| `paczki --od-konca` | paczka z końca kolejki (najmniej ważne orzeczenia); najważniejsze zostają dla `wektory` tutaj | wektory liczą się tu i tam naraz: tutaj od góry, kolega od dołu |
+| `paczki --lista` | wszystkie paczki: wydane, wczytane, porzucone | „czyja paczka jeszcze nie wróciła?” |
+| `paczki --zwolnij nsa-0002` | porzuca paczkę: jej orzeczenia wracają do kolejki `wektory` tutaj | kolega nie odda paczki |
+| `paczka-import nsa-0001` | wczytuje plik `nsa-0001.wektory.npy` do Qdranta (z kontrolą, czy liczył ten sam model) | po otrzymaniu pliku od kolegi: włożyć go do `nsa/database/paczki/` i wtedy `paczka-import nsa-0001` |
+
+Liczenie paczki u kolegi z kartą NVIDIA: `docker/licz/README.md`, wynajęte GPU: `docker/licz/VAST.md`. Panel Qdranta: http://127.0.0.1:6333/dashboard
+
+## Szukanie i RAG
+| Polecenie / opcja | Co daje | Kiedy / przykład |
+|---|---|---|
+| `fragmenty "pytanie"` | sam kontekst bez modelu: najlepsze fragmenty orzeczeń w limicie 16000 znaków, z nagłówkami `[n] sprawa, data, link` | sprawdzić, co dostałby model: `etpc fragmenty "odpowiedzialność portalu za komentarze"` |
+| `--limit-znakow N` (przy `fragmenty`, `zapytaj`, `ocen`, `ocen-odpowiedzi`) | ile tekstu źródeł; więcej = więcej orzeczeń, ale mały model gubi się w długim kontekście | model 14B: `zapytaj "..." --limit-znakow 8000`; Claude / duży model: `--limit-znakow 30000` |
+| `zapytaj "pytanie"` | pełna odpowiedź RAG: fragmenty + model czatu z LM Studio (`<PREFIKS>_CHAT_*`), z cytowaniami `[n]` | `nsa zapytaj "czy wiata to budowla w rozumieniu prawa budowlanego?"` (LM Studio z modelem musi działać; minuty) |
+| `zapytaj "..." --tylko-zrodla` | wypisuje gotowy prompt (polecenie + źródła), modelu nie woła | wkleić prompt do innego czatu albo sprawdzić, czy źródła są dobre, zanim się poczeka na model |
+| `ocen` | dla każdego pytania z `<projekt>/pytania.json`: na którym miejscu jest oczekiwane orzeczenie (MRR) i ile zmieściło się w kontekście; bez modelu, sekundy | po zmianie pokrętła w `judgments_core/rag.py` albo słowniczka: `ocen` przed i po, porównać |
+| `ocen --plik P` | inne pytania wzorcowe | własny zestaw (ten sam format co `pytania.json`), np. `etpc ocen --plik etpc/pytania-art8.json` |
+| `ocen-odpowiedzi` | wszystkie pytania przez `zapytaj`: czy cytowania istnieją, czy podany wynik sprawy zgadza się z bazą, a model-sędzia sprawdza zdania ze źródłami | ocena nowego modelu czatu (długo: kilka minut na pytanie) |
+| `ocen-odpowiedzi --pytania 1,4,11` | tylko te pytania (numery z pliku) | szybki test na kilku pytaniach zamiast całego zestawu |
+| `ocen-odpowiedzi --bez-sedziego` | tylko reguły (cytowania, wynik), bez drugiego wołania modelu (szybciej) | gdy sędzia = ten sam słaby model albo chodzi tylko o cytowania |
+| `mcp` | serwer MCP po stdio: narzędzia `szukaj`, `fragmenty`, `orzeczenie`, `podobne` | ręcznie niepotrzebne: Claude Code / LM Studio uruchamia go sam z `.mcp.json` |
+
+## Strony WWW
+| Polecenie | Co robi |
+|---|---|
+| http://127.0.0.1:8080 | portal (usługa `www`, działa sama): `/etpc/`, `/nsa/`, statystyki `/etpc/statystyki`, `/nsa/statystyki` |
+| `www --host 0.0.0.0 --port 8081` | jeden projekt sam; z kontenera trzeba wystawić port: `docker compose run --rm --no-deps -p 127.0.0.1:8081:8081 www python -m etpc www --host 0.0.0.0 --port 8081` (8080 zajmuje `www`) |
+
+## Typowe sekwencje (`orz` = skrót z góry)
+```
+# nowe orzeczenia od źródła aż do wyszukiwarki
+orz etpc pobierz;  orz etpc przetworz;  orz etpc wektory
+
+# zmiana parsera
+orz nsa kopia;  orz nsa przetworz --od-poczatku --limit 200   # próba, obejrzeć na stronie
+orz nsa przetworz --od-poczatku                                # całość (w tle: run -d --name)
+
+# dziury w bazie
+orz nsa sprawdz --od 2015;  orz nsa stan --problemy;  orz nsa pobierz --brakujace;  orz nsa przetworz
+
+# strojenie RAG
+orz etpc ocen   # przed zmianą, zapisać wynik; zmienić jedno pokrętło; orz etpc ocen ponownie
+```
+
+## Testy, lint, kopia na dysk
+```
+docker compose run --rm --no-deps www python -m pytest                          # ~4 min
+docker compose run --rm --no-deps www sh -c "ruff format . && ruff check ."     # przed commitem
+narzedzia/kopia-na-dysk.sh "/g/projekty AI/orzecznictwo-szkielet" nsa etpc      # Git Bash: lustro, bundle, Qdrant, bazy
+```
