@@ -44,6 +44,7 @@ TEXT_WINDOW = 1_500  # okno wokół słowa zapytania, gdy orzeczenie nie ma wekt
 OWN_CHUNKS = 40
 PER_OWN_CHUNK = 30
 MATCHES_SHOWN = 3
+EMBED_BATCH = 8  # wektory własnego tekstu porcjami (pasek postępu)
 SNAP_CHARS = 200  # granica okna przesuwana do końca wiersza, jeśli jest tak blisko
 
 
@@ -225,7 +226,7 @@ class Retriever(ABC):
         a project's child reads its result texts. Used by the document analysis."""
         return "inne"
 
-    def like_text(self, cur, text, chunker, k=10, result_contains="", embedder=None):
+    def like_text(self, cur, text, chunker, k=10, result_contains="", embedder=None, progress=None):
         """Judgments closest to a whole text (e.g. one's own judgment), by meaning.
 
         The text is cut by the project's chunker exactly like the judgments in the base
@@ -234,16 +235,23 @@ class Retriever(ABC):
         Each source shows its passages that matched and which own chunk they matched
         ("Twój fragment n"). Opposite rulings on the same issue are close in meaning too:
         result_contains keeps only judgments whose outcome contains that text. embedder:
-        the model for the own chunks (default: the semantic search's query model)."""
+        the model for the own chunks (default: the semantic search's query model).
+        progress(step, done, total): after each batch of vectors ("wektory") and each
+        chunk's search ("szukanie"), for a progress bar."""
         if self.semantic is None:
             raise SemanticUnavailable("Ten projekt nie ma wyszukiwania znaczeniowego.")
         own = chunker.chunk(0, text, "", {})[:OWN_CHUNKS]
         if not own:
             return Retrieval([], [])
         rankings, matches = [], {}
+        report = progress or (lambda step, done, total: None)
         try:
             embedder = embedder or self.semantic.embedder  # analiza dokumentu: wybrany model
-            vectors = embedder.embed([chunker.embedding_input(c) for c in own])
+            texts = [chunker.embedding_input(c) for c in own]
+            vectors = []
+            for start in range(0, len(texts), EMBED_BATCH):
+                vectors += embedder.embed(texts[start : start + EMBED_BATCH])
+                report("wektory", len(vectors), len(texts))
             for number, vector in enumerate(vectors):
                 ranking = []
                 for hit in self.semantic.vectors.search_judgments(vector, PER_OWN_CHUNK):
@@ -253,6 +261,7 @@ class Retriever(ABC):
                         (passage.score, number, passage)
                     )
                 rankings.append(ranking)
+                report("szukanie", number + 1, len(vectors))
         except RuntimeError as e:
             raise SemanticUnavailable(f"Wyszukiwanie znaczeniowe niedostępne: {e}") from e
         scores = rrf(rankings)

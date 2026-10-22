@@ -280,3 +280,19 @@ def test_mcp_text_in_parts():
     assert cut("abcdef", 0, 4) == "abcd\n\n[... ucięto: znaki 4-6; dalej: od=4]"
     assert cut("abcdef", 4, 4) == "ef"
     assert lines(("A", "x"), ("B", ""), ("C", None), ("D", 0)) == "A: x\nD: 0"
+
+
+def test_pending_shas_by_ids_matches_the_full_candidates(nsa_db):
+    """paczka-import pyta tylko o orzeczenia paczki - wynik jak z pełnej kolejki."""
+    from judgments_core.embed import EmbedJob
+
+    job = NsaEmbedJob(nsa_db, FakeEmbedder(), FakeVectors())
+    with nsa_db.cursor() as cur:
+        cur.execute("SELECT id FROM judgments")
+        ids = [row[0] for row in cur.fetchall()]
+        fast = job.pending_shas(cur, "fake-model", ids)
+        slow = EmbedJob.pending_shas(job, cur, "fake-model", ids)
+    assert fast == slow and len(fast) == len(ids)
+    job.run()  # po policzeniu nic nie czeka
+    with nsa_db.cursor() as cur:
+        assert job.pending_shas(cur, "fake-model", ids) == {}

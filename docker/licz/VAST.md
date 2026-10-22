@@ -178,6 +178,15 @@ poleceniem jeszcze raz:
 Nie edytuj `vast_kolejka.sh` ani `vast_start.sh`, gdy działają (bash czyta skrypt w trakcie):
 zatrzymaj, popraw, uruchom znowu.
 
+Przerwany import (`docker stop` kontenera `paczka-import`) potrafi zostawić w MariaDB działające
+zapytanie, które trzyma blokadę `nsa:paczki`; następny import kończy się wtedy od razu
+(„Poprzedni przebieg (nsa:paczki) jeszcze trwa”) - kolejka uzna to za nieudany import i stanie.
+Sprawdzenie i zakończenie takiego zapytania:
+```powershell
+docker exec orzecznictwo-szkielet-db-1 mariadb -uroot -proot --skip-ssl -e "SELECT IS_USED_LOCK('nsa:paczki')"
+docker exec orzecznictwo-szkielet-db-1 mariadb -uroot -proot --skip-ssl -e "KILL <numer z poprzedniego polecenia>"
+```
+
 ## Przykład krok po kroku (RTX 4070, 2026-10-23)
 
 Prawdziwa sesja: instancja 57277216, RTX 4070 12 GB, ~$0.20/h. Z przycisku **Connect**

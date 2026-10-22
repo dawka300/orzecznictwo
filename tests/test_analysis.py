@@ -110,8 +110,10 @@ class FakeRetriever:
     def __init__(self):
         self.calls = []
 
-    def like_text(self, cur, text, chunker, k, embedder=None):
+    def like_text(self, cur, text, chunker, k, embedder=None, progress=None):
         self.calls.append((text, k, embedder))
+        progress("wektory", 2, 2)
+        progress("szukanie", 1, 2)
         sources = [
             Reference(
                 1,
@@ -168,6 +170,36 @@ def test_upload_runs_in_background_and_reports_by_side(monkeypatch):
     against = page.index("Przeciwne (1)")
     assert support < page.index("A v. Poland") < against < page.index("B v. Poland")
     assert "Twój fragment 1 ~ THE LAW" in page and 'href="/orzeczenie/11"' in page
+    assert (job.phase, job.done, job.total) == ("szukanie", 1, 2)  # postęp z like_text
+    assert f'href="/analiza/{job.id}.pdf"' in page
+
+    # PDF: ten sam raport, linki do stron orzeczeń pełne (adres portalu), adres źródła widoczny
+    seen = {}
+
+    def fake_pdf(html):
+        seen["html"] = html
+        return b"%PDF-1.7 raport"
+
+    monkeypatch.setattr(analysis, "html_to_pdf", fake_pdf)
+    environ = {
+        "PATH_INFO": f"{job_path}.pdf",
+        "HTTP_HOST": "127.0.0.1:8080",
+        "SCRIPT_NAME": "/etpc",
+    }
+    pdf = pages.handle(Request(environ), lambda title, body: f"<html>{body}</html>")
+    assert pdf.content_type == "application/pdf" and pdf.body.startswith(b"%PDF")
+    assert 'attachment; filename="analiza-tekst_wklejony.pdf"' in dict(pdf.headers).values()
+    assert 'href="http://127.0.0.1:8080/etpc/orzeczenie/11"' in seen["html"]
+    assert ">https://a</a>" in seen["html"] and "Pobierz PDF" not in seen["html"]
+
+
+def test_progress_bar():
+    job = analysis.Job("a" * 12, "x", "skarzacy", 10, 100)
+    assert "width:0.0%" in analysis._progress_bar(job)
+    analysis._advance(job, "wektory", 4, 8)
+    assert "width:25.0%" in analysis._progress_bar(job) and "4 z 8" in job.step
+    analysis._advance(job, "szukanie", 8, 8)
+    assert "width:100.0%" in analysis._progress_bar(job)
 
 
 def test_too_little_text_is_refused():

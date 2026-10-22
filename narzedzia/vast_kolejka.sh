@@ -82,8 +82,10 @@ wyslij() {
 importuj() {
     local nazwa=$1
     log "$nazwa: import"
+    # Kod wyjścia nie wystarcza: zajęta blokada (inny import) też kończy się kodem 0.
     if docker compose run --rm --no-deps www python -m "$PROJEKT" paczka-import "$nazwa" \
-        > "$LOKALNIE/$nazwa.import.log" 2>&1; then
+        > "$LOKALNIE/$nazwa.import.log" 2>&1 \
+        && grep -q "zapisano wektory" "$LOKALNIE/$nazwa.import.log"; then
         touch "$LOKALNIE/$nazwa.zaimportowano"
         grep -E "kontrola|zapisano" "$LOKALNIE/$nazwa.import.log" | tail -n 2
         return 0

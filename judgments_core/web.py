@@ -500,6 +500,7 @@ h1{font-size:22px;line-height:1.3;margin:4px 0 16px}h2{font-size:15px;margin:18p
 input,select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text);font:inherit}
 input[type=radio]{width:auto}
 button{padding:7px 14px;border:0;border-radius:7px;background:var(--accent);color:var(--panel);font:inherit;font-weight:600;cursor:pointer}
+a.button{display:inline-block;padding:7px 14px;border-radius:7px;background:var(--accent);color:var(--panel);font-weight:600;text-decoration:none}
 .field{display:flex;gap:14px;margin:10px 0 4px;color:var(--muted)}.radio{display:flex;align-items:center;gap:4px}
 .hint{color:var(--muted);font-size:13px;margin:6px 0 12px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}

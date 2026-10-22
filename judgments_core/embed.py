@@ -93,6 +93,13 @@ class EmbedJob(ABC):
     def candidates(self, cur, model):
         """Candidates missing or changed (sha256, model) in the tracking table, in embedding order."""
 
+    def pending_shas(self, cur, model, ids):
+        """{id: sha256} of these judgments that still need vectors (as candidates() says);
+        used by paczka-import. By default from the whole candidates() list - a child with
+        a big table answers by the ids only (one package = tens of thousands of ids)."""
+        wanted = set(ids)
+        return {row[0]: row[2] for row in self.candidates(cur, model) if row[0] in wanted}
+
     @abstractmethod
     def load(self, cur, batch):
         """[(Candidate, document id, sha256, [Chunk with meta])] for a batch of Candidates."""

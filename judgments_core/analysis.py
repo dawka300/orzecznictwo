@@ -38,7 +38,7 @@ from xml.etree import ElementTree
 import requests
 
 from judgments_core.embeddings import make_embedder
-from judgments_core.web import Response, e, number, print_button, shorten
+from judgments_core.web import Response, e, number, shorten
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +48,9 @@ RESULTS = 20  # orzeczeń w raporcie (domyślnie)
 MAX_RESULTS = 50
 PASSAGE_CHARS = 700  # tyle tekstu pasującego fragmentu w raporcie
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-_JOB_PATH = re.compile(r"^/analiza/([0-9a-f]{12})$")
+_JOB_PATH = re.compile(r"^/analiza/([0-9a-f]{12})(\.pdf)?$")
+# href="/..." w raporcie -> pełny adres portalu w PDF (plik otwierany poza przeglądarką).
+_ROOT_HREF = re.compile(r"""(href=["']?)/(?!/)""")
 GROUPS = ("uwzglednione", "nieuwzglednione", "inne")
 SIDES = {
     "skarzacy": "skarżącego (skarga, skarga kasacyjna, skarga do ETPC)",
@@ -194,6 +196,9 @@ class Job:
     created: float = field(default_factory=time.time)
     status: str = "liczy"  # liczy / gotowe / blad
     step: str = "czeka na start"
+    phase: str = ""  # wektory / szukanie (pasek postępu)
+    done: int = 0
+    total: int = 0
     error: str = ""
     embedder: str = ""
     seconds: float = 0.0
@@ -237,7 +242,12 @@ class DocumentAnalysis:
             job.step = f"liczę wektory dokumentu ({how}) i szukam w bazie"
             with contextlib.closing(self.connect()) as conn, conn.cursor() as cur:
                 job.result = self.retriever.like_text(
-                    cur, text, self.chunker, job.count, embedder=embedder
+                    cur,
+                    text,
+                    self.chunker,
+                    job.count,
+                    embedder=embedder,
+                    progress=lambda phase, done, total: _advance(job, phase, done, total),
                 )
             job.groups = {
                 s.judgment_id: self.retriever.outcome_group(s.result) for s in job.result.sources
@@ -253,13 +263,16 @@ class DocumentAnalysis:
     # --- strony ---
 
     def handle(self, request, layout):
-        """/analiza (form, POST = start) and /analiza/<id> (progress, report)."""
+        """/analiza (form, POST = start), /analiza/<id> (progress, report) and
+        /analiza/<id>.pdf (the report as a PDF file with links)."""
         match = _JOB_PATH.match(request.path)
         if match:
             job = self.get(match.group(1))
             if job is None:
                 body = "<p class=error>Nie ma takiej analizy (serwer był restartowany?).</p>"
                 return Response(layout("Analiza dokumentu", body + _form()), "404 Not Found")
+            if match.group(2) and job.status == "gotowe":
+                return _pdf_response(job, self.retriever, layout, _base_url(request))
             return Response(layout("Analiza dokumentu", _job_page(job, self.retriever)))
         if request.method != "POST":
             return Response(layout("Analiza dokumentu", _form()))
@@ -315,9 +328,10 @@ według wyniku sprawy. Dokument zostaje na tym komputerze i nie jest zapisywany.
 def _job_page(job, retriever):
     if job.status == "liczy":
         waited = int(time.time() - job.created)
-        return f"""<meta http-equiv=refresh content=3>
+        return f"""<meta http-equiv=refresh content=2>
 <h1>Analiza dokumentu</h1>
 <p><b>{e(job.filename)}</b> · {number(job.chars)} znaków</p>
+{_progress_bar(job)}
 <p class=progress-line>Trwa: {e(job.step)} ({waited} s). Strona odświeża się sama.</p>"""
     if job.status == "blad":
         return (
@@ -327,7 +341,7 @@ def _job_page(job, retriever):
     return _report(job, retriever)
 
 
-def _report(job, retriever):
+def _report(job, retriever, pdf=False):
     result = job.result
     favourable = "uwzglednione" if job.side == "skarzacy" else "nieuwzglednione"
     against = "nieuwzglednione" if job.side == "skarzacy" else "uwzglednione"
@@ -340,13 +354,19 @@ def _report(job, retriever):
     summary = " · ".join(f"{title.lower()}: <b>{counts[group]}</b>" for title, group, _ in sections)
     legend = result.notice.split("\n", 1)
     own = (
-        f"<details><summary>{e(legend[0])}</summary><pre class=legend>{e(legend[1])}</pre></details>"
+        f"<details{' open' if pdf else ''}><summary>{e(legend[0])}</summary>"
+        f"<pre class=legend>{e(legend[1])}</pre></details>"
         if len(legend) == 2
         else ""
     )
+    tools = (
+        "<p class=doc-tools translate=no>"
+        f'<a class=button href="/analiza/{job.id}.pdf">Pobierz PDF (z linkami)</a>'
+        ' <a href="/analiza">Nowa analiza</a></p>'
+    )
     html = [
         f"""<h1>Analiza dokumentu</h1>
-<p class=doc-tools translate=no>{print_button()} <a href="/analiza">Nowa analiza</a></p>
+{"" if pdf else tools}
 <p><b>{e(job.filename)}</b> · {number(job.chars)} znaków · strona: {e(SIDES[job.side])}
 · wektory: {e(job.embedder)} · {job.seconds:.0f} s</p>
 <p>{len(result.sources)} najbliższych orzeczeń - {summary}</p>
@@ -360,15 +380,83 @@ kasacyjnych sprawdź, kto wniósł skargę kasacyjną.</p>{own}"""
         if not sources:
             html.append("<p class=empty>Brak.</p>")
         for s in sources:
-            html.append(_source(s))
+            html.append(_source(s, pdf))
     return "\n".join(html)
 
 
-def _source(s):
+def _source(s, pdf=False):
     fragments = "".join(
         f"<p class=hint>{e(f.heading)}</p><blockquote>{e(shorten(f.text, PASSAGE_CHARS))}</blockquote>"
         for f in s.fragments
     )
     return f"""<section class=hit><h3>[{s.number}] <a href="/orzeczenie/{s.judgment_id}">{e(s.title)}</a></h3>
-<p class=hint>{e(s.details)} · <a href="{e(s.url)}" target=_blank rel="noopener noreferrer">źródło</a></p>
+<p class=hint>{e(s.details)} · <a href="{e(s.url)}" target=_blank rel="noopener noreferrer">{e(s.url) if pdf else "źródło"}</a></p>
 {fragments}</section>"""
+
+
+def _advance(job, phase, done, total):
+    job.phase, job.done, job.total = phase, done, total
+    what = "liczę wektory fragmentów dokumentu" if phase == "wektory" else "szukam w bazie"
+    job.step = f"{what}: {done} z {total} ({job.embedder})"
+
+
+def _progress_bar(job):
+    """Vectors = the first half of the bar, the search = the second."""
+    percent = 0.0
+    if job.total:
+        percent = 50 * job.done / job.total + (50 if job.phase == "szukanie" else 0)
+    return f'<div class=progress><div style="width:{percent:.1f}%"></div></div>'
+
+
+def _base_url(request):
+    """http://host:port/<project> of this portal, for absolute links in the PDF."""
+    env = request.environ
+    host = (
+        env.get("HTTP_HOST")
+        or f"{env.get('SERVER_NAME', 'localhost')}:{env.get('SERVER_PORT', '80')}"
+    )
+    return f"{env.get('wsgi.url_scheme', 'http')}://{host}{env.get('SCRIPT_NAME', '').rstrip('/')}"
+
+
+def _pdf_response(job, retriever, layout, base_url):
+    """The report as a PDF file: links to the judgments' pages absolute (this portal),
+    to HUDOC/CBOSA as they are and written out."""
+    html = layout("Analiza dokumentu", _report(job, retriever, pdf=True))
+    html = _ROOT_HREF.sub(lambda m: m.group(1) + base_url + "/", html)
+    try:
+        data = html_to_pdf(html)
+    except RuntimeError as error:
+        return Response(
+            layout("Analiza dokumentu", f"<p class=error>PDF niedostępny: {e(error)}</p>"),
+            "503 Service Unavailable",
+        )
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", job.filename.rsplit(".", 1)[0])[:60] or "dokument"
+    return Response(
+        data,
+        content_type="application/pdf",
+        headers=[("Content-Disposition", f'attachment; filename="analiza-{name}.pdf"')],
+    )
+
+
+def html_to_pdf(html):
+    """A4 PDF of an HTML page (its print styles) with clickable links: Chromium through
+    Playwright (in the www image)."""
+    try:
+        from playwright.sync_api import Error as PlaywrightError
+        from playwright.sync_api import sync_playwright
+    except ImportError as error:
+        raise RuntimeError("brak Playwrighta (obraz www)") from error
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            try:
+                page = browser.new_page()
+                page.set_content(html, wait_until="load")
+                return page.pdf(
+                    format="A4",
+                    margin={"top": "15mm", "bottom": "15mm", "left": "15mm", "right": "15mm"},
+                )
+            finally:
+                browser.close()
+    except PlaywrightError as error:
+        raise RuntimeError(f"przeglądarka: {error}") from error

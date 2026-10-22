@@ -73,6 +73,21 @@ class NsaEmbedJob(EmbedJob):
         cur.execute(CANDIDATES_SQL.format(length=length), (model,))
         return cur.fetchall()
 
+    def pending_shas(self, cur, model, ids):
+        """By the ids only (the full candidates() list is a scan of ~2.25M judgments)."""
+        found = {}
+        for start in range(0, len(ids), 1000):
+            part = list(ids[start : start + 1000])
+            cur.execute(
+                "SELECT j.id, j.text_sha256 FROM judgments j"
+                " LEFT JOIN judgment_vectors v ON v.judgment_id = j.id"
+                " WHERE j.id IN %s"
+                " AND (v.judgment_id IS NULL OR v.body_sha256 <> j.text_sha256 OR v.model <> %s)",
+                (part, model),
+            )
+            found.update(cur.fetchall())
+        return found
+
     def load(self, cur, batch):
         ids = [c.judgment_id for c in batch]
         cur.execute(

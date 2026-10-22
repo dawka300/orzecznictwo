@@ -167,7 +167,7 @@ def import_package(job, directory, name):
         )
     log.info("kontrola: najniższy cosinus %.5f na %d fragmentach", cosine, len(header["controls"]))
     with job.conn.cursor() as cur:
-        current = {row[0]: row[2] for row in job.candidates(cur, model)}
+        current = job.pending_shas(cur, model, [item["j"] for item in judgments])
     job.conn.commit()
     job.vectors.ensure_collection(vectors.shape[1], job.payload_indexes)
     saved, skipped, row = 0, 0, 0
