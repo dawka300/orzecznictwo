@@ -14,13 +14,20 @@ SILNIK=${SILNIK:-cuda}
 BATCH=${BATCH:-64}
 export HF_HOME=${HF_HOME:-$KATALOG/hf}
 
-if ! python -c "import sentence_transformers" 2>/dev/null; then
-    pip install --no-cache-dir sentence-transformers==6.1.0 transformers==5.20.1 requests
+# Python z PyTorchem: obraz vastai/pytorch trzyma go w /venv/main (ssh "polecenie"
+# nie aktywuje środowiska), obraz pytorch/pytorch ma go na PATH.
+if [ -z "${PY:-}" ]; then
+    if [ -x /venv/main/bin/python ]; then PY=/venv/main/bin/python; else PY=$(command -v python3 || command -v python); fi
+fi
+"$PY" -c "import torch; print('torch', torch.__version__, 'CUDA', torch.cuda.is_available())"
+
+if ! "$PY" -c "import sentence_transformers" 2>/dev/null; then
+    "$PY" -m pip install --no-cache-dir sentence-transformers==6.1.0 transformers==5.20.1 requests
 fi
 
 if [ "${1:-}" = "test" ]; then
     pierwsza=$(ls "$KATALOG"/paczki/*.jsonl.gz | head -n 1)
-    python "$KATALOG/licz_paczke.py" "$pierwsza" --silnik "$SILNIK" --batch "$BATCH" --limit 5000
+    "$PY" "$KATALOG/licz_paczke.py" "$pierwsza" --silnik "$SILNIK" --batch "$BATCH" --limit 5000
     exit 0
 fi
 
@@ -39,7 +46,7 @@ for paczka in "$KATALOG"/paczki/*.jsonl.gz; do
         continue
     fi
     echo "--- $nazwa: liczę"
-    python "$KATALOG/licz_paczke.py" "$paczka" --silnik "$SILNIK" --batch "$BATCH"
+    "$PY" "$KATALOG/licz_paczke.py" "$paczka" --silnik "$SILNIK" --batch "$BATCH"
     rm -rf "$KATALOG/paczki/$nazwa.czesci"
 done
 echo "=== WSZYSTKO GOTOWE $(date -u '+%Y-%m-%d %H:%M:%S') UTC"
