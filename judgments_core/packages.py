@@ -70,12 +70,20 @@ def next_name(store, project):
     return f"{project}-{len(store.packages_list()) + 1:04d}"
 
 
-def export(job, controls_embedder, directory, name, size_chunks, from_end=False):
-    """One package of about size_chunks chunks; None when nothing is left to embed."""
-    model = job.embedder.model
+def pending(job):
+    """The job's candidates in embedding order (a full scan in a big project: read once
+    for several packages - export skips what earlier packages took)."""
     with job.conn.cursor() as cur:
-        todo = [Candidate(*row) for row in job.candidates(cur, model)]
+        todo = [Candidate(*row) for row in job.candidates(cur, job.embedder.model)]
     job.conn.commit()
+    return todo
+
+
+def export(job, controls_embedder, directory, name, size_chunks, from_end=False, todo=None):
+    """One package of about size_chunks chunks; None when nothing is left to embed.
+    todo = pending(job) read earlier (several packages in one run), else read now."""
+    model = job.embedder.model
+    todo = pending(job) if todo is None else list(todo)
     elsewhere = job.store.packages_open_ids()
     todo = [c for c in todo if c.judgment_id not in elsewhere]
     if from_end:
@@ -104,7 +112,7 @@ def export(job, controls_embedder, directory, name, size_chunks, from_end=False)
                 "j": candidate.judgment_id,
                 "d": document,
                 "s": sha,
-                "c": [[c.number, c.start, c.part, len(c.text), c.meta] for c in chunks],
+                "c": [[c.number, c.start, c.part, c.text_length, c.meta] for c in chunks],
             }
             f.write(json.dumps(item, ensure_ascii=False, default=str) + "\n")
     chars = sum(len(t) for t in texts)

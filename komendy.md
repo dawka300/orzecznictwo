@@ -54,6 +54,7 @@ docker stop nsa-wektory           # zatrzymaj (wznawialne: to samo polecenie idz
 # szukanie / RAG
 docker compose run --rm --no-deps www python -m etpc fragmenty "odpowiedzialność portalu za komentarze"
 docker compose run --rm --no-deps www python -m nsa zapytaj "czy wiata to budowla?" --limit-znakow 8000
+docker compose run --rm --no-deps -T www python -m etpc podobne-do - --ile 10 < moje-orzeczenie.txt   # podobne do całego tekstu
 
 # kopia bazy, testy, lint
 docker compose run --rm --no-deps www python -m etpc kopia
@@ -165,6 +166,8 @@ Bez opcji bierze tylko rekordy nowe i zmienione od ostatniego przetworzenia. Nic
 ## Wektory (Qdrant, kolekcje `etpc_<model>`, `nsa_<model>`)
 `wektory` bez opcji liczy embeddingi orzeczeń, które jeszcze ich nie mają albo zmieniły się od ostatniego liczenia. Potrzebne LM Studio z bge-m3 na komputerze. Ma osobną blokadę, więc może iść równolegle z `przetworz`.
 
+NSA ma dwa poziomy (`nsa/embed.py` `full_chunks`): **pełne fragmenty** tylko dla uchwał, orzeczeń z tezą lub publikacją i wyroków NSA (~270 tys. orzeczeń, ~3,7 mln wektorów); **reszta (postanowienia, wyroki WSA, ~2 mln) po jednym wektorze skrótu**: teza + koniec sentencji (rozstrzygnięcie) + początek „zważył, co następuje” (~2000 znaków). Razem ~5,7 mln wektorów zamiast ~18 mln; liczone w paczkach na wynajętych kartach (`docker/licz/VAST.md`).
+
 | Polecenie / opcja | Co daje | Kiedy / przykład |
 |---|---|---|
 | `wektory --budzet 3600` | liczy najwyżej godzinę, potem koniec; następny przebieg idzie dalej | żeby komputer nie mielił całą noc: `wektory --budzet 3600` |
@@ -191,6 +194,9 @@ Liczenie paczki u kolegi z kartą NVIDIA: `docker/licz/README.md`, wynajęte GPU
 | `ocen-odpowiedzi` | wszystkie pytania przez `zapytaj`: czy cytowania istnieją, czy podany wynik sprawy zgadza się z bazą, a model-sędzia sprawdza zdania ze źródłami | ocena nowego modelu czatu (długo: kilka minut na pytanie) |
 | `ocen-odpowiedzi --pytania 1,4,11` | tylko te pytania (numery z pliku) | szybki test na kilku pytaniach zamiast całego zestawu |
 | `ocen-odpowiedzi --bez-sedziego` | tylko reguły (cytowania, wynik), bez drugiego wołania modelu (szybciej) | gdy sędzia = ten sam słaby model albo chodzi tylko o cytowania |
+| `podobne-do plik` | orzeczenia najbliższe **całemu tekstowi** (np. własnemu orzeczeniu z uzasadnieniem): tekst cięty jak baza, każdy fragment szuka osobno po znaczeniu, wyniki łączone; przy każdym orzeczeniu „Twoje fragmenty 2, 5 ~ …” = które Twoje akapity pasują; na końcu liczba wyników (oddalono / uchylono, Violation / No violation). Tekst zostaje na komputerze (model lokalny). `-` = plik ze standardowego wejścia (może leżeć poza repo, potrzebne `-T`) | `docker compose run --rm --no-deps -T www python -m nsa podobne-do - < moje.txt` |
+| `podobne-do plik --ile N` | ile orzeczeń (domyślnie 10) | `--ile 30` |
+| `podobne-do plik --wynik TEKST` | tylko z takim wynikiem (podciąg, bez wielkości liter): przeciwne rozstrzygnięcia tego samego problemu są znaczeniowo tak samo bliskie, więc tu się je rozdziela. Uwaga: `violation` łapie też „No violation” | NSA: `--wynik oddal`, `--wynik uchyl`; ETPC: `--wynik "no violation"` |
 | `mcp` | serwer MCP po stdio: narzędzia `szukaj`, `fragmenty`, `orzeczenie`, `podobne` | ręcznie niepotrzebne: Claude Code / LM Studio uruchamia go sam z `.mcp.json` |
 
 ## Strony WWW

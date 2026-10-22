@@ -1,9 +1,12 @@
 """NSA embedding job: judgments -> chunks -> vectors (python -m nsa wektory), child of EmbedJob.
 
-The whole text (thesis, operative part, reasoning, dissenting opinion -
-nsa.parser.judgment_body) is chunked by NsaChunker, with filterable metadata
-(court, kind, year, case symbols, keywords). ~1.8M judgments are too many
-to embed at once, so the order says what is searchable first: resolutions,
+Two levels (full_chunks): resolutions, judgments with a thesis or published
+and NSA judgments get their whole text (thesis, operative part, reasoning,
+dissenting opinion - nsa.parser.judgment_body) chunked by NsaChunker; all the
+others (WSA judgments, orders) one summary vector each (NsaChunker.summary:
+thesis, the decision, the start of the reasoning) - full chunks of all ~2.25M
+judgments would be ~18M vectors. Filterable metadata: court, kind, year, case
+symbols, keywords. The order says what is searchable first: resolutions,
 judgments with a thesis or published in the official collection, NSA
 judgments, WSA judgments with reasoning, then the rest (mostly procedural
 orders); rulings with neither reasons nor a thesis (a bare operative part says
@@ -14,7 +17,7 @@ progress are common (judgments_core/embed.py).
 from __future__ import annotations
 
 from judgments_core.embed import EmbedJob
-from nsa.chunker import NsaChunker
+from nsa.chunker import SUMMARY_CHARS, NsaChunker
 from nsa.parser import judgment_body
 from nsa.stats import NSA_COURT
 
@@ -31,7 +34,12 @@ PAYLOAD_INDEXES = {
 PROGRESS_KEY = "nsa:wektory"
 
 CANDIDATES_SQL = f"""
-SELECT j.id, j.cbosa_id, j.text_sha256, j.text_length FROM judgments j
+SELECT j.id, j.cbosa_id, j.text_sha256,
+    CASE WHEN j.kind = 'uchwala' OR j.thesis IS NOT NULL
+        OR EXISTS (SELECT 1 FROM judgment_publications p WHERE p.judgment_id = j.id)
+        OR (j.kind = 'wyrok' AND j.court = '{NSA_COURT}')
+    THEN j.text_length ELSE LEAST(j.text_length, {SUMMARY_CHARS}) END
+FROM judgments j
 LEFT JOIN judgment_vectors v ON v.judgment_id = j.id
 WHERE v.judgment_id IS NULL OR v.body_sha256 <> j.text_sha256 OR v.model <> %s
 ORDER BY (j.reasons IS NULL AND j.thesis IS NULL AND j.kind <> 'uchwala'), CASE
@@ -74,6 +82,11 @@ class NsaEmbedJob(EmbedJob):
         keywords = _lists(
             cur, "SELECT judgment_id, keyword FROM judgment_keywords WHERE judgment_id IN %s", ids
         )
+        cur.execute(
+            "SELECT DISTINCT judgment_id FROM judgment_publications WHERE judgment_id IN %s",
+            (ids,),
+        )
+        published = {row[0] for row in cur.fetchall()}
         for c in batch:
             if c.judgment_id not in rows:
                 continue  # usunięte w międzyczasie - następny przebieg skasuje wektory
@@ -102,8 +115,22 @@ class NsaEmbedJob(EmbedJob):
                 "keywords": keywords.get(c.judgment_id, []),
             }
             title = f"{docket} - {judgment_type} z {when.isoformat()}"
-            body = judgment_body(thesis, sentence, reasons, dissent)
-            yield c, cbosa_id, sha, self.chunker.chunk(c.judgment_id, body, title, meta)
+            parts = (thesis, sentence, reasons, dissent)
+            body = judgment_body(*parts)
+            if full_chunks(kind, court, thesis, c.judgment_id in published):
+                chunks = self.chunker.chunk(c.judgment_id, body, title, meta)
+            else:
+                chunks = self.chunker.summary(c.judgment_id, body, parts, title, meta)
+            yield c, cbosa_id, sha, chunks
+
+
+def full_chunks(kind, court, thesis, published):
+    """Whole text in chunks for the judgments worth quoting paragraph by paragraph
+    (resolutions, with a thesis or published, NSA judgments); one summary vector for
+    the rest (WSA judgments and all orders: ~2M judgments, ~18M chunks would not fit)."""
+    return (
+        kind == "uchwala" or bool(thesis) or published or (kind == "wyrok" and court == NSA_COURT)
+    )
 
 
 def _lists(cur, sql, ids):

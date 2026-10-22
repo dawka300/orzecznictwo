@@ -180,6 +180,22 @@ def build_parser(project):
     passages.add_argument(
         "--limit-znakow", dest="budget_chars", type=int, help="ile tekstu (domyślnie 16000)"
     )
+    like = commands.add_parser(
+        "podobne-do",
+        help="orzeczenia najbliższe całemu tekstowi z pliku (np. własnemu orzeczeniu), po znaczeniu",
+    )
+    like.add_argument(
+        "path", metavar="plik", help="plik tekstowy (UTF-8); - = ze standardowego wejścia"
+    )
+    like.add_argument(
+        "--ile", dest="count", type=int, default=10, help="ile orzeczeń (domyślnie 10)"
+    )
+    like.add_argument(
+        "--wynik",
+        dest="result",
+        default="",
+        help="tylko z takim wynikiem (fragment tekstu, np. oddal, uchyl, No violation)",
+    )
     evaluate = commands.add_parser(
         "ocen", help="trafność fragmentów na pytaniach wzorcowych (<projekt>/pytania.json)"
     )
@@ -297,6 +313,8 @@ def main(project, argv=None, settings=None):
             return _passages(project, settings, args)
         if args.command == "ocen":
             return _evaluate(project, settings, args)
+        if args.command == "podobne-do":
+            return _like_text(project, settings, args)
         if args.command == "zapytaj":
             return _ask(project, settings, args)
         if args.command == "ocen-odpowiedzi":
@@ -595,6 +613,29 @@ def _passages(project, settings, args):
     return 0
 
 
+def _like_text(project, settings, args):
+    from collections import Counter
+
+    if project.embed_job is None:
+        raise NotImplementedError(f"projekt {project.name} nie ma wektorów")
+    if args.path == "-":
+        text = sys.stdin.buffer.read().decode("utf-8", errors="replace")
+    else:
+        text = Path(args.path).read_text(encoding="utf-8", errors="replace")
+    retriever = _retriever(project, settings)
+    chunker = project.embed_job.chunker_class()
+    with db.connect(settings.db_dsn, autocommit=True) as conn, conn.cursor() as cur:
+        result = retriever.like_text(cur, text, chunker, args.count, args.result)
+    print(f"{result.notice}\n\n{render(result)}")
+    outcomes = Counter((s.result or "brak wyniku").split(";")[0].strip() for s in result.sources)
+    log.info(
+        "%d orzeczeń; wyniki: %s",
+        len(result.sources),
+        ", ".join(f"{name} {count}" for name, count in outcomes.most_common()) or "-",
+    )
+    return 0
+
+
 def _evaluate(project, settings, args):
     from judgments_core import evaluation
 
@@ -716,10 +757,19 @@ def _packages(project, settings, args):
         # Wektory kontrolne liczy tutaj model zapytań (bez LM Studio, na CPU).
         controls = make_embedder(settings)
         with store.lock(f"{project.name}:paczki"):
+            # Kolejka raz na całe polecenie: w dużym projekcie to pełny przegląd tabeli.
+            todo = packages.pending(job)
+            log.info("w kolejce do policzenia: %d orzeczeń", len(todo))
             for _ in range(args.count):
                 name = packages.next_name(store, project.name)
                 done = packages.export(
-                    job, controls, _package_dir(project), name, args.size_chunks, args.from_end
+                    job,
+                    controls,
+                    _package_dir(project),
+                    name,
+                    args.size_chunks,
+                    args.from_end,
+                    todo=todo,
                 )
                 if done is None:
                     log.info("Nie ma już nic do policzenia.")

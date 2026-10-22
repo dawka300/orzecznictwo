@@ -31,7 +31,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 from judgments_core.rerank import RerankError, make_reranker
-from judgments_core.semantic import SemanticUnavailable
+from judgments_core.semantic import SemanticUnavailable, rrf
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +40,10 @@ PER_JUDGMENT = 3  # najwięcej fragmentów jednego orzeczenia
 BUDGET_CHARS = 16_000  # ~4-5 tys. tokenów: mieści się w małym modelu lokalnym
 WIDEN_CHARS = 400  # tyle tekstu dookoła fragmentu (z każdej strony)
 TEXT_WINDOW = 1_500  # okno wokół słowa zapytania, gdy orzeczenie nie ma wektorów
+# podobne-do: najwięcej fragmentów własnego tekstu, kandydatów na fragment, dopasowań na orzeczenie
+OWN_CHUNKS = 40
+PER_OWN_CHUNK = 30
+MATCHES_SHOWN = 3
 SNAP_CHARS = 200  # granica okna przesuwana do końca wiersza, jeśli jest tak blisko
 
 
@@ -210,6 +214,86 @@ class Retriever(ABC):
                 )
             )
         return Retrieval(sources, ranked, ranking.mode, notice)
+
+    def hits(self, cur, ids):
+        """The project's search hits (for describe and result) of these judgments, in order."""
+        raise NotImplementedError("projekt nie umie wczytać orzeczeń po identyfikatorach")
+
+    def like_text(self, cur, text, chunker, k=10, result_contains=""):
+        """Judgments closest to a whole text (e.g. one's own judgment), by meaning.
+
+        The text is cut by the project's chunker exactly like the judgments in the base
+        (at most OWN_CHUNKS chunks); each chunk searches the vector store on its own, the
+        rankings are fused (rrf): a judgment close to many parts of the text comes first.
+        Each source shows its passages that matched and which own chunk they matched
+        ("Twój fragment n"). Opposite rulings on the same issue are close in meaning too:
+        result_contains keeps only judgments whose outcome contains that text."""
+        if self.semantic is None:
+            raise SemanticUnavailable("Ten projekt nie ma wyszukiwania znaczeniowego.")
+        own = chunker.chunk(0, text, "", {})[:OWN_CHUNKS]
+        if not own:
+            return Retrieval([], [])
+        rankings, matches = [], {}
+        try:
+            vectors = self.semantic.embedder.embed([chunker.embedding_input(c) for c in own])
+            for number, vector in enumerate(vectors):
+                ranking = []
+                for hit in self.semantic.vectors.search_judgments(vector, PER_OWN_CHUNK):
+                    passage = self.semantic.passage(hit)
+                    ranking.append(passage.judgment_id)
+                    matches.setdefault(passage.judgment_id, []).append(
+                        (passage.score, number, passage)
+                    )
+                rankings.append(ranking)
+        except RuntimeError as e:
+            raise SemanticUnavailable(f"Wyszukiwanie znaczeniowe niedostępne: {e}") from e
+        scores = rrf(rankings)
+        order = sorted(scores, key=scores.get, reverse=True)
+        chosen = []
+        for start in range(0, len(order), 100):
+            for hit in self.hits(cur, order[start : start + 100]):
+                if result_contains.lower() in self.result(hit).lower():
+                    chosen.append(hit)
+            if len(chosen) >= k:
+                break
+        chosen = chosen[:k]
+        best = {h.id: max(matches[h.id], key=lambda m: m[0]) for h in chosen}
+        texts = self.bodies(cur, {i: m[2].document for i, m in best.items()})
+        sources = []
+        for hit in chosen:
+            if hit.id not in texts:
+                continue
+            document, language, body = texts[hit.id]
+            title, details, url = self.describe(hit, document)
+            # Każdy fragment orzeczenia raz, z numerami Twoich fragmentów, które do niego pasują.
+            by_passage = {}
+            for score, number, p in sorted(matches[hit.id], key=lambda m: m[0], reverse=True):
+                by_passage.setdefault(p.start, (p, []))[1].append(number + 1)
+            fragments = []
+            for p, numbers in list(by_passage.values())[:MATCHES_SHOWN]:
+                numbers = sorted(set(numbers))
+                label = "Twój fragment" if len(numbers) == 1 else "Twoje fragmenty"
+                heading = f"{label} {', '.join(map(str, numbers))} ~ {_heading(p.context, p.part)}"
+                end = p.start + p.length
+                fragments.append(Fragment(p.start, end, heading, body[p.start : end].strip()))
+            sources.append(
+                Reference(
+                    len(sources) + 1,
+                    hit.id,
+                    title,
+                    details,
+                    url,
+                    language,
+                    fragments,
+                    self.result(hit),
+                )
+            )
+        legend = "\n".join(
+            f"  {n}. {' '.join(c.text.split())[:100]}…" for n, c in enumerate(own, 1)
+        )
+        return Retrieval(
+            sources, order, "znaczeniowe", f"Twój tekst: {len(own)} fragmentów:\n{legend}"
+        )
 
     def _rerank(self, question, found, candidates):
         """Score every candidate passage; candidates sorted in place, judgments by their

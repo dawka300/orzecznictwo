@@ -230,3 +230,74 @@ def test_outcome_keeps_findings_without_damages():
         "Remainder inadmissible; No violation of Art. 6-1"
     )
     assert outcome("") == "" and outcome(None) == ""
+
+
+# --- podobne-do: orzeczenia najbliższe całemu tekstowi --------------------------
+
+from judgments_core.vectors import Chunk
+from judgments_core.vectors import Hit as VectorHit
+from nsa.chunker import NsaChunker
+
+
+class LikeSemantic:
+    """Own chunk n -> judgments in a fixed order; judgment 2 matches chunks 0 and 1."""
+
+    def __init__(self):
+        self.embedder = self
+        self.vectors = self
+        self.order = {0: [2, 1], 1: [2, 3]}
+
+    def embed(self, texts):
+        return [[float(n)] for n in range(len(texts))]
+
+    def search_judgments(self, vector, k):
+        found = self.order.get(int(vector[0]), [])
+        return [
+            VectorHit(
+                Chunk(
+                    str(j),
+                    0,
+                    "",
+                    10 * j,
+                    "uzasadnienie",
+                    meta={"length": 20, "context": "T | UZASADNIENIE", "itemid": f"d{j}"},
+                ),
+                1 - 0.1 * i,
+            )
+            for i, j in enumerate(found)
+        ]
+
+    def passage(self, hit):
+        c = hit.chunk
+        return Passage(
+            int(c.judgment_id),
+            hit.score,
+            c.meta["itemid"],
+            "",
+            c.start,
+            c.meta["length"],
+            c.meta["context"],
+            c.part,
+        )
+
+
+class LikeRetriever(FakeRetriever):
+    def hits(self, cur, ids):
+        return [Hit(i, f"Sprawa {i}") for i in ids]
+
+    def bodies(self, cur, wanted):
+        return {i: (doc, "", "x" * 100) for i, doc in wanted.items()}
+
+    def result(self, hit):
+        return "Oddalono skargę" if hit.id == 3 else "Uchylono wyrok"
+
+
+def test_like_text_fuses_own_chunks_and_filters_by_result():
+    text = "Pierwszy akapit uzasadnienia. " * 80 + "\n" + "Drugi akapit o doręczeniu. " * 80
+    retriever = LikeRetriever(LikeSemantic())
+    result = retriever.like_text(None, text, NsaChunker(), k=5)
+    assert [s.judgment_id for s in result.sources] == [2, 1, 3]  # 2 pasuje do obu fragmentów
+    assert result.sources[0].fragments[0].heading.startswith("Twoje fragmenty 1, 2 ~ ")
+    assert "Twój tekst: 2 fragmentów" in result.notice
+    only = retriever.like_text(None, text, NsaChunker(), k=5, result_contains="oddal")
+    assert [s.judgment_id for s in only.sources] == [3]

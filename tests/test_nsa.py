@@ -165,6 +165,9 @@ def test_embed_job_order_and_payload(nsa_db):
     assert first.meta["kind"] == "uchwala"  # uchwały najpierw
     target = vectors.points[str(nsa_db.target)]
     assert target[0].meta["is_nsa"] is True and target[0].meta["symbols"]
+    assert len(target) > 1  # wyrok NSA: pełne fragmenty
+    wsa = [p for p in vectors.points.values() if p[0].meta["kind"] == "postanowienie"]
+    assert wsa and all(len(p) == 1 and p[0].part for p in wsa)  # postanowienie WSA: skrót
     again = NsaEmbedJob(nsa_db, FakeEmbedder(), vectors).run()
     assert again.judgments == 0
 

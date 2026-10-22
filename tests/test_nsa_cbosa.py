@@ -133,3 +133,41 @@ def test_fetch_and_derive_cbosa_over_juddges(conn):
     assert result.records == len(ROWS) + 2 and result.finished
     assert sources == {"59F4C7289B": "cbosa", "74BB75927B": "cbosa"}
     assert bases == 2
+
+
+# --- wektory poziomu 1: jeden skrót na orzeczenie ------------------------------
+
+from nsa.chunker import SUMMARY_CHARS, NsaChunker
+from nsa.embed import full_chunks
+from nsa.parser import judgment_body
+
+
+def test_summary_chunk_points_to_the_reasoning():
+    j = parse_judgment(page_to_row(page("2FEE977824"), "2FEE977824"))
+    parts = (j.thesis, j.sentence, j.reasons, j.dissenting_opinion)
+    body = judgment_body(*parts)
+    [chunk] = NsaChunker().summary(7, body, parts, "I OSK 1228/15 - Wyrok NSA", {"kind": "wyrok"})
+    shown = body[chunk.start : chunk.start + chunk.text_length]
+    assert chunk.part == "uzasadnienie" and shown.startswith("Wskazać należy na wstępie")
+    assert chunk.text.endswith(shown) and len(chunk.text) <= SUMMARY_CHARS + 2
+    assert "oddala skargę kasacyjną" in chunk.text  # koniec sentencji = rozstrzygnięcie
+    assert chunk.meta["context"].endswith("| skrót") and chunk.meta["kind"] == "wyrok"
+    # bez uzasadnienia: sentencja
+    parts = (None, j.sentence, None, None)
+    [only] = NsaChunker().summary(7, judgment_body(*parts), parts, "T", {})
+    assert only.part == "sentencja" and only.start > 0
+    assert only.text.endswith(
+        "oddala skargę kasacyjną; 2. zasądza od P. na rzecz Polskiego Związku"
+        " Łowieckiego kwotę 180 (sto osiemdziesiąt) złotych tytułem zwrotu"
+        " kosztów postępowania kasacyjnego."
+    )  # koniec = rozstrzygnięcie
+
+
+def test_full_chunks_only_for_key_judgments():
+    nsa = "Naczelny Sąd Administracyjny"
+    assert full_chunks("uchwala", "Sąd Najwyższy", None, False)
+    assert full_chunks("wyrok", nsa, None, False)
+    assert full_chunks("postanowienie", "WSA", "teza", False)
+    assert full_chunks("postanowienie", "WSA", None, True)
+    assert not full_chunks("postanowienie", nsa, None, False)
+    assert not full_chunks("wyrok", "Wojewódzki Sąd Administracyjny w Gliwicach", None, False)

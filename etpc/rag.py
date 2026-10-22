@@ -38,6 +38,9 @@ class EtpcRetriever(Retriever):
         pattern = search.highlight_pattern(result.terms.highlight) if result.terms else None
         return Ranking(result.hits, pattern, result.mode, result.notice)
 
+    def hits(self, cur, ids):
+        return search._hits(cur, list(ids))
+
     def bodies(self, cur, wanted):
         found = {}
         itemids = [doc for doc in wanted.values() if doc]
