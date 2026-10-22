@@ -93,6 +93,10 @@ class Settings:
     judge_url: str = ""
     judge_model: str = ""
     judge_api_key: str = ""
+    # Raport Claude w analizie dokumentu (judgments_core/claude_report.py): klucz API
+    # Anthropic (puste = ANTHROPIC_API_KEY ze środowiska albo .env; bez klucza raportu nie ma).
+    claude_api_key: str = ""
+    claude_model: str = "claude-opus-5-5"
 
     @classmethod
     def from_env(cls, prefix, environ=None, dotenv_path=DOTENV_PATH):

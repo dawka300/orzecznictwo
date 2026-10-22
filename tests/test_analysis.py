@@ -209,3 +209,60 @@ def test_too_little_text_is_refused():
     body, content_type = multipart({"tekst": "krótko"}, {})
     response = pages.handle(request(body, content_type), lambda title, body: body)
     assert response.status == "400 Bad Request" and "za mało tekstu" in response.body.decode()
+
+
+# --- warstwa 2: znaczniki językowe i raport Claude -----------------------------
+
+from judgments_core import claude_report, markers
+
+
+def test_markers_polish_and_english():
+    pl = markers.analyse(
+        "Oczywiście organ zawsze musi to zrobić. Zostało to ustalone, jednak skarżący "
+        "uważa to za rażące. Bez wątpienia sąd się mylił."
+    )
+    by = {m.key: m for m in pl.markers}
+    assert pl.lang == "pl" and by["pewnosc"].count == 2 and by["przymus"].count == 1
+    assert by["pewnosc"].sentences[0].startswith("Oczywiście") and by["emocje"].found == {
+        "rażące": 1
+    }
+    en = markers.analyse("The Court clearly held that the State must always comply, however late.")
+    assert en.lang == "en" and {m.key for m in en.markers if m.count} >= {"pewnosc", "przymus"}
+
+
+def test_claude_report_parts(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(claude_report, "read_dotenv", lambda path: {})
+    ready, why = claude_report.available(Settings())
+    assert not ready and "klucza" in why
+    assert claude_report.available(Settings(claude_api_key="sk-test"))[0]
+    prompt = claude_report.markers_prompt(markers.analyse("Oczywiście tak. " * 30), "pismo.docx")
+    assert (
+        "pismo.docx" in prompt and "Pewność deklarowana" in prompt and "„Oczywiście tak.”" in prompt
+    )
+    html = claude_report.to_html("## Wnioski\n- **słabe** miejsce\nTekst <b>")
+    assert "<h3>Wnioski</h3>" in html and "<li><b>słabe</b> miejsce</li>" in html
+    assert "&lt;b&gt;" in html  # treść modelu escapowana
+
+
+def test_report_has_both_layers_and_claude(monkeypatch):
+    monkeypatch.setattr(analysis, "lm_studio_has_model", lambda settings: False)
+    monkeypatch.setattr(claude_report, "available", lambda settings: (True, ""))
+    monkeypatch.setattr(claude_report, "report", lambda s, m, f: "## Założenia\n- teza bez dowodu")
+    pages = analysis.DocumentAnalysis(
+        Settings(), FakeRetriever(), NsaChunker(), FakeConnection, "m"
+    )
+    layout = lambda title, body: body
+    text = "Oczywiście sąd musi uwzględnić skargę. " * 20
+    body, content_type = multipart({"tekst": text, "claude": "1"}, {})
+    path = dict(pages.handle(request(body, content_type), layout).headers)["Location"]
+    job = pages.get(path.rsplit("/", 1)[1])
+    for _ in range(100):
+        if job.status != "liczy":
+            break
+        time.sleep(0.05)
+    page = pages.handle(Request({"PATH_INFO": path}), layout).body.decode()
+    assert job.claude and job.markers.lang == "pl"
+    layer1, layer2 = page.index("Warstwa 1: orzeczenia"), page.index("Warstwa 2: język")
+    assert layer1 < layer2 < page.index("Raport Claude") < page.index("<h3>Założenia</h3>")
+    assert "Pewność deklarowana" in page

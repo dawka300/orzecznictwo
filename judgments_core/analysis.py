@@ -37,6 +37,8 @@ from xml.etree import ElementTree
 
 import requests
 
+from judgments_core import claude_report
+from judgments_core import markers as text_markers
 from judgments_core.embeddings import make_embedder
 from judgments_core.web import Response, e, number, shorten
 
@@ -204,6 +206,10 @@ class Job:
     seconds: float = 0.0
     result: object = None  # judgments_core.rag.Retrieval
     groups: dict = field(default_factory=dict)  # judgment id -> grupa
+    markers: object = None  # judgments_core.markers.Markers (warstwa 2)
+    claude: bool = False  # użytkownik zgodził się wysłać znaczniki do Claude
+    claude_report: str = ""
+    claude_error: str = ""
 
 
 class DocumentAnalysis:
@@ -218,8 +224,9 @@ class DocumentAnalysis:
         self.jobs = {}
         self.lock = threading.Lock()
 
-    def start(self, filename, text, side, count):
+    def start(self, filename, text, side, count, claude=False):
         job = Job(uuid.uuid4().hex[:12], filename, side, count, len(text))
+        job.claude = claude
         with self.lock:
             self.jobs[job.id] = job
             while len(self.jobs) > MAX_JOBS:
@@ -236,6 +243,7 @@ class DocumentAnalysis:
     def _run(self, job, text):
         started = time.monotonic()
         try:
+            job.markers = text_markers.analyse(text)  # warstwa 2: lokalnie, chwila
             job.step = "sprawdzam LM Studio"
             embedder, how = choose_embedder(self.settings, self.semantic_embedder)
             job.embedder = how
@@ -252,6 +260,14 @@ class DocumentAnalysis:
             job.groups = {
                 s.judgment_id: self.retriever.outcome_group(s.result) for s in job.result.sources
             }
+            if job.claude:
+                job.step = "Claude pisze raport ze znaczników (do kilku minut)"
+                try:
+                    job.claude_report = claude_report.report(
+                        self.settings, job.markers, job.filename
+                    )
+                except claude_report.ClaudeError as error:
+                    job.claude_error = str(error)
             job.status = "gotowe"
         except Exception as error:
             log.exception("analiza dokumentu %s", job.id)
@@ -270,12 +286,14 @@ class DocumentAnalysis:
             job = self.get(match.group(1))
             if job is None:
                 body = "<p class=error>Nie ma takiej analizy (serwer był restartowany?).</p>"
-                return Response(layout("Analiza dokumentu", body + _form()), "404 Not Found")
+                return Response(
+                    layout("Analiza dokumentu", body + _form(self.settings)), "404 Not Found"
+                )
             if match.group(2) and job.status == "gotowe":
                 return _pdf_response(job, self.retriever, layout, _base_url(request))
             return Response(layout("Analiza dokumentu", _job_page(job, self.retriever)))
         if request.method != "POST":
-            return Response(layout("Analiza dokumentu", _form()))
+            return Response(layout("Analiza dokumentu", _form(self.settings)))
         try:
             fields = parse_form(request)
             filename, data = fields.get("plik") or ("", b"")
@@ -290,12 +308,16 @@ class DocumentAnalysis:
                 raise DocumentError("za mało tekstu do analizy (najmniej ~200 znaków)")
         except (DocumentError, ValueError) as error:
             return Response(
-                layout("Analiza dokumentu", f"<p class=error>{e(error)}</p>" + _form()),
+                layout(
+                    "Analiza dokumentu",
+                    f"<p class=error>{e(error)}</p>" + _form(self.settings),
+                ),
                 "400 Bad Request",
             )
         side = fields.get("strona") if fields.get("strona") in SIDES else "skarzacy"
         count = min(max(_int(fields.get("ile"), RESULTS), 5), MAX_RESULTS)
-        job = self.start(filename, text, side, count)
+        claude = bool(fields.get("claude")) and claude_report.available(self.settings)[0]
+        job = self.start(filename, text, side, count, claude)
         return Response("", "303 See Other", headers=[("Location", f"/analiza/{job.id}")])
 
 
@@ -306,7 +328,14 @@ def _int(value, default):
         return default
 
 
-def _form():
+def _form(settings):
+    ready, why = claude_report.available(settings)
+    claude = (
+        "<label><input type=checkbox name=claude value=1> wyślij znaczniki językowe do Claude"
+        " i pokaż jego raport (wychodzą liczby i do 5 zdań na znacznik, nie cały dokument)</label>"
+        if ready
+        else f"<label><input type=checkbox disabled> raport Claude niedostępny: {e(why)}</label>"
+    )
     sides = "".join(
         f"<label><input type=radio name=strona value={key}{' checked' if key == 'skarzacy' else ''}>"
         f" {e(text)}</label>"
@@ -321,6 +350,8 @@ według wyniku sprawy. Dokument zostaje na tym komputerze i nie jest zapisywany.
 <p><label>albo tekst<br><textarea name=tekst rows=8 cols=80></textarea></label></p>
 <fieldset><legend>Na poparcie stanowiska</legend>{sides}</fieldset>
 <p><label>Ile orzeczeń <input type=number name=ile value={RESULTS} min=5 max={MAX_RESULTS}></label></p>
+<fieldset><legend>Warstwa językowa</legend><p class=hint>Znaczniki (pewność, przymus,
+kwantyfikatory, strona bierna ...) liczone są zawsze, lokalnie.</p>{claude}</fieldset>
 <p><button type=submit>Analizuj</button></p>
 </form>"""
 
@@ -372,7 +403,8 @@ def _report(job, retriever, pdf=False):
 <p>{len(result.sources)} najbliższych orzeczeń - {summary}</p>
 <p class=hint>Podział według <b>wyniku sprawy</b>, nie argumentacji: orzeczenie „na poparcie”
 mogło wygrać z innego powodu, a „przeciwne” może zawierać przydatny pogląd. W sprawach
-kasacyjnych sprawdź, kto wniósł skargę kasacyjną.</p>{own}"""
+kasacyjnych sprawdź, kto wniósł skargę kasacyjną.</p>{own}
+<h2 class=layer>Warstwa 1: orzeczenia z bazy</h2>"""
     ]
     for title, group, note in sections:
         sources = [s for s in result.sources if job.groups.get(s.judgment_id) == group]
@@ -381,6 +413,7 @@ kasacyjnych sprawdź, kto wniósł skargę kasacyjną.</p>{own}"""
             html.append("<p class=empty>Brak.</p>")
         for s in sources:
             html.append(_source(s, pdf))
+    html.append(_language_layer(job, pdf))
     return "\n".join(html)
 
 
@@ -460,3 +493,48 @@ def html_to_pdf(html):
                 browser.close()
     except PlaywrightError as error:
         raise RuntimeError(f"przeglądarka: {error}") from error
+
+
+def _language_layer(job, pdf=False):
+    """Layer 2: the language markers (always) and Claude's report (when asked for)."""
+    m = job.markers
+    if m is None:
+        return ""
+    rows = "".join(
+        f"<tr><td>{e(k.title)}<br><span class=hint>{e(k.meaning)}</span></td>"
+        f"<td class=num>{k.per_1000}</td><td class=num>{k.count}</td>"
+        f"<td>{e(_found(k))}</td></tr>"
+        for k in m.markers
+    )
+    examples = "".join(
+        f"<details{' open' if pdf else ''}><summary>{e(k.title)} - zdania ({len(k.sentences)})</summary>"
+        + "".join(f"<blockquote>{e(shorten(s, 500))}</blockquote>" for s in k.sentences)
+        + "</details>"
+        for k in m.markers
+        if k.sentences
+    )
+    language = "polski" if m.lang == "pl" else "angielski"
+    parts = [
+        f"""<h2 class=layer>Warstwa 2: język i ukryte założenia</h2>
+<p class=hint>Znaczniki liczone słownikiem ({language}; {number(m.words)} słów,
+{number(m.sentences)} zdań): sygnały do przejrzenia, nie diagnoza. Wysokie „pewność” i
+„absolutne” przy niskich „wyjątkach” to częsty znak tez podanych bez dowodu; „strona bierna” -
+ukrytego sprawcy.</p>
+<table><tr><th></th><th>na 1000 słów</th><th>razem</th><th>słowa</th></tr>{rows}</table>
+{examples}"""
+    ]
+    if job.claude_report:
+        parts.append(
+            "<h2 class=layer>Raport Claude</h2><p class=hint>Na podstawie znaczników i zdań wyżej;"
+            " to interpretacja modelu - sprawdź ją z pełnym tekstem.</p>"
+            f"<section class=claude>{claude_report.to_html(job.claude_report)}</section>"
+        )
+    elif job.claude_error:
+        parts.append(f"<p class=error>Raport Claude niedostępny: {e(job.claude_error)}</p>")
+    return "\n".join(parts)
+
+
+def _found(marker, limit=8):
+    """'oczywiście ×3, niewątpliwie ×1' - the most frequent words of a marker."""
+    pairs = sorted(marker.found.items(), key=lambda x: -x[1])[:limit]
+    return ", ".join(f"{w} ×{n}" for w, n in pairs)

@@ -421,7 +421,12 @@ def layout(
     title,
     body,
     brand,
-    nav=(("/", "Szukaj"), ("/analiza", "Analiza dokumentu"), ("/statystyki", "Statystyki")),
+    nav=(
+        ("/", "Szukaj"),
+        ("/analiza", "Analiza dokumentu"),
+        ("/porownanie", "Porównanie dokumentów"),
+        ("/statystyki", "Statystyki"),
+    ),
     header=True,
     lang="pl",
 ):
@@ -551,6 +556,8 @@ details summary{cursor:pointer;color:var(--accent)}
 .hit{margin:0 0 18px}.hit h3{font-size:16px;margin:0 0 2px}
 .hit blockquote{margin:4px 0 10px;padding:6px 12px;border-left:3px solid var(--line)}
 pre.legend{white-space:pre-wrap;font-size:12px;color:var(--muted)}
+h2.layer{margin-top:28px;padding-top:12px;border-top:2px solid var(--line)}
+section.claude{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:4px 18px}
 /* tabele statystyk: dwa słupki, każda tabela pod poprzednią (bez dziur obok długich) */
 .tables{column-count:2;column-gap:16px}
 .card-table{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:4px 16px 12px;overflow:auto;break-inside:avoid;display:inline-block;width:100%;box-sizing:border-box;margin:0 0 16px}
