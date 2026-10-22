@@ -1,0 +1,153 @@
+{
+  "info": {
+    "name": "CBOSA - zbieranie ID orzeczeń",
+    "description": "UWAGA: robots.txt CBOSA zabrania automatom /cbo/search i /cbo/find (Runner = automat); technicznie możliwe, decyzja użytkownika. Wolno, bez proxy. Zbiera numery orzeczeń (/doc/<ID>) z wyszukiwarki CBOSA (orzeczenia.nsa.gov.pl). Uruchamiać przez Collection Runner (Run collection), całą kolekcję, z opóźnieniem 3000 ms. Parametry wyszukiwania w zmiennych kolekcji (odDaty, doDaty, sad, rodzaj ...). Wynik: zmienna kolekcji 'ids' (jedno ID w linii) i log w konsoli Postmana. Skopiować 'ids' do pliku tekstowego i wrzucić do nsa/database/cbosa-id/. Szczegóły: komendy.md, sekcja CBOSA.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Wyszukaj",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Nowe wyszukiwanie: zaczynamy od pustej listy i strony 1.",
+              "pm.collectionVariables.set('ids', '');",
+              "pm.collectionVariables.set('strona', 1);",
+              "pm.collectionVariables.set('poprzednia', '');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const html = pm.response.text();",
+              "const found = [...new Set((html.match(/\\/doc\\/[0-9A-Fa-f]{10}/g) || []).map(s => s.slice(5).toUpperCase()))];",
+              "pm.collectionVariables.set('ids', found.join('\\n'));",
+              "pm.collectionVariables.set('poprzednia', found.join(','));",
+              "const total = (html.match(/Znaleziono[^0-9]{0,40}([0-9][0-9 \\u00a0]*)/) || [])[1];",
+              "console.log(`wyszukiwanie: status ${pm.response.code}, ${found.length} ID na pierwszej stronie` + (total ? `, znaleziono w sumie: ${total.trim()}` : ''));",
+              "if (found.length === 0) {",
+              "  console.log('Brak wyników (albo zmienił się wygląd strony). Sprawdź odpowiedź w zakładce Body.');",
+              "  postman.setNextRequest(null);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "User-Agent", "value": "{{user_agent}}" }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            { "key": "wszystkieSlowa", "value": "{{slowa}}", "description": "słowa w treści" },
+            { "key": "wystepowanie", "value": "gdziekolwiek", "description": "gdziekolwiek | w sentencji | w tezach | w uzasadnieniu" },
+            { "key": "odmiana", "value": "on", "description": "z odmianą słów" },
+            { "key": "sygnatura", "value": "{{sygnatura}}" },
+            { "key": "sad", "value": "{{sad}}", "description": "dowolny albo pełna nazwa, np. Naczelny Sąd Administracyjny, Wojewódzki Sąd Administracyjny w Warszawie" },
+            { "key": "rodzaj", "value": "{{rodzaj}}", "description": "dowolny | Wyrok | Postanowienie | Uchwała" },
+            { "key": "symbole", "value": "" },
+            { "key": "odDaty", "value": "{{odDaty}}", "description": "data orzeczenia od, RRRR-MM-DD" },
+            { "key": "doDaty", "value": "{{doDaty}}", "description": "data orzeczenia do, RRRR-MM-DD" },
+            { "key": "sedziowie", "value": "" },
+            { "key": "funkcja", "value": "dowolna" },
+            { "key": "takUzasadnienie", "value": "on", "disabled": true, "description": "włączyć: tylko z uzasadnieniem" },
+            { "key": "nieUzasadnienie", "value": "on", "disabled": true, "description": "włączyć: tylko bez uzasadnienia" },
+            { "key": "takPrawomocne", "value": "on", "disabled": true },
+            { "key": "takTezy", "value": "on", "disabled": true },
+            { "key": "rodzaj_organu", "value": "" },
+            { "key": "hasla", "value": "" },
+            { "key": "akty", "value": "" },
+            { "key": "przepisy", "value": "" },
+            { "key": "publikacje", "value": "" },
+            { "key": "glosy", "value": "" },
+            { "key": "submit", "value": "Szukaj" }
+          ]
+        },
+        "url": {
+          "raw": "https://orzeczenia.nsa.gov.pl/cbo/search",
+          "protocol": "https",
+          "host": ["orzeczenia", "nsa", "gov", "pl"],
+          "path": ["cbo", "search"]
+        }
+      }
+    },
+    {
+      "name": "2. Następna strona wyników",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Spokojne tempo także przy ręcznym klikaniu (Runner dokłada swoje opóźnienie).",
+              "pm.collectionVariables.set('strona', Number(pm.collectionVariables.get('strona')) + 1);",
+              "setTimeout(() => {}, Number(pm.collectionVariables.get('przerwa_ms') || 3000));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const html = pm.response.text();",
+              "const page = Number(pm.collectionVariables.get('strona'));",
+              "const found = [...new Set((html.match(/\\/doc\\/[0-9A-Fa-f]{10}/g) || []).map(s => s.slice(5).toUpperCase()))];",
+              "let ids = (pm.collectionVariables.get('ids') || '').split('\\n').filter(Boolean);",
+              "const known = new Set(ids);",
+              "const fresh = found.filter(id => !known.has(id));",
+              "ids = ids.concat(fresh);",
+              "pm.collectionVariables.set('ids', ids.join('\\n'));",
+              "console.log(`strona ${page}: status ${pm.response.code}, ${found.length} ID, nowych ${fresh.length}, razem ${ids.length}`);",
+              "",
+              "const same = found.join(',') === pm.collectionVariables.get('poprzednia');",
+              "pm.collectionVariables.set('poprzednia', found.join(','));",
+              "const max = Number(pm.collectionVariables.get('maks_stron') || 0);",
+              "if (pm.response.code !== 200 || fresh.length === 0 || same || (max && page >= max)) {",
+              "  console.log(`KONIEC na stronie ${page}: zebrano ${ids.length} ID. Skopiuj zmienną 'ids' (Variables kolekcji) do pliku.`);",
+              "  postman.setNextRequest(null);",
+              "} else {",
+              "  postman.setNextRequest('2. Następna strona wyników');",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "User-Agent", "value": "{{user_agent}}" }
+        ],
+        "url": {
+          "raw": "https://orzeczenia.nsa.gov.pl/cbo/find?p={{strona}}",
+          "protocol": "https",
+          "host": ["orzeczenia", "nsa", "gov", "pl"],
+          "path": ["cbo", "find"],
+          "query": [{ "key": "p", "value": "{{strona}}" }]
+        }
+      }
+    }
+  ],
+  "variable": [
+    { "key": "odDaty", "value": "2025-03-05" },
+    { "key": "doDaty", "value": "2025-03-31" },
+    { "key": "sad", "value": "dowolny" },
+    { "key": "rodzaj", "value": "dowolny" },
+    { "key": "slowa", "value": "" },
+    { "key": "sygnatura", "value": "" },
+    { "key": "maks_stron", "value": "0" },
+    { "key": "przerwa_ms", "value": "3000" },
+    { "key": "user_agent", "value": "orzecznictwo-szkielet (kontakt: UZUPELNIJ-EMAIL)" },
+    { "key": "strona", "value": "1" },
+    { "key": "poprzednia", "value": "" },
+    { "key": "ids", "value": "" }
+  ]
+}

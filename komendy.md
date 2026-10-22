@@ -215,3 +215,29 @@ docker compose run --rm --no-deps www python -m pytest                          
 docker compose run --rm --no-deps www sh -c "ruff format . && ruff check ."     # przed commitem
 narzedzia/kopia-na-dysk.sh "/g/projekty AI/orzecznictwo-szkielet" nsa etpc      # Git Bash: lustro, bundle, Qdrant, bazy
 ```
+
+## CBOSA: zbieranie numerów orzeczeń w Postmanie
+Kolekcja `narzedzia/cbosa.postman_collection.json`: wyszukuje w CBOSA i zbiera numery `/doc/<ID>` ze wszystkich stron wyników. Same orzeczenia pobiera potem projekt (`/doc/<ID>` jest dozwolone w `robots.txt`).
+
+**Uwaga: administrator strony tego zabrania, technicznie jest to możliwe.** `robots.txt` CBOSA (sprawdzony 2026-10-22) ma `Disallow: /cbo/search`, `/cbo/find`, `/cbo/do/search`, `/cbo/do/find` dla wszystkich automatów; Collection Runner przechodzący po stronach wyników to właśnie automat (ręczne pojedyncze wyszukiwanie w przeglądarce już nie). Nic tego technicznie nie blokuje (brak Cloudflare, logowania, limitu widzianego przy spokojnym tempie). Decyzja i odpowiedzialność użytkownika; jeśli już, to wolno (3 s+ między stronami), z kontaktem w User-Agent, bez proxy i rotacji IP. Strony `/doc/<ID>` są dozwolone.
+
+**Zanim uruchomisz:**
+- W zmiennej `user_agent` wpisz swój kontakt (domyślnie jest `UZUPELNIJ-EMAIL`).
+- Zakres dat (`odDaty`, `doDaty`) najlepiej ustawiać po jednym miesiącu.
+- Gdy trafisz na zepsuty serwer (błędy TLS albo kod 500): w pliku `C:\Windows\System32\drivers\etc\hosts` (Notatnik uruchomiony jako administrator) dopisz linię `194.181.28.1 orzeczenia.nsa.gov.pl`, po zbieraniu ją usuń.
+
+1. Postman: **Import** -> plik kolekcji.
+2. Kolekcja -> **Variables**: ustawić `user_agent` (kontakt), zakres dat `odDaty`/`doDaty` (RRRR-MM-DD, domyślnie marzec 2025), ewentualnie `sad` (pełna nazwa z formularza, np. `Wojewódzki Sąd Administracyjny w Warszawie`), `rodzaj` (`Wyrok`, `Postanowienie`, `Uchwała`), `slowa`, `maks_stron` (0 = wszystkie). Filtry uzasadnienia/prawomocności: włączyć wiersz w Body zapytania „1. Wyszukaj”.
+3. **Run collection** (Runner), oba zapytania po kolei, **Delay 3000 ms**. Postęp w konsoli (View -> Show Postman Console): `strona N: ... nowych, razem`.
+4. Po „KONIEC”: Variables -> wartość `ids` (jedno ID w linii) skopiować do pliku `nsa/database/cbosa-id/<zakres>.txt`.
+
+Zmienne:
+| Zmienna | Co daje |
+|---|---|
+| `odDaty`, `doDaty` | zakres daty orzeczenia; lepiej po miesiącu (krótsze przebiegi, mniej do powtórzenia po błędzie) |
+| `sad`, `rodzaj`, `slowa`, `sygnatura` | jak w formularzu CBOSA; `dowolny` = bez filtra |
+| `maks_stron` | zatrzymaj po tylu stronach (0 = do końca wyników) |
+| `przerwa_ms` | dodatkowa przerwa przed każdą stroną (domyślnie 3000) |
+| `ids` | wynik; czyszczony przy każdym „1. Wyszukaj” |
+
+Kończy się samo, gdy strona nie da nowych ID, powtórzy poprzednią albo zwróci błąd. Jeden z dwóch serwerów CBOSA jest zepsuty (błędy TLS / 500): wtedy w pliku `C:\Windows\System32\drivers\etc\hosts` (jako administrator) dopisać `194.181.28.1 orzeczenia.nsa.gov.pl` i usunąć po zbieraniu.
