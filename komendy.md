@@ -22,7 +22,11 @@ docker compose run --rm --no-deps www python -m etpc pobierz                    
 docker compose run --rm --no-deps www python -m etpc pobierz --limit 20          # próba: 20 rekordów
 docker compose run --rm --no-deps www python -m etpc pobierz --budzet 3600       # najwyżej godzinę
 docker compose run --rm --no-deps www python -m etpc pobierz --na-sucho --limit 5   # tylko podgląd, bez bazy
-docker compose run --rm --no-deps www python -m nsa pobierz --brakujace          # tylko braki znalezione przez sprawdz
+docker compose run --rm --no-deps www python -m etpc pobierz --brakujace         # tylko braki znalezione przez sprawdz
+
+# NSA: numery z wyszukiwarki CBOSA (osobne narzędzie, robots.txt tego zabrania - sekcja CBOSA niżej), potem orzeczenia
+docker compose run --rm --no-deps www python narzedzia/cbosa_id.py --od 2025-03-05 --do 2025-12-31 --kontakt TWOJ@EMAIL
+docker compose run --rm --no-deps www python -m nsa pobierz                      # strony /doc/<ID> z nsa/database/cbosa-id/
 
 # przetwarzanie (raw_records -> tabele, bez pobierania)
 docker compose run --rm --no-deps www python -m etpc przetworz                   # nowe i zmienione
@@ -143,6 +147,8 @@ Bez opcji pobiera dalej od miejsca, w którym skończył poprzedni przebieg (kur
 | `--na-sucho` | pobiera i wypisuje rekordy na ekran, nic nie zapisuje do bazy (zawsze od początku) | sprawdzenie, czy źródło odpowiada i co zwraca: `pobierz --na-sucho --limit 5` |
 | `--brakujace` | pobiera tylko rekordy, które `sprawdz` oznaczył jako brakujące; kursora nie rusza | po `sprawdz` z brakami: `pobierz --brakujace` |
 
+NSA: `pobierz` bierze numery orzeczeń ze wszystkich plików w `nsa/database/cbosa-id/` (też podkatalogi i pliki `.part` w trakcie zbierania) i pobiera strony `/doc/<ID>` z CBOSA, co najmniej 3 s przerwy. Bez kursora: pomija numery już pobrane z CBOSA, więc przerwany przebieg albo strona, która nie przyszła, idą przy następnym. `--od-poczatku` = pobierz jeszcze raz wszystkie z plików (np. po miesiącach, gdy mogły dojść uzasadnienia). `--limit N` = N orzeczeń. Zbiór JuDDGES (CBOSA do 5.03.2025) jest już wczytany; `przetworz` bierze oba źródła, strona z CBOSA wygrywa z JuDDGES dla tego samego orzeczenia.
+
 ETPC: sposób łączenia z HUDOC z `ETPC_TRANSPORT` (`requests`, `curl`, `playwright`; puste = domyślny łańcuch projektu po kolei, następny przy blokadzie Cloudflare; w `.env` jest `playwright`). Jednorazowo inny: `docker compose run --rm --no-deps -e ETPC_TRANSPORT=curl www python -m etpc pobierz --limit 10`.
 
 ## Przetwarzanie (`przetworz`: raw_records -> tabele projektu)
@@ -216,6 +222,52 @@ docker compose run --rm --no-deps www sh -c "ruff format . && ruff check ."     
 narzedzia/kopia-na-dysk.sh "/g/projekty AI/orzecznictwo-szkielet" nsa etpc      # Git Bash: lustro, bundle, Qdrant, bazy
 ```
 
+## CBOSA: zbieranie numerów orzeczeń skryptem (`narzedzia/cbosa_id.py`)
+**Uwaga: administrator strony tego zabrania, technicznie jest to możliwe** (szczegóły w sekcji o Postmanie niżej: `robots.txt` wyklucza wyszukiwarkę i listy wyników dla automatów, skrypt to automat tak samo jak Postman). Osobne narzędzie uruchamiane przez użytkownika, nie część projektu; projekt sam pobiera tylko dozwolone `/doc/<ID>`.
+
+Zakres dat dzieli na okresy (domyślnie miesiące), każdy okres = jedno wyszukiwanie w CBOSA, przejście po wszystkich stronach wyników i plik z numerami:
+```
+nsa/database/cbosa-id/
+  2025/
+    2025-03-05_2025-03-31.txt     # niepełny miesiąc: daty w nazwie
+    2025-04.txt                   # cały miesiąc
+    2025-05.txt.part              # w trakcie zbierania (pobierz już go czyta)
+    2025-06_nsa_wyrok.txt         # z filtrami: --sad NSA --rodzaj wyrok
+```
+Okresy z gotowym `.txt` są przy następnym uruchomieniu pomijane, więc przerwane zbieranie wystarczy puścić jeszcze raz (niedokończony okres zbiera się od nowa). `python -m nsa pobierz` można puszczać w trakcie, obok.
+
+Transport: łańcuch `requests` -> `curl` -> `playwright`; gdy bieżący 3 razy z rzędu nie dostanie poprawnej strony (błąd sieci, 5xx, pusta odpowiedź), przejmuje następny (z nową sesją, wyszukanie od nowa i ta sama strona). Gdy żaden nie działa: koniec, zebrane okresy zostają.
+
+Przykłady (każdy z przedrostkiem `docker compose run --rm --no-deps www`):
+```
+python narzedzia/cbosa_id.py --od 2025-03-05 --do 2025-12-31 --kontakt TWOJ@EMAIL   # wszystko od końca zbioru JuDDGES
+python narzedzia/cbosa_id.py --od 2025-03-05 --do 2025-12-31 --na-sucho             # tylko pokaż okresy i pliki
+python narzedzia/cbosa_id.py --od 2025-03-01 --do 2025-03-31 --maks-stron 2         # próba: 2 strony wyników
+python narzedzia/cbosa_id.py --od 2023-01-01 --do 2024-12-31 --rodzaj wyrok --uzasadnienie tak   # wyroki z uzasadnieniem
+python narzedzia/cbosa_id.py --od 2025-01-01 --sad "WSA w Krakowie" --okres tydzien  # jeden sąd, tygodniami, do dziś
+python narzedzia/cbosa_id.py --od 2025-03-05 --transport curl,playwright            # bez requests
+```
+
+| Opcja | Co daje |
+|---|---|
+| `--od RRRR-MM-DD` | data orzeczenia od (wymagane) |
+| `--do RRRR-MM-DD` | data orzeczenia do; domyślnie dziś |
+| `--okres miesiac\|tydzien\|dzien` | na jakie kawałki dzielić zakres; jedno wyszukiwanie i jeden plik na kawałek (domyślnie `miesiac`; `tydzien`/`dzien` gdy miesiąc ma bardzo dużo wyników albo wyszukiwanie się urywa) |
+| `--sad` | `NSA`, `WSA w Krakowie` (skrót rozwijany do pełnej nazwy) albo pełna nazwa z formularza CBOSA, np. `NSA oz. w Krakowie` |
+| `--rodzaj wyrok\|postanowienie\|uchwala` | tylko ten rodzaj |
+| `--uzasadnienie tak\|nie` | tylko z uzasadnieniem / tylko bez |
+| `--slowa`, `--gdzie` | słowa w treści; gdzie: `gdziekolwiek` (domyślnie), `w sentencji`, `w tezach`, `w uzasadnieniu` |
+| `--sygnatura`, `--symbol`, `--sedzia`, `--hasla` | jak pola formularza CBOSA (np. `--sygnatura "II SA/Wa"`, `--symbol 6110`) |
+| `--maks-stron N` | najwyżej N stron wyników na okres (próba); plik zostaje jako `.part`, więc następne uruchomienie zbierze okres w całości |
+| `--przerwa S` | sekundy między zapytaniami, najmniej 3 (domyślnie 3) |
+| `--transport` | łańcuch po przecinku, domyślnie `requests,curl,playwright` |
+| `--kontakt EMAIL` | dopisany do User-Agent (zalecane; `playwright` ma własny User-Agent przeglądarki) |
+| `--katalog` | gdzie zapisywać; domyślnie `nsa/database/cbosa-id` (tam czyta `pobierz`) |
+| `--nadpisz` | zbierz jeszcze raz także okresy z gotowym plikiem |
+| `--na-sucho` | tylko lista okresów i plików, bez zapytań do CBOSA |
+
+Strona wyników CBOSA ma 10 orzeczeń: rok to kilkadziesiąt tysięcy orzeczeń = kilka tysięcy stron = kilka godzin przy 3 s. Długie zbieranie najlepiej w tle: `docker compose run -d --rm --no-deps --name cbosa-id www python narzedzia/cbosa_id.py --od ...`, podgląd `docker logs -f cbosa-id`. Adres stron wyników (`/cbo/find?p=N`) wzięty z linku „Powrót do listy” na stronie orzeczenia; samego przechodzenia po wynikach nie sprawdzałem na żywo (zgodnie z podziałem: to uruchamia użytkownik) - przy pierwszym użyciu najpierw próba z `--maks-stron 2`.
+
 ## CBOSA: zbieranie numerów orzeczeń w Postmanie
 Kolekcja `narzedzia/cbosa.postman_collection.json`: wyszukuje w CBOSA i zbiera numery `/doc/<ID>` ze wszystkich stron wyników. Same orzeczenia pobiera potem projekt (`/doc/<ID>` jest dozwolone w `robots.txt`).
 
@@ -229,7 +281,7 @@ Kolekcja `narzedzia/cbosa.postman_collection.json`: wyszukuje w CBOSA i zbiera n
 1. Postman: **Import** -> plik kolekcji.
 2. Kolekcja -> **Variables**: ustawić `user_agent` (kontakt), zakres dat `odDaty`/`doDaty` (RRRR-MM-DD, domyślnie marzec 2025), ewentualnie `sad` (pełna nazwa z formularza, np. `Wojewódzki Sąd Administracyjny w Warszawie`), `rodzaj` (`Wyrok`, `Postanowienie`, `Uchwała`), `slowa`, `maks_stron` (0 = wszystkie). Filtry uzasadnienia/prawomocności: włączyć wiersz w Body zapytania „1. Wyszukaj”.
 3. **Run collection** (Runner), oba zapytania po kolei, **Delay 3000 ms**. Postęp w konsoli (View -> Show Postman Console): `strona N: ... nowych, razem`.
-4. Po „KONIEC”: Variables -> wartość `ids` (jedno ID w linii) skopiować do pliku `nsa/database/cbosa-id/<zakres>.txt`.
+4. Po „KONIEC”: Variables -> wartość `ids` (jedno ID w linii) skopiować do pliku `nsa/database/cbosa-id/<rok>/<zakres>.txt`, potem `python -m nsa pobierz`.
 
 Zmienne:
 | Zmienna | Co daje |

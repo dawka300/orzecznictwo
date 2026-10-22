@@ -390,10 +390,14 @@ def _judgment(cur, request, judgment_id, semantic):
         )
     missing = ""
     if j["kind"] in ("wyrok", "postanowienie", "uchwala") and not (j["reasons"] or "").strip():
-        # Zbiór JuDDGES to CBOSA z jednego dnia: uzasadnienie sporządzone później
-        # (zwykle tygodnie po wyroku) albo nigdy nieopublikowane go nie ma.
+        # Zbiór JuDDGES to CBOSA z jednego dnia, strona z CBOSA - z dnia pobrania:
+        # uzasadnienie sporządzone później (zwykle tygodnie po wyroku) albo nigdy
+        # nieopublikowane go nie ma.
+        as_of = DATA_AS_OF
+        if j["source"] == "cbosa" and j["parsed_at"]:
+            as_of = j["parsed_at"].strftime("%d.%m.%Y").lstrip("0")
         missing = (
-            f"<p class=notice>Uzasadnienia nie ma w zbiorze (CBOSA w stanie z {DATA_AS_OF})"
+            f"<p class=notice>Uzasadnienia nie ma w zbiorze (CBOSA w stanie z {as_of})"
             " - sąd mógł je sporządzić albo opublikować później."
             f' <a href="{e(cbosa)}" target=_blank rel="noopener noreferrer">Sprawdź w CBOSA</a>.</p>'
         )

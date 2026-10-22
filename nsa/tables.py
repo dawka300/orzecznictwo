@@ -8,6 +8,7 @@ pusty_tekst); a failing record doesn't stop the batch (SAVEPOINT in TableWriter)
 from __future__ import annotations
 
 from judgments_core.tables import TableWriter
+from nsa.cbosa import CbosaParser, page_to_row
 from nsa.parser import JuddgesParser
 
 SIDE_TABLES = (
@@ -37,6 +38,16 @@ class NsaTables(TableWriter):
         if not j.docket_number:
             return [(record.source_id, "brak_sygnatury", "zapisane bez sygnatury")]
         return None
+
+
+class CbosaTables(NsaTables):
+    """A CBOSA judgment page (HTML) -> the same tables, via the JuDDGES row shape."""
+
+    parser_class = CbosaParser
+    source = "cbosa"
+
+    def write(self, cur, record, page):
+        return super().write(cur, record, page_to_row(page, record.source_id))
 
 
 def _upsert(cur, j, source, now):
