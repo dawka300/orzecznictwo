@@ -29,7 +29,17 @@ class Request:
     def __init__(self, environ):
         self.environ = environ
         self.path = environ.get("PATH_INFO", "/") or "/"
+        self.method = environ.get("REQUEST_METHOD", "GET").upper()
         self.params = {k: v[-1] for k, v in parse_qs(environ.get("QUERY_STRING", "")).items()}
+
+    def body(self, limit):
+        """The request body (POST), at most limit bytes; ValueError when longer."""
+        length = int(self.environ.get("CONTENT_LENGTH") or 0)
+        if length > limit:
+            raise ValueError(
+                f"za duży plik ({length // 1_000_000} MB, najwięcej {limit // 1_000_000} MB)"
+            )
+        return self.environ["wsgi.input"].read(length) if length else b""
 
     def get(self, name, default=""):
         return self.params.get(name, default).strip()
@@ -40,15 +50,17 @@ class Request:
 
 
 class Response:
-    def __init__(self, body, status="200 OK", content_type="text/html; charset=utf-8"):
+    def __init__(self, body, status="200 OK", content_type="text/html; charset=utf-8", headers=()):
         self.body = body.encode("utf-8") if isinstance(body, str) else body
         self.status = status
         self.content_type = content_type
+        self.headers = list(headers)  # dodatkowe, np. [("Location", "/analiza/1")]
 
     def __call__(self, start_response):
         start_response(
             self.status,
-            [("Content-Type", self.content_type), ("Content-Length", str(len(self.body)))],
+            [("Content-Type", self.content_type), ("Content-Length", str(len(self.body)))]
+            + self.headers,
         )
         return [self.body]
 
@@ -89,6 +101,11 @@ class WebApp(ABC):
             response.body = _ROOT_LINK.sub(
                 lambda m: m.group(1) + root.encode("utf-8") + b"/", response.body
             )
+        if root:
+            response.headers = [
+                (k, root + v if k == "Location" and v.startswith("/") else v)
+                for k, v in response.headers
+            ]
         return response(start_response)
 
     @abstractmethod
@@ -404,7 +421,7 @@ def layout(
     title,
     body,
     brand,
-    nav=(("/", "Szukaj"), ("/statystyki", "Statystyki")),
+    nav=(("/", "Szukaj"), ("/analiza", "Analiza dokumentu"), ("/statystyki", "Statystyki")),
     header=True,
     lang="pl",
 ):
@@ -526,6 +543,13 @@ details summary{cursor:pointer;color:var(--accent)}
 .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
 .card b{display:block;font-size:24px}.card span{color:var(--muted)}
+/* analiza dokumentu */
+.analysis textarea{width:100%;box-sizing:border-box;font:inherit}
+.analysis fieldset{border:1px solid var(--line);border-radius:8px;padding:8px 14px}
+.analysis fieldset label{display:block;margin:4px 0}
+.hit{margin:0 0 18px}.hit h3{font-size:16px;margin:0 0 2px}
+.hit blockquote{margin:4px 0 10px;padding:6px 12px;border-left:3px solid var(--line)}
+pre.legend{white-space:pre-wrap;font-size:12px;color:var(--muted)}
 /* tabele statystyk: dwa słupki, każda tabela pod poprzednią (bez dziur obok długich) */
 .tables{column-count:2;column-gap:16px}
 .card-table{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:4px 16px 12px;overflow:auto;break-inside:avoid;display:inline-block;width:100%;box-sizing:border-box;margin:0 0 16px}

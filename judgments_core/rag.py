@@ -219,7 +219,13 @@ class Retriever(ABC):
         """The project's search hits (for describe and result) of these judgments, in order."""
         raise NotImplementedError("projekt nie umie wczytać orzeczeń po identyfikatorach")
 
-    def like_text(self, cur, text, chunker, k=10, result_contains=""):
+    def outcome_group(self, result):
+        """The outcome of a judgment as "uwzglednione" (the complaint won: violation,
+        quashed ...), "nieuwzglednione" (dismissed, no violation, inadmissible) or "inne";
+        a project's child reads its result texts. Used by the document analysis."""
+        return "inne"
+
+    def like_text(self, cur, text, chunker, k=10, result_contains="", embedder=None):
         """Judgments closest to a whole text (e.g. one's own judgment), by meaning.
 
         The text is cut by the project's chunker exactly like the judgments in the base
@@ -227,7 +233,8 @@ class Retriever(ABC):
         rankings are fused (rrf): a judgment close to many parts of the text comes first.
         Each source shows its passages that matched and which own chunk they matched
         ("Twój fragment n"). Opposite rulings on the same issue are close in meaning too:
-        result_contains keeps only judgments whose outcome contains that text."""
+        result_contains keeps only judgments whose outcome contains that text. embedder:
+        the model for the own chunks (default: the semantic search's query model)."""
         if self.semantic is None:
             raise SemanticUnavailable("Ten projekt nie ma wyszukiwania znaczeniowego.")
         own = chunker.chunk(0, text, "", {})[:OWN_CHUNKS]
@@ -235,7 +242,8 @@ class Retriever(ABC):
             return Retrieval([], [])
         rankings, matches = [], {}
         try:
-            vectors = self.semantic.embedder.embed([chunker.embedding_input(c) for c in own])
+            embedder = embedder or self.semantic.embedder  # analiza dokumentu: wybrany model
+            vectors = embedder.embed([chunker.embedding_input(c) for c in own])
             for number, vector in enumerate(vectors):
                 ranking = []
                 for hit in self.semantic.vectors.search_judgments(vector, PER_OWN_CHUNK):

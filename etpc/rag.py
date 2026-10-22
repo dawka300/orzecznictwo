@@ -83,6 +83,20 @@ class EtpcRetriever(Retriever):
     def result(self, hit):
         return outcome(hit.conclusion)
 
+    def outcome_group(self, result):
+        """Violation (also only one of several articles) = uwzglednione; no violation or
+        inadmissible = nieuwzglednione; struck out, friendly settlement ... = inne."""
+        items = [i.strip().lower() for i in (result or "").split(";")]
+        if any(i.startswith(("violation", "violation de")) for i in items):
+            return "uwzglednione"
+        if any(
+            i.startswith(("no violation", "non-violation", "inadmissible", "irrecevable"))
+            or "remainder inadmissible" in i
+            for i in items
+        ):
+            return "nieuwzglednione"
+        return "inne"
+
     def expected(self, cur, keys):
         found = {k: set() for k in keys}
         if keys:

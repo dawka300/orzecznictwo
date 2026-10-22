@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 
+from judgments_core.analysis import DocumentAnalysis
 from judgments_core.embed import read_progress
 from judgments_core.embeddings import make_embedder
 from judgments_core.qdrant import QdrantStore, collection_name
@@ -30,7 +31,9 @@ from judgments_core.web import (
     vectors_line,
 )
 from nsa import search
+from nsa.chunker import NsaChunker
 from nsa.embed import PROGRESS_KEY
+from nsa.rag import NsaRetriever
 from nsa.semantic import NsaSemantic
 from nsa.stats import NSA_COURT, read_stats, symbol_names
 
@@ -79,8 +82,17 @@ class NsaWebApp(WebApp):
             )
             semantic.prepare_in_background()
         self.semantic = semantic
+        self.analysis = DocumentAnalysis(
+            settings,
+            NsaRetriever(semantic),
+            NsaChunker(),
+            self.connect,
+            getattr(semantic, "embedder", None),
+        )
 
     def route(self, request):
+        if request.path == "/analiza" or request.path.startswith("/analiza/"):
+            return self.analysis.handle(request, _layout)
         match = _JUDGMENT_PATH.match(request.path)
         if request.path not in ("/", "/statystyki") and not match:
             return Response(
