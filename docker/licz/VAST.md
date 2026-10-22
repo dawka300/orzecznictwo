@@ -149,6 +149,35 @@ zgadzają (inny model) albo plik jest niepełny - wtedy policz ją jeszcze raz.
 **Instances -> Destroy** (kosz). **Stop** zatrzymuje tylko GPU - **dysk dalej kosztuje**.
 Usuń, gdy wektory są u Ciebie i zaimportowane; potem sprawdź, że lista Instances jest pusta.
 
+## Automatycznie: kolejka z paczką do przodu (`narzedzia/vast_kolejka.sh`)
+
+Zamiast kroków 6-9 ręcznie: skrypt u Ciebie (Git Bash, w katalogu repo) trzyma na maszynie
+zawsze 2 paczki (liczona + następna już wysłana, więc karta nie czeka na wysyłanie),
+gotowe wektory od razu pobiera, importuje i usuwa z maszyny (dysk). Na maszynie liczy
+`vast_start.sh` z `CZEKAJ_S=1800` (po każdej paczce na nowo przegląda katalog i czeka 30 min
+na dosyłane); skrypt sam go uruchamia i wznawia, gdy przestanie działać.
+```bash
+nohup bash narzedzia/vast_kolejka.sh 10691 179.255.148.147 >> logs/vast_kolejka.log 2>&1 &
+tail -f logs/vast_kolejka.log        # postęp (Ctrl+C kończy tylko podgląd)
+```
+Bez nazw paczek bierze wszystkie z `nsa/database/paczki/` bez znacznika `.zaimportowano`, a gdy
+się skończą, dobiera nowo wyeksportowane (eksport `paczki` może iść w tym czasie). Opcje:
+`PROJEKT=etpc`, `NAPRZOD=3`, albo nazwy paczek po HOST.
+
+**Wznawianie** - przerwane (Ctrl+C, zamknięty terminal, restart komputera) uruchom tym samym
+poleceniem jeszcze raz:
+- zaimportowana paczka ma u Ciebie plik `<nazwa>.zaimportowano` - pomijana;
+- wektory ściągnięte, import przerwany - tylko import, bez ponownego pobierania;
+- paczka już na maszynie - nie jest wysyłana drugi raz (wysyłka idzie jako `.wysylane`
+  i dopiero pełna dostaje właściwą nazwę, więc maszyna nie liczy niepełnej);
+- na maszynie `licz_paczke.py` wznawia od brakującej części (co 4096 fragmentów); wynik
+  zapisuje jako `.wektory.npy.zapis` i zmienia nazwę po zapisie, a kolejka bierze go dopiero
+  po linii `Gotowe:` w logu;
+- nieudany import zatrzymuje kolejkę (log w `<nazwa>.import.log`) - paczka zostaje na maszynie.
+
+Nie edytuj `vast_kolejka.sh` ani `vast_start.sh`, gdy działają (bash czyta skrypt w trakcie):
+zatrzymaj, popraw, uruchom znowu.
+
 ## Przykład krok po kroku (RTX 4070, 2026-10-23)
 
 Prawdziwa sesja: instancja 57277216, RTX 4070 12 GB, ~$0.20/h. Z przycisku **Connect**

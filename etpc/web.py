@@ -635,18 +635,19 @@ def _stats(cur):
         f"<td class=num>{_n(j)}</td><td class=num>{_n(d)}</td></tr>"
         for v, n, j, d, _, _ in sorted(years, key=lambda r: int(r[0]), reverse=True)
     )
+    # Kolejność = wypełnianie dwóch słupków (.tables): mniej więcej pół wysokości w każdym.
     tables = "".join(
         [
-            table("language", "Języki tekstów", labels.LANGUAGES, "jezyk", documents=True),
             table("respondent", "Państwa pozwane", labels.STATES, "panstwo"),
-            table("formation", "Składy", labels.FORMATIONS, "sklad"),
-            table("importance", "Ważność", labels.IMPORTANCE, "waznosc", order=lambda r: int(r[0])),
-            table("violation", "Najczęściej naruszone artykuły (30)", None, "", limit=30),
-            _most_cited(cur),
             (
                 "<section class=card-table><h2>Lata</h2><table><tr><th></th><th>orzeczeń</th>"
                 f"<th>wyroków</th><th>decyzji</th></tr>{year_rows}</table></section>"
             ),
+            table("formation", "Składy", labels.FORMATIONS, "sklad"),
+            table("importance", "Ważność", labels.IMPORTANCE, "waznosc", order=lambda r: int(r[0])),
+            table("language", "Języki tekstów", labels.LANGUAGES, "jezyk", documents=True),
+            _most_cited(cur),
+            table("violation", "Najczęściej naruszone artykuły (30)", None, "", limit=30),
         ]
     )
     updated = total[5].strftime("%d.%m.%Y %H:%M") if total[5] else ""

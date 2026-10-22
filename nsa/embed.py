@@ -1,11 +1,12 @@
 """NSA embedding job: judgments -> chunks -> vectors (python -m nsa wektory), child of EmbedJob.
 
-Two levels (full_chunks): resolutions, judgments with a thesis or published
-and NSA judgments get their whole text (thesis, operative part, reasoning,
-dissenting opinion - nsa.parser.judgment_body) chunked by NsaChunker; all the
-others (WSA judgments, orders) one summary vector each (NsaChunker.summary:
-thesis, the decision, the start of the reasoning) - full chunks of all ~2.25M
-judgments would be ~18M vectors. Filterable metadata: court, kind, year, case
+Every judgment's whole text (thesis, operative part, reasoning, dissenting
+opinion - nsa.parser.judgment_body) is chunked by NsaChunker: ~18M vectors for
+~2.25M judgments, ~20 GB RAM in Qdrant (int8). On a smaller machine summaries =
+True keeps full chunks only for the judgments worth quoting (full_chunks:
+resolutions, with a thesis or published, NSA judgments) and gives the rest one
+summary vector each (NsaChunker.summary: thesis, the decision, the start of the
+reasoning; ~5.7M vectors). Filterable metadata: court, kind, year, case
 symbols, keywords. The order says what is searchable first: resolutions,
 judgments with a thesis or published in the official collection, NSA
 judgments, WSA judgments with reasoning, then the rest (mostly procedural
@@ -33,12 +34,14 @@ PAYLOAD_INDEXES = {
 }
 PROGRESS_KEY = "nsa:wektory"
 
-CANDIDATES_SQL = f"""
-SELECT j.id, j.cbosa_id, j.text_sha256,
-    CASE WHEN j.kind = 'uchwala' OR j.thesis IS NOT NULL
+# Długość tekstu do liczenia (postęp, czas do końca): przy skrótach najwyżej SUMMARY_CHARS.
+SUMMARY_LENGTH_SQL = f"""CASE WHEN j.kind = 'uchwala' OR j.thesis IS NOT NULL
         OR EXISTS (SELECT 1 FROM judgment_publications p WHERE p.judgment_id = j.id)
         OR (j.kind = 'wyrok' AND j.court = '{NSA_COURT}')
-    THEN j.text_length ELSE LEAST(j.text_length, {SUMMARY_CHARS}) END
+    THEN j.text_length ELSE LEAST(j.text_length, {SUMMARY_CHARS}) END"""
+
+CANDIDATES_SQL = f"""
+SELECT j.id, j.cbosa_id, j.text_sha256, {{length}}
 FROM judgments j
 LEFT JOIN judgment_vectors v ON v.judgment_id = j.id
 WHERE v.judgment_id IS NULL OR v.body_sha256 <> j.text_sha256 OR v.model <> %s
@@ -62,9 +65,12 @@ class NsaEmbedJob(EmbedJob):
     tracking_key = "judgment_id"
     tracking_doc = "cbosa_id"
     parent_table = "judgments"
+    # True: pełne fragmenty tylko dla full_chunks, reszta po jednym wektorze skrótu
+    summaries = False
 
     def candidates(self, cur, model):
-        cur.execute(CANDIDATES_SQL, (model,))
+        length = SUMMARY_LENGTH_SQL if self.summaries else "j.text_length"
+        cur.execute(CANDIDATES_SQL.format(length=length), (model,))
         return cur.fetchall()
 
     def load(self, cur, batch):
@@ -117,7 +123,7 @@ class NsaEmbedJob(EmbedJob):
             title = f"{docket} - {judgment_type} z {when.isoformat()}"
             parts = (thesis, sentence, reasons, dissent)
             body = judgment_body(*parts)
-            if full_chunks(kind, court, thesis, c.judgment_id in published):
+            if not self.summaries or full_chunks(kind, court, thesis, c.judgment_id in published):
                 chunks = self.chunker.chunk(c.judgment_id, body, title, meta)
             else:
                 chunks = self.chunker.summary(c.judgment_id, body, parts, title, meta)
@@ -125,9 +131,9 @@ class NsaEmbedJob(EmbedJob):
 
 
 def full_chunks(kind, court, thesis, published):
-    """Whole text in chunks for the judgments worth quoting paragraph by paragraph
-    (resolutions, with a thesis or published, NSA judgments); one summary vector for
-    the rest (WSA judgments and all orders: ~2M judgments, ~18M chunks would not fit)."""
+    """With summaries: whole text in chunks for the judgments worth quoting paragraph by
+    paragraph (resolutions, with a thesis or published, NSA judgments); one summary vector
+    for the rest (WSA judgments and all orders, ~2M judgments)."""
     return (
         kind == "uchwala" or bool(thesis) or published or (kind == "wyrok" and court == NSA_COURT)
     )

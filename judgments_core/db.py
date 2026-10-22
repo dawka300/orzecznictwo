@@ -388,6 +388,13 @@ class MariaDbStore:
         self.conn.commit()
         return int(count), int(chunks)
 
+    def count_rows(self, table):
+        with self.conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) FROM {table}")
+            count = cur.fetchone()[0]
+        self.conn.commit()
+        return int(count)
+
     def vectors_orphans(self, table, key, parent):
         """Ids in the tracking table whose judgment is gone from the parent table."""
         with self.conn.cursor() as cur:

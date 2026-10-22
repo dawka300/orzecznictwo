@@ -171,6 +171,22 @@ class EmbedJob(ABC):
             progress.save("gotowe" if progress.done >= progress.total else "przerwano")
         return r
 
+    def refresh_progress(self, status):
+        """Progress counted again from the tables, after vectors came from elsewhere
+        (paczka-import): judgments and chunks done with this model out of all judgments;
+        no pace or time left (nothing was computed here)."""
+        done, chunks = self.store.vectors_done(self.tracking_table, self.embedder.model)
+        total = max(self.store.count_rows(self.parent_table), done)
+        Progress(
+            self.store,
+            self.progress_key,
+            self.embedder.model,
+            total=total,
+            done=done,
+            chunks=chunks,
+            remaining_chars=0,
+        ).save(status)
+
     def _remove_deleted(self):
         gone = self.store.vectors_orphans(self.tracking_table, self.tracking_key, self.parent_table)
         if gone:

@@ -202,4 +202,5 @@ def import_package(job, directory, name):
         job._save(group, group_chunks)
         saved += len(group)
     job.store.packages_close(name, imported=True)
+    job.refresh_progress("paczki")  # licznik na stronach (wektory zapisuje go sam)
     return saved, skipped

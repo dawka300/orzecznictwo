@@ -4,6 +4,7 @@
 #
 #   bash /workspace/vast_start.sh          # instaluje i liczy wszystko w tle -> /workspace/licz.log
 #   bash /workspace/vast_start.sh test     # test szybkości: 5000 fragmentów pierwszej paczki
+#   CZEKAJ_S=1800 bash /workspace/vast_start.sh   # po ostatniej paczce czeka 30 min na nowe
 #
 # Paczka z gotowym <nazwa>.wektory.npy jest pomijana; przerwane liczenie
 # (restart maszyny) wznawia się od brakującej części.
@@ -39,12 +40,32 @@ fi
 
 echo "=== start $(date -u '+%Y-%m-%d %H:%M:%S') UTC"
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader || true
-for paczka in "$KATALOG"/paczki/*.jsonl.gz; do
-    nazwa=$(basename "$paczka" .jsonl.gz)
-    if [ -f "$KATALOG/paczki/$nazwa.wektory.npy" ]; then
-        echo "--- $nazwa: już policzona"
+
+# Pierwsza paczka bez wektorów (po nazwie); katalog przeglądany po każdej paczce,
+# więc paczki dosłane w trakcie (narzedzia/vast_kolejka.sh) też się policzą.
+nastepna() {
+    for paczka in "$KATALOG"/paczki/*.jsonl.gz; do
+        [ -e "$paczka" ] || continue
+        [ -f "${paczka%.jsonl.gz}.wektory.npy" ] && continue
+        echo "$paczka"
+        return
+    done
+}
+
+# CZEKAJ_S: tyle sekund czekać na nową paczkę, gdy nic nie zostało (0 = koniec od razu).
+bezczynnie=0
+while true; do
+    paczka=$(nastepna)
+    if [ -z "$paczka" ]; then
+        if [ "$bezczynnie" -ge "${CZEKAJ_S:-0}" ]; then
+            break
+        fi
+        sleep 30
+        bezczynnie=$((bezczynnie + 30))
         continue
     fi
+    bezczynnie=0
+    nazwa=$(basename "$paczka" .jsonl.gz)
     echo "--- $nazwa: liczę"
     "$PY" "$KATALOG/licz_paczke.py" "$paczka" --silnik "$SILNIK" --batch "$BATCH"
     rm -rf "$KATALOG/paczki/$nazwa.czesci"

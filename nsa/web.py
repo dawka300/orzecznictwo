@@ -472,9 +472,12 @@ def _stats(cur):
     symbols = stats.get("symbol", [])[:50]
     names = symbol_names(cur, [s[0] for s in symbols])
     years = sorted(stats.get("year", []), key=lambda r: int(r[0]), reverse=True)
+    # Kolejność = wypełnianie dwóch słupków (.tables): długie tabele na zmianę, by słupki
+    # kończyły się mniej więcej równo.
     tables = "".join(
         [
             table("Sądy", stats.get("court", []), lambda v: {"sad": v}),
+            table("Lata", years, lambda v: {"od": v, "do": v}),
             table(
                 "Rodzaje", stats.get("kind", []), lambda v: {"rodzaj": v}, lambda v: KINDS.get(v, v)
             ),
@@ -484,11 +487,10 @@ def _stats(cur):
                 lambda v: {"symbol": v},
                 lambda v: f"{v} {names.get(v, '')}",
             ),
-            table("Lata", years, lambda v: {"od": v, "do": v}),
         ]
     )
     updated = total[5].strftime("%d.%m.%Y %H:%M") if total[5] else ""
     body = f"""<h1>Statystyki</h1>
-<p class=hint>Przeliczone {e(updated)} UTC, po ostatnim przetworz. Źródło: zbiór JuDDGES/pl-nsa (CBOSA do 03.2025).</p>
+<p class=hint>Przeliczone {e(updated)} UTC, po ostatnim przetworz. Źródło: zbiór JuDDGES/pl-nsa (CBOSA do 03.2025) i strony orzeczeń CBOSA pobrane później.</p>
 <div class=cards>{cards}</div>{progress}<div class=tables>{tables}</div>"""
     return Response(_layout("Statystyki", body))

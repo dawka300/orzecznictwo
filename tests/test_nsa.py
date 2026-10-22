@@ -167,9 +167,22 @@ def test_embed_job_order_and_payload(nsa_db):
     assert target[0].meta["is_nsa"] is True and target[0].meta["symbols"]
     assert len(target) > 1  # wyrok NSA: pełne fragmenty
     wsa = [p for p in vectors.points.values() if p[0].meta["kind"] == "postanowienie"]
-    assert wsa and all(len(p) == 1 and p[0].part for p in wsa)  # postanowienie WSA: skrót
+    assert wsa and all(len(p) > 1 for p in wsa)  # domyślnie pełne fragmenty wszystkich
     again = NsaEmbedJob(nsa_db, FakeEmbedder(), vectors).run()
     assert again.judgments == 0
+
+
+def test_embed_job_with_summaries(nsa_db):
+    """summaries = True (mniejsza maszyna): postanowienie WSA dostaje jeden wektor skrótu."""
+
+    class SummaryJob(NsaEmbedJob):
+        summaries = True
+
+    vectors = FakeVectors()
+    SummaryJob(nsa_db, FakeEmbedder(), vectors, batch_size=8).run()
+    assert len(vectors.points[str(nsa_db.target)]) > 1  # wyrok NSA: dalej pełne
+    wsa = [p for p in vectors.points.values() if p[0].meta["kind"] == "postanowienie"]
+    assert wsa and all(len(p) == 1 and p[0].part for p in wsa)  # postanowienie WSA: skrót
 
 
 def run_search(conn, semantic=None, **kwargs):

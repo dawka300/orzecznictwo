@@ -338,6 +338,7 @@ VECTOR_STATUS = {
     "liczy": "trwa liczenie",
     "przerwano": "wstrzymane - dokończy następne: {command}",
     "gotowe": "wszystko policzone",
+    "paczki": "liczone w paczkach na innych komputerach (paczka-import); resztę dokończy: {command}",
 }
 
 
@@ -349,7 +350,7 @@ def vectors_line(progress):
     return (
         f"<p class=progress-line>Wyszukiwanie znaczeniowe: policzono {number(progress['done'])}"
         f" z {number(progress['total'])} orzeczeń ({percent:.1f}%)"
-        f"{' - trwa' if progress['status'] == 'liczy' else ' - wstrzymane'}."
+        f"{ {'liczy': ' - trwa', 'paczki': ' - liczone w paczkach'}.get(progress['status'], ' - wstrzymane') }."
         ' <a href="/statystyki#wektory">szczegóły</a></p>'
     )
 
@@ -525,12 +526,13 @@ details summary{cursor:pointer;color:var(--accent)}
 .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
 .card b{display:block;font-size:24px}.card span{color:var(--muted)}
-.tables{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
-.card-table{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:4px 16px 12px;overflow:auto}
+/* tabele statystyk: dwa słupki, każda tabela pod poprzednią (bez dziur obok długich) */
+.tables{column-count:2;column-gap:16px}
+.card-table{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:4px 16px 12px;overflow:auto;break-inside:avoid;display:inline-block;width:100%;box-sizing:border-box;margin:0 0 16px}
 table{border-collapse:collapse;width:100%;font-size:14px}
 th{color:var(--muted);font-weight:500;text-align:right;font-size:12px;padding:4px 6px}
 td{padding:3px 6px;border-top:1px solid var(--line)}
 td.num{text-align:right;white-space:nowrap}
-@media (max-width:900px){.search,.ruling,.tables{grid-template-columns:1fr}.filters,aside{position:static;max-height:none}
+@media (max-width:900px){.search,.ruling{grid-template-columns:1fr}.tables{column-count:1}.filters,aside{position:static;max-height:none}
 .cards{grid-template-columns:1fr 1fr}main{padding:16px}.ruling article{padding:8px 16px 20px}}
 """

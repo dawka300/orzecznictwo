@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -132,7 +133,12 @@ def main(argv=None):
         [np.load(czesci / f"{i // CZESC:05d}.npy") for i in range(0, len(teksty), CZESC)]
     )
     cel = paczka.parent / f"{nazwa}.wektory.npy"
-    np.save(cel, wynik)
+    # Najpierw plik tymczasowy, potem zmiana nazwy: kto czeka na .wektory.npy
+    # (vast_kolejka.sh), nie ściągnie pliku w połowie zapisu.
+    tymczasowy = paczka.parent / f"{nazwa}.wektory.npy.zapis"
+    with open(tymczasowy, "wb") as f:
+        np.save(f, wynik)
+    os.replace(tymczasowy, cel)
     print(f"Gotowe: {cel} ({wynik.shape[0]:,} x {wynik.shape[1]}). Odeślij ten plik.")
     print(f"Części w {czesci} można usunąć.")
     return 0

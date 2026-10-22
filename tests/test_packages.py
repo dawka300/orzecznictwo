@@ -11,6 +11,7 @@ from test_etpc_tables import rows
 from etpc.embed import EtpcEmbedJob
 from judgments_core import packages
 from judgments_core.db import MariaDbStore
+from judgments_core.embed import read_progress
 
 SCRIPT = Path(__file__).parent.parent / "docker" / "licz" / "licz_paczke.py"
 
@@ -68,6 +69,15 @@ def test_package_computed_elsewhere_comes_back(conn, tmp_path):
     )
     assert store.packages_open_ids() == set()
     assert store.packages_list()[0][6] is not None  # zaimportowana
+    # licznik na stronach: policzone po imporcie, status "paczki"
+    with conn.cursor() as cur:
+        progress = read_progress(cur, job(conn, vectors).progress_key)
+    assert (progress["status"], progress["done"], progress["chunks"]) == (
+        "paczki",
+        1,
+        done.chunks,
+    )
+    assert progress["total"] >= 1 and progress["eta_s"] is None
 
 
 def test_wrong_vectors_or_changed_text(conn, tmp_path):
