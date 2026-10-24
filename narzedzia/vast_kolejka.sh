@@ -83,7 +83,9 @@ lokalne() {
 rozdziel() {
     local nazwa
     for nazwa in "$@"; do
-        if [ -f "$LOKALNIE/$nazwa.wektory.npy" ]; then
+        if [ -f "$LOKALNIE/$nazwa.zaimportowano" ]; then
+            continue  # podana jawnie, ale już w bazie
+        elif [ -f "$LOKALNIE/$nazwa.wektory.npy" ]; then
             do_importu+=("$nazwa")
         else
             kolejka+=("$nazwa")
@@ -150,12 +152,36 @@ importuj() {
     return 1
 }
 
+# Pobieranie wznawialne: po zerwanym połączeniu (niektóre hosty zrywają po kilku minutach)
+# dociąga tylko brakujące bajty (tail -c +N), aż rozmiar zgodzi się z plikiem na maszynie;
+# także po ponownym uruchomieniu kolejki (zostaje <nazwa>.wektory.npy.pobierane).
 pobierz() {
-    local nazwa=$1
+    local nazwa=$1 zdalny="$ZDALNIE/$1.wektory.npy" cel="$LOKALNIE/$1.wektory.npy.pobierane"
+    local rozmiar="" mam proba
     log "$nazwa: policzona, pobieram wektory"
-    ponow "${SCP[@]}" -q "root@$HOST:$ZDALNIE/$nazwa.wektory.npy" "$LOKALNIE/$nazwa.wektory.npy.pobierane"
-    mv "$LOKALNIE/$nazwa.wektory.npy.pobierane" "$LOKALNIE/$nazwa.wektory.npy"
-    ponow zdalnie "rm -f $ZDALNIE/$nazwa.jsonl.gz $ZDALNIE/$nazwa.wektory.npy"
+    for proba in 1 2 3 4 5; do
+        rozmiar=$(zdalnie "stat -c %s $zdalny" || true)
+        [ -n "$rozmiar" ] && break
+        sleep 30
+    done
+    [ -n "$rozmiar" ] || { log "$nazwa: brak odpowiedzi maszyny (rozmiar pliku)"; return 1; }
+    mam=$(stat -c %s "$cel" 2>/dev/null || echo 0)
+    [ "$mam" -gt "$rozmiar" ] && { rm -f "$cel"; mam=0; }
+    for proba in $(seq 1 30); do
+        [ "$mam" -ge "$rozmiar" ] && break
+        "${SSH[@]}" "tail -c +$((mam + 1)) $zdalny" >> "$cel" 2>/dev/null || true
+        mam=$(stat -c %s "$cel" 2>/dev/null || echo 0)
+        if [ "$mam" -lt "$rozmiar" ]; then
+            log "$nazwa: połączenie przerwane przy $((mam / 1048576)) z $((rozmiar / 1048576)) MB, wznawiam"
+            sleep 10
+        fi
+    done
+    if [ "$mam" -ne "$rozmiar" ]; then
+        log "$nazwa: nie pobrano ($mam z $rozmiar B) - spróbuję w następnym obiegu"
+        return 1
+    fi
+    mv "$cel" "$LOKALNIE/$nazwa.wektory.npy"
+    ponow zdalnie "rm -f $ZDALNIE/$nazwa.jsonl.gz $zdalny"
     log "$nazwa: pobrana, usunięta z maszyny"
 }
 
@@ -188,8 +214,8 @@ while true; do
         gotowe=" $(zdalnie "cat /workspace/licz*.log 2>/dev/null | tr '\r' '\n' | sed -n 's|^Gotowe: $ZDALNIE/\([^ ]*\)\.wektory\.npy.*|\1|p' | sort -u | tr '\n' ' '" || true) "
         zostaja=()
         for nazwa in "${na_maszynie[@]}"; do
-            if [[ $gotowe == *" $nazwa "* ]] && zdalnie "test -f $ZDALNIE/$nazwa.wektory.npy"; then
-                pobierz "$nazwa"
+            if [[ $gotowe == *" $nazwa "* ]] && zdalnie "test -f $ZDALNIE/$nazwa.wektory.npy" \
+                && pobierz "$nazwa"; then
                 do_importu+=("$nazwa")
                 zmiana=1
             else
