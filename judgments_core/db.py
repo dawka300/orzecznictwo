@@ -427,6 +427,66 @@ class MariaDbStore:
             )
         self.conn.commit()
 
+    # Tematy (judgments_core/topics.py): tabela topics i tabele przypisań projektu
+    # (nazwy tabel i kolumn podaje klasa potomna TopicModel).
+
+    def topics_replace(self, level, topics, table, columns, assignments):
+        """Topics of one level built anew: the old ones and their assignments go,
+        in one transaction. topics: [dict with the topics columns];
+        assignments: [tuples in the order of columns]."""
+        now = _naive_utc(utc_now())
+        with self.conn.cursor() as cur:
+            cur.execute("DELETE FROM topics WHERE level = %s", (level,))
+            cur.execute(f"DELETE FROM {table}")
+            cur.executemany(
+                "INSERT INTO topics (level, topic, label, description, keywords, size, facts,"
+                " representatives, excerpts, model, built_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                [
+                    (
+                        level,
+                        t["topic"],
+                        t.get("label", ""),
+                        t.get("description"),
+                        t["keywords"],
+                        t["size"],
+                        t["facts"],
+                        t["representatives"],
+                        t["excerpts"],
+                        t["model"],
+                        now,
+                    )
+                    for t in topics
+                ],
+            )
+            insert = (
+                f"INSERT INTO {table} ({', '.join(columns)})"
+                f" VALUES ({', '.join(['%s'] * len(columns))})"
+            )
+            for i in range(0, len(assignments), 5000):
+                cur.executemany(insert, assignments[i : i + 5000])
+        self.conn.commit()
+
+    def topics_list(self, level):
+        """Saved topics of a level as dicts, by number."""
+        with self.conn.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute(
+                "SELECT topic, label, description, keywords, size, facts, representatives,"
+                " excerpts, model, built_at FROM topics WHERE level = %s ORDER BY topic",
+                (level,),
+            )
+            rows = list(cur.fetchall())
+        self.conn.commit()
+        return rows
+
+    def topics_set_label(self, level, topic, label, description):
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE topics SET label = %s, description = %s WHERE level = %s AND topic = %s",
+                (label, description, level, topic),
+            )
+        self.conn.commit()
+
     def packages_add(self, name, model, items, chunks, chars):
         """A new open package; items = judgment ids in it."""
         with self.conn.cursor() as cur:

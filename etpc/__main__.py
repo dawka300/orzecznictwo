@@ -8,6 +8,7 @@ from etpc.mcp import EtpcMcp
 from etpc.pipeline import EtpcRag
 from etpc.rag import EtpcRetriever
 from etpc.source import HudocSource
+from etpc.topics import EtpcTopics
 from etpc.verify import verify
 from etpc.web import EtpcWebApp
 from judgments_core.cli import Project, main
@@ -28,6 +29,7 @@ PROJECT = Project(
     mcp=EtpcMcp,
     retriever=EtpcRetriever,
     rag=EtpcRag,
+    topics=EtpcTopics,
 )
 
 if __name__ == "__main__":

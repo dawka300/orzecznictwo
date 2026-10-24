@@ -8,8 +8,9 @@ Z katalogu repo, w PowerShell albo Git Bash. Zamiast `etpc` można wpisać `nsa`
 
 ```
 # Docker: wstawanie i stan
-docker compose up -d                                   # baza (3306), Qdrant (6333), portal http://127.0.0.1:8080
-docker compose ps                                      # co działa
+docker compose ps                                      # co działa (db ma być "Up ... (healthy)")
+docker compose start db qdrant www                     # NAJPIERW, gdy stoją: baza (3306), Qdrant (6333), portal http://127.0.0.1:8080
+docker compose up -d                                   # to samo, gdy kontenerów nie ma (po down); może odtworzyć bazę
 docker compose restart www                             # portal po zmianie kodu
 
 # baza i stan
@@ -51,6 +52,13 @@ docker compose run -d --rm --no-deps --name nsa-wektory www python -m nsa wektor
 docker logs -f nsa-wektory        # podgląd
 docker stop nsa-wektory           # zatrzymaj (wznawialne: to samo polecenie idzie dalej)
 
+# tematy (BERTopic na wektorach; tylko ETPC; nazwy od modelu czatu w LM Studio)
+docker compose run --rm --no-deps www python -m etpc tematy                      # A (orzeczenia) i B (fragmenty THE LAW) + nazwy
+docker compose run --rm --no-deps www python -m etpc tematy --poziom A --bez-nazw   # tylko poziom A, bez modelu czatu
+docker compose run --rm --no-deps www python -m etpc tematy --tylko-nazwy        # nazwij zapisane tematy (po wczytaniu modelu czatu)
+docker compose run --rm --no-deps www python -m etpc tematy --tylko-nazwy --claude claude-sonnet-5-5 --max-usd 3   # nazwy od Claude (API, ~$2)
+docker compose run --rm --no-deps www python -m etpc tematy --lista              # przejrzeć tematy: nazwa, słowa, artykuły, przykładowe sprawy
+
 # szukanie / RAG
 docker compose run --rm --no-deps www python -m etpc fragmenty "odpowiedzialność portalu za komentarze"
 docker compose run --rm --no-deps www python -m nsa zapytaj "czy wiata to budowla?" --limit-znakow 8000
@@ -64,7 +72,7 @@ docker compose run --rm --no-deps www sh -c "ruff format . && ruff check ."
 
 Niżej opis każdego polecenia i każdej opcji.
 
-Wszystko z katalogu repo, Docker Desktop musi działać (`db`, `qdrant`, `www` wstają same).
+Wszystko z katalogu repo, Docker Desktop musi działać, a z nim `db`, `qdrant`, `www` (zwykle wstają same; jeśli `docker compose ps` pokazuje `Exited`, najpierw `docker compose start db qdrant www`).
 Polecenia projektów idą w jednorazowym kontenerze:
 
 ```
@@ -74,7 +82,7 @@ docker compose run --rm --no-deps www python -m <projekt> <polecenie> [opcje]
 `<projekt>` = `etpc` albo `nsa`. W tabelach niżej jest tylko `<polecenie> [opcje]`.
 
 - **`--rm`** = usuń kontener zaraz po zakończeniu polecenia. `run` za każdym razem tworzy nowy, jednorazowy kontener; bez `--rm` po każdym `stan` czy `pobierz` zostaje zatrzymany `...-www-run-<id>` (lista w `docker ps -a`, miejsce na dysku). Logi i dane są poza kontenerem (`logs/www/`, baza, Qdrant), więc nic się nie traci. Wyjątek: po zamknięciu terminala / zabiciu klienta `docker compose` kontener działa dalej, ale `--rm` go już nie usunie (sprzątanie niżej).
-- **`--no-deps`** = nie ruszaj usług, od których zależy `www` (`db`, `qdrant`); uruchom tylko ten kontener. **Zawsze.** Bez tego compose sprawdza `db` i po każdej zmianie usługi `db` w `docker-compose.yml` odtwarza kontener bazy: MariaDB zabita w trakcie pracy (SIGKILL), odzyskiwanie po awarii, wszystkie przebiegi i połączenia zerwane (stało się 2026-10-20). `db` i `qdrant` i tak wstają z Docker Desktop. Skutek uboczny: gdy `db` akurat nie działa, polecenie kończy się błędem połączenia, wtedy `docker compose up -d`.
+- **`--no-deps`** = nie ruszaj usług, od których zależy `www` (`db`, `qdrant`); uruchom tylko ten kontener. **Zawsze.** Bez tego compose sprawdza `db` i po każdej zmianie usługi `db` w `docker-compose.yml` odtwarza kontener bazy: MariaDB zabita w trakcie pracy (SIGKILL), odzyskiwanie po awarii, wszystkie przebiegi i połączenia zerwane (stało się 2026-10-20). `db` i `qdrant` i tak wstają z Docker Desktop. Skutek uboczny: gdy `db` akurat nie działa (np. Docker Desktop wstał, a kontenery nie), polecenie kończy się błędem `Can't connect to MySQL server on 'db' ([Errno -2] Name or service not known)`. Wtedy najpierw `docker compose start db qdrant www`, sprawdzić `docker compose ps` (`db` = `Up ... (healthy)`) i dopiero potem polecenie projektu.
 
 **Sugestia: skrót `orz` w PowerShell** (jeszcze nie dodany do `$PROFILE`). Zamiast całego przedrostka pisze się `orz etpc stan`, `orz nsa pobierz --limit 20` itd.
 ```powershell
@@ -99,7 +107,8 @@ orz etpc stan
 ## Docker: usługi
 | Polecenie | Co robi |
 |---|---|
-| `docker compose up -d` | uruchom `db` (MariaDB 3306), `qdrant` (6333), `www` (portal 8080) |
+| `docker compose start db qdrant www` | włącz zatrzymane `db` (MariaDB 3306), `qdrant` (6333), `www` (portal 8080); nigdy nie odtwarza kontenerów, bezpieczne na co dzień |
+| `docker compose up -d` | to samo, ale tworzy brakujące kontenery (po `down`) i odtwarza te, których konfiguracja w `docker-compose.yml` się zmieniła (dla `db` = przerwane przebiegi i połączenia) |
 | `docker compose ps` | co działa |
 | `docker compose restart www` | portal widzi zmiany w kodzie (przerywa zadania z `exec` w `www-1`) |
 | `docker compose up -d www` | portal z nowym obrazem / nowymi zmiennymi z compose |
@@ -190,6 +199,8 @@ Liczenie paczki u kolegi z kartą NVIDIA: `docker/licz/README.md`, wynajęte GPU
 | `zapytaj "pytanie"` | pełna odpowiedź RAG: fragmenty + model czatu z LM Studio (`<PREFIKS>_CHAT_*`), z cytowaniami `[n]` | `nsa zapytaj "czy wiata to budowla w rozumieniu prawa budowlanego?"` (LM Studio z modelem musi działać; minuty) |
 | `zapytaj "..." --tylko-zrodla` | wypisuje gotowy prompt (polecenie + źródła), modelu nie woła | wkleić prompt do innego czatu albo sprawdzić, czy źródła są dobre, zanim się poczeka na model |
 | `ocen` | dla każdego pytania z `<projekt>/pytania.json`: na którym miejscu jest oczekiwane orzeczenie (MRR) i ile zmieściło się w kontekście; bez modelu, sekundy | po zmianie pokrętła w `judgments_core/rag.py` albo słowniczka: `ocen` przed i po, porównać |
+| `ocen --claude [MODEL]` | Claude (API, płatne) ocenia 0-3 każde z pierwszych orzeczeń kontekstu (do 10) pod kątem pytania, z krótkim uzasadnieniem: średnia ocena, % trafnych (>= 2), nDCG@10, czy „3” jest na 1. miejscu; oceny oczekiwanych = sprawdzian sędziego. Widzi też dobre wyniki spoza listy wzorcowej. Zapis: `<projekt>/database/oceny/<czas>-<model>.json` | przed i po większej zmianie wyszukiwania: `etpc ocen --claude claude-sonnet-5-5 --max-usd 1` (~$0,01 na pytanie) |
+| `ocen --pytania 1,4` | tylko te pytania (numery z pliku), też z `--claude` | |
 | `ocen --plik P` | inne pytania wzorcowe | własny zestaw (ten sam format co `pytania.json`), np. `etpc ocen --plik etpc/pytania-art8.json` |
 | `ocen-odpowiedzi` | wszystkie pytania przez `zapytaj`: czy cytowania istnieją, czy podany wynik sprawy zgadza się z bazą, a model-sędzia sprawdza zdania ze źródłami | ocena nowego modelu czatu (długo: kilka minut na pytanie) |
 | `ocen-odpowiedzi --pytania 1,4,11` | tylko te pytania (numery z pliku) | szybki test na kilku pytaniach zamiast całego zestawu |
@@ -198,6 +209,25 @@ Liczenie paczki u kolegi z kartą NVIDIA: `docker/licz/README.md`, wynajęte GPU
 | `podobne-do plik --ile N` | ile orzeczeń (domyślnie 10) | `--ile 30` |
 | `podobne-do plik --wynik TEKST` | tylko z takim wynikiem (podciąg, bez wielkości liter): przeciwne rozstrzygnięcia tego samego problemu są znaczeniowo tak samo bliskie, więc tu się je rozdziela. Uwaga: `violation` łapie też „No violation” | NSA: `--wynik oddal`, `--wynik uchyl`; ETPC: `--wynik "no violation"` |
 | `mcp` | serwer MCP po stdio: narzędzia `szukaj`, `fragmenty`, `orzeczenie`, `podobne` | ręcznie niepotrzebne: Claude Code / LM Studio uruchamia go sam z `.mcp.json` |
+
+## Tematy (`tematy`, BERTopic: UMAP + HDBSCAN + słowa c-TF-IDF)
+Na razie tylko ETPC. Liczy lokalnie na CPU (minuty do kilkudziesięciu minut). Wektory czyta z Qdranta raz i trzyma w `<projekt>/database/tematy/<kolekcja>/` (~5 GB, poza gitem). Czyta je od nowa, gdy w Qdrancie zmieni się liczba punktów. Każde przeliczenie poziomu zastępuje jego tematy i numery (tabele `topics`, `ruling_topics`, `chunk_topics`).
+
+| Polecenie / opcja | Co daje | Kiedy / przykład |
+|---|---|---|
+| `tematy` | poziom A = tematy orzeczeń (wektor orzeczenia = średnia fragmentów bez zdań odrębnych i sentencji), poziom B = tematy fragmentów części THE LAW (zagadnienia prawne przecinające sprawy); potem nazwy po polsku od modelu czatu | pierwszy raz albo po dużej dostawie nowych wektorów |
+| `--poziom A` / `B` / `oba` | tylko jeden poziom (domyślnie oba) | strojenie jednego poziomu |
+| `--min-temat N` | najmniejszy temat HDBSCAN (domyślnie A 40, B 150): mniej = więcej, drobniejszych tematów | `--poziom A --min-temat 80`, gdy tematów za dużo |
+| `--min-probek N` | `min_samples` HDBSCAN (domyślnie A 10, B 15): więcej = ostrożniej, więcej elementów poza tematami w dopasowaniu (i tak trafiają potem do najbliższego tematu) | |
+| `--probka N` | na ilu elementach dopasować (domyślnie A wszystkie, B 150000; 0 = wszystkie); reszta idzie do najbliższego środka tematu | B na całości: `--poziom B --probka 0` (dużo RAM i czasu) |
+| `--odswiez` | wektory z Qdranta od nowa, bez pamięci podręcznej | gdy liczba punktów się nie zmieniła, a wektory tak (np. `wektory --od-poczatku`) |
+| `--bez-nazw` | bez modelu czatu: tematy mają tylko słowa kluczowe | LM Studio nie ma wczytanego modelu czatu |
+| `--tylko-nazwy` | nic nie liczy, nazywa zapisane tematy bez nazwy (wznawia: każda nazwa zapisuje się od razu) | po `--bez-nazw` albo po przerwaniu |
+| `--tylko-nazwy --nazwy-od-nowa` | nazywa wszystkie od nowa | inny, lepszy model czatu |
+| `--claude [MODEL]` | nazwy od Claude'a przez API zamiast LM Studio (klucz `ANTHROPIC_API_KEY` w `.env`, płatne kredytami z platform.claude.com); bez nazwy modelu = `<PREFIKS>_CLAUDE_MODEL`; na końcu tokeny i szacowany koszt | `tematy --tylko-nazwy --claude claude-sonnet-5-5 --max-usd 3` (424 tematy ETPC ~$2,25; Opus 5.5 ~$4,50) |
+| `--max-usd USD` | z `--claude`: przerywa, gdy szacowany koszt przekroczy kwotę (nazwane zostają, reszta przy następnym `--tylko-nazwy`) | bezpiecznik przy małym saldzie |
+| `--ile N` | nazywa najwyżej N tematów na poziom (największe najpierw) | próba modelu: `--tylko-nazwy --poziom A --ile 5 --claude claude-sonnet-5-5` (~$0,03); porównanie dwóch modeli: drugi raz z `--nazwy-od-nowa` |
+| `--lista` | wypisuje tematy: numer (`A12`), liczba, nazwa, opis, słowa, najczęstsze artykuły i państwa, 3 sprawy najbliższe środkowi | ręczna ocena jakości: `tematy --lista > tematy.txt` |
 
 ## Strony WWW
 | Polecenie | Co robi |

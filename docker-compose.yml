@@ -16,10 +16,12 @@ services:
       - ./docker/mariadb-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     # Bufor InnoDB: domyślne 128 MB to za mało dla ~10 GB ETPC (wyszukiwanie
     # pełnotekstowe czytało z dysku: "court" 45 s). Na hostingu ustawia hosting.
+    # 8G (2026-10-24): teksty + FULLTEXT ETPC w pamięci, hybryda RAG ETPC ~0,6 s na
+    # pytanie zamiast ~61 s przy 4G. Przy 64 GB RAM więcej (NSA).
     command:
       - "--character-set-server=utf8mb4"
       - "--collation-server=utf8mb4_unicode_ci"
-      - "--innodb-buffer-pool-size=4G"
+      - "--innodb-buffer-pool-size=8G"
       # Masowy zapis (przetworz NSA/ETPC, notepad.md "Przyspieszenie przetwarzania"):
       # commit bez fsync na każdą porcję (przebiegi są wznawialne), większy dziennik,
       # tempo zapisu dla SSD, większy bufor FULLTEXT. Pomiar: 2840 -> 4860 rekordów/min.

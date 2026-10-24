@@ -142,6 +142,86 @@ class HttpChat(ChatModel):
         return f"{self.model or '(wczytany)'} ({self.url})"
 
 
+# Ceny Claude za 1 mln tokenów (wejście, wyjście) w USD - tylko do szacunku
+# wydatków i limitu max_usd; aktualne ceny są w cenniku Anthropic.
+CLAUDE_PRICES = {
+    "claude-opus-5-5": (4.0, 20.0),
+    "claude-sonnet-5-5": (2.0, 10.0),
+    "claude-haiku-5-5": (0.10, 0.50),
+}
+# Modele, którym przy odmowie (stop_reason "refusal") API samo podstawia inny
+# model (fallbacks "default"); Haiku tego nie ma.
+CLAUDE_WITH_FALLBACK = ("claude-opus-5-5", "claude-sonnet-5-5", "claude-opus-5", "claude-fable-5-1")
+
+
+class ClaudeChat(ChatModel):
+    """Claude over the Anthropic API (the official SDK, in the www image), for short
+    one-shot tasks such as naming topics: the answer comes whole (no streaming), the
+    tokens and the estimated cost are counted, and past max_usd it stops (ChatError).
+    A refusal gives an empty answer, so the caller skips that one item."""
+
+    name = "claude"
+
+    def __init__(self, model, api_key, *, max_tokens=4000, effort="low", max_usd=0.0, client=None):
+        super().__init__(model)
+        self.api_key = api_key
+        self.max_tokens = max_tokens
+        self.effort = effort
+        self.max_usd = max_usd  # 0 = bez limitu
+        self.client = client
+        self.input_tokens = 0
+        self.output_tokens = 0
+
+    @property
+    def cost_usd(self):
+        price_in, price_out = CLAUDE_PRICES.get(self.model, (0.0, 0.0))
+        return (self.input_tokens * price_in + self.output_tokens * price_out) / 1e6
+
+    def stream(self, messages):
+        import anthropic
+
+        if self.max_usd and self.cost_usd >= self.max_usd:
+            raise ChatError(
+                f"osiągnięty limit wydatków ${self.max_usd:.2f} (wydano ~${self.cost_usd:.2f})"
+            )
+        if self.client is None:
+            self.client = anthropic.Anthropic(api_key=self.api_key, timeout=300.0)
+        system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
+        body = {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "output_config": {"effort": self.effort},
+            "system": system,
+            "messages": [m for m in messages if m["role"] != "system"],
+        }
+        try:
+            if self.model in CLAUDE_WITH_FALLBACK:
+                response = self.client.beta.messages.create(
+                    **body, betas=["server-side-fallback-2026-07-01"], fallbacks="default"
+                )
+            else:
+                response = self.client.messages.create(**body)
+        except anthropic.AuthenticationError as e:
+            raise ChatError("nieprawidłowy klucz API Anthropic") from e
+        except anthropic.PermissionDeniedError as e:
+            raise ChatError(f"klucz API bez uprawnień do modelu {self.model}") from e
+        except anthropic.RateLimitError as e:
+            raise ChatError("limit zapytań Anthropic - spróbuj za chwilę") from e
+        except anthropic.APIStatusError as e:
+            raise ChatError(f"błąd API Anthropic ({e.status_code}): {e.message}") from e
+        except anthropic.APIConnectionError as e:
+            raise ChatError("brak połączenia z API Anthropic") from e
+        self.input_tokens += response.usage.input_tokens
+        self.output_tokens += response.usage.output_tokens
+        if response.stop_reason == "refusal":
+            log.warning("Claude odmówił odpowiedzi (%s)", getattr(response, "stop_details", None))
+            return
+        yield "".join(block.text for block in response.content if block.type == "text")
+
+    def describe(self):
+        return f"Claude {self.model}"
+
+
 def make_chat(settings):
     return HttpChat(
         settings.chat_url,

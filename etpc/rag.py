@@ -5,14 +5,17 @@ filters by state, article, violation ...). Passages come from the version with
 vectors (ENG, else FRE); a ruling without vectors is read in ENG > FRE > any
 other language at the first query word.
 
-Mode: meaning only by default. Long Polish questions turn into several
-required glossary groups of very common phrases ("right to a court", "legal
-aid" ...) and FULLTEXT then takes minutes (max_statement_time doesn't stop it
-in "Fulltext initialization"); on the golden questions meaning alone gave
-the same quality in 1.8 s instead of 61 s (notepad.md, RAG).
+Mode: hybrid (words + meaning) since 2026-10-24. With a 4 GB InnoDB buffer
+long Polish questions (several glossary groups of very common phrases) made
+FULLTEXT read from disk for ~61 s, so meaning alone was the default; with the
+texts and the FULLTEXT index in an 8 GB buffer (docker-compose.yml) a question
+takes ~0.6 s, and on the golden questions MRR went 0.474 -> 0.740 (notepad.md).
+With a small buffer go back to mode = "znaczeniowe".
 """
 
 from __future__ import annotations
+
+from dataclasses import fields, replace
 
 from etpc import labels, search
 from etpc.labels import label
@@ -25,18 +28,61 @@ HUDOC_URL = "https://hudoc.echr.coe.int/eng?i={}"
 LANGUAGES = ("ENG", "FRE")
 # Części wniosków HUDOC pomijane w wyniku sprawy (zadośćuczynienie, koszty).
 DAMAGES = ("pecuniary", "non-pecuniary", "costs", "just satisfaction", "dommage", "frais")
+# Pola zapytania będące filtrami: z nimi cytowane orzeczenia nie dołączają (np. inne państwo).
+FILTER_FIELDS = tuple(
+    f.name
+    for f in fields(search.SearchQuery)
+    if f.name not in ("text", "translate", "sort", "page", "mode", "page_size")
+)
 
 
 class EtpcRetriever(Retriever):
     query_class = search.SearchQuery
-    mode = "znaczeniowe"
+    mode = ""  # hybrydowe; wymaga bufora InnoDB z całym ETPC (wyżej)
     last_parts = ("opinia",)  # zdania odrębne/zbieżne sędziów
     semantic_class = EtpcSemantic
+    # Orzeczenia cytowane przez >= 3 z 20 najlepszych wyników dołączają (ruling_links):
+    # Salduz, Soering, Opuz wychodzą, choć ich tekst brzmi mniej jak pytanie
+    # (pytania-panstwa.json: MRR 0,527 -> 0,725; sędzia na 12 pytaniach: nDCG 0,867 -> 0,898).
+    cited_weight = 1.0
 
     def ranking(self, cur, query):
+        # Dwie strony: po zwinięciu etapów jednej skargi zostaje dość kandydatów.
+        query = replace(query, page_size=2 * search.PAGE_SIZE)
         result = search.search(cur, query, self.semantic)
         pattern = search.highlight_pattern(result.terms.highlight) if result.terms else None
         return Ranking(result.hits, pattern, result.mode, result.notice)
+
+    def twin_keys(self, hit):
+        """Stages of one case have the same set of application numbers (admissibility
+        decision, chamber, grand chamber, just satisfaction ...). The whole set, not any
+        shared number: HUDOC lists both applications on the admissibility decisions of
+        Staroszczyk and Siałkowska v. Poland, which would glue two cases into one."""
+        return (tuple(sorted(set(hit.appnos))),) if hit.appnos else ()
+
+    def twin_rank(self, hit):
+        """Judgments before decisions, the Grand Chamber first, then the weightier, the later."""
+        return (
+            hit.kind != "judgment",
+            "GRAND" not in (hit.formation or "").upper(),
+            hit.tier or "Z",
+            -(hit.ruling_date.toordinal() if hasattr(hit.ruling_date, "toordinal") else 0),
+        )
+
+    def twin_label(self, hit):
+        return f"{label(labels.KINDS, hit.kind)} z {hit.ruling_date}"
+
+    def cited_by(self, cur, ids):
+        cur.execute(
+            "SELECT cited_id, COUNT(*) n FROM ruling_links WHERE citing_id IN %s"
+            " GROUP BY cited_id ORDER BY n DESC, cited_id LIMIT 50",
+            (list(ids),),
+        )
+        return cur.fetchall()
+
+    def filtered(self, query):
+        default = search.SearchQuery()
+        return any(getattr(query, f) != getattr(default, f) for f in FILTER_FIELDS)
 
     def hits(self, cur, ids):
         return search._hits(cur, list(ids))

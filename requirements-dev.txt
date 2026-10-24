@@ -14,3 +14,6 @@ tzdata
 # Serwer MCP (python -m etpc|nsa mcp): baza jako narzędzia dla Claude'a;
 # wymaga Pythona 3.10+, dlatego tylko lokalnie
 mcp>=2.3
+# Tematy orzeczeń (python -m etpc|nsa tematy): UMAP + HDBSCAN + c-TF-IDF;
+# kompilowane zależności (numba, hdbscan) - tylko lokalnie, nie na hostingu
+bertopic

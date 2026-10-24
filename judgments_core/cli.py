@@ -17,6 +17,8 @@ python -m etpc zapytaj "pytanie"        # odpowiedź modelu lokalnego (LM Studio
 python -m etpc ocen-odpowiedzi          # odpowiedzi na pytania wzorcowe + automatyczna ocena
 python -m nsa paczki --ile 2            # paczki fragmentów do policzenia na innym komputerze
 python -m nsa paczka-import nsa-0001    # wektory policzone gdzie indziej -> Qdrant
+python -m etpc tematy                   # tematy orzeczeń (A) i fragmentów (B), BERTopic, nazwy od modelu czatu
+python -m etpc tematy --lista           # zapisane tematy do przejrzenia
 
 Każdy przebieg pobierz/przetworz/sprawdz zapisuje się w fetch_runs, blokady
 i błędy źródła w fetch_events, rekordy z problemem w record_problems.
@@ -76,6 +78,8 @@ class Project:
     retriever: type | None = None
     # klasa potomna judgments_core.pipeline.RagPipeline: polecenie zapytaj; None = brak
     rag: type | None = None
+    # klasa potomna judgments_core.topics.TopicModel: polecenie tematy; None = brak
+    topics: type | None = None
 
 
 def build_parser(project):
@@ -200,6 +204,24 @@ def build_parser(project):
         "ocen", help="trafność fragmentów na pytaniach wzorcowych (<projekt>/pytania.json)"
     )
     evaluate.add_argument("--plik", dest="path", help="plik z pytaniami (JSON)")
+    evaluate.add_argument("--pytania", dest="picks", help="numery pytań, np. 1,4,11")
+    evaluate.add_argument(
+        "--claude",
+        dest="claude",
+        nargs="?",
+        const="",
+        metavar="MODEL",
+        help="Claude ocenia 0-3 trafność 10 pierwszych wyników każdego pytania (API, płatne;"
+        " model domyślnie z <PREFIKS>_CLAUDE_MODEL, np. --claude claude-sonnet-5-5)",
+    )
+    evaluate.add_argument(
+        "--max-usd",
+        dest="max_usd",
+        type=float,
+        default=0.0,
+        metavar="USD",
+        help="z --claude: przerwij, gdy szacowany koszt przekroczy tyle dolarów (0 = bez limitu)",
+    )
     check = commands.add_parser(
         "ocen-odpowiedzi",
         help="odpowiedzi modelu na pytania wzorcowe: cytowania, wynik sprawy, model-sędzia",
@@ -264,6 +286,87 @@ def build_parser(project):
     commands.add_parser(
         "kopia", help="zrzut bazy do <PREFIKS>_BACKUP_DIR (też sam po pobierz/przetworz)"
     )
+    topics = commands.add_parser(
+        "tematy",
+        help="tematy orzeczeń (A) i fragmentów (B): BERTopic na wektorach, nazwy od modelu czatu",
+    )
+    topics.add_argument(
+        "--poziom",
+        dest="level",
+        choices=("A", "B", "oba"),
+        default="oba",
+        help="A = całe orzeczenia, B = fragmenty (domyślnie oba)",
+    )
+    topics.add_argument(
+        "--min-temat",
+        dest="min_cluster_size",
+        type=int,
+        help="najmniejszy temat HDBSCAN (domyślnie A 40, B 150; mniej = więcej, drobniejszych)",
+    )
+    topics.add_argument(
+        "--min-probek",
+        dest="min_samples",
+        type=int,
+        help="min_samples HDBSCAN (domyślnie A 10, B 15; więcej = ostrożniej, więcej odstających)",
+    )
+    topics.add_argument(
+        "--probka",
+        dest="sample",
+        type=int,
+        help="na ilu elementach dopasować (domyślnie A wszystkie, B 150000; 0 = wszystkie);"
+        " reszta idzie do najbliższego tematu",
+    )
+    topics.add_argument(
+        "--odswiez",
+        dest="refresh",
+        action="store_true",
+        help="przeczytaj wektory z Qdranta od nowa (bez pamięci podręcznej)",
+    )
+    topics.add_argument(
+        "--bez-nazw",
+        dest="no_names",
+        action="store_true",
+        help="nie pytaj modelu czatu o nazwy (potem: --tylko-nazwy)",
+    )
+    topics.add_argument(
+        "--tylko-nazwy",
+        dest="names_only",
+        action="store_true",
+        help="nie licz tematów; nazwij zapisane, które nie mają nazwy",
+    )
+    topics.add_argument(
+        "--nazwy-od-nowa",
+        dest="rename",
+        action="store_true",
+        help="z --tylko-nazwy: nazwij wszystkie, także już nazwane",
+    )
+    topics.add_argument(
+        "--claude",
+        dest="claude",
+        nargs="?",
+        const="",
+        metavar="MODEL",
+        help="nazwy od Claude'a przez API (klucz ANTHROPIC_API_KEY w .env) zamiast LM Studio;"
+        " model domyślnie z <PREFIKS>_CLAUDE_MODEL, np. --claude claude-sonnet-5-5",
+    )
+    topics.add_argument(
+        "--ile",
+        dest="name_limit",
+        metavar="N",
+        type=int,
+        help="nazwij najwyżej tyle tematów na poziom (największe najpierw), np. próba modelu",
+    )
+    topics.add_argument(
+        "--max-usd",
+        dest="max_usd",
+        metavar="USD",
+        type=float,
+        default=0.0,
+        help="z --claude: przerwij, gdy szacowany koszt przekroczy tyle dolarów (0 = bez limitu)",
+    )
+    topics.add_argument(
+        "--lista", dest="listing", action="store_true", help="wypisz zapisane tematy"
+    )
     return parser
 
 
@@ -325,6 +428,8 @@ def main(project, argv=None, settings=None):
             return _package_import(project, settings, args)
         if args.command == "kopia":
             return _backup(project, settings, required=True)
+        if args.command == "tematy":
+            return _topics(project, settings, args)
         return _status(project, settings, args)
     except db.LockedError as e:
         log.info("%s Kończę.", e)  # zwykła sytuacja przy cronie, nie błąd
@@ -641,10 +746,47 @@ def _evaluate(project, settings, args):
 
     path = Path(args.path) if args.path else project.migrations.parent / "pytania.json"
     questions = evaluation.load(path)
+    if args.picks:
+        questions = [questions[int(n) - 1] for n in args.picks.split(",")]
     retriever = _retriever(project, settings)
+    if args.claude is not None:
+        return _judge_relevance(project, settings, args, retriever, questions)
     with db.connect(settings.db_dsn, autocommit=True) as conn, conn.cursor() as cur:
         scores = evaluation.evaluate(retriever, cur, questions, args.budget_chars)
     print("\n".join(evaluation.report(scores)))
+    return 0
+
+
+def _claude_chat(settings, model, max_usd):
+    from judgments_core import claude_report
+    from judgments_core.chat import ClaudeChat
+
+    key = claude_report.api_key(settings)
+    if not key:
+        raise RuntimeError("brak klucza API Anthropic (ANTHROPIC_API_KEY w .env)")
+    return ClaudeChat(model or settings.claude_model, key, max_usd=max_usd)
+
+
+def _judge_relevance(project, settings, args, retriever, questions):
+    from datetime import datetime, timezone
+
+    from judgments_core import relevance
+
+    chat = _claude_chat(settings, args.claude, args.max_usd)
+    log.info("sędzia trafności: %s, %d pytań", chat.describe(), len(questions))
+    with db.connect(settings.db_dsn, autocommit=True) as conn, conn.cursor() as cur:
+        judged = relevance.judge(retriever, cur, chat, questions, budget_chars=args.budget_chars)
+    print("\n".join(relevance.report(judged, chat.model)))
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    out = project.migrations.parent / "database" / "oceny" / f"{stamp}-{chat.model}.json"
+    relevance.save(judged, out, chat.model)
+    log.info(
+        "Oceny zapisane: %s; Claude: %d tokenów wejścia, %d wyjścia, szacunkowo $%.2f",
+        out,
+        chat.input_tokens,
+        chat.output_tokens,
+        chat.cost_usd,
+    )
     return 0
 
 
@@ -718,6 +860,79 @@ def _check_answers(project, settings, args):
     )
     answer_eval.save(checks, out, model, note)
     log.info("Odpowiedzi zapisane: %s", out)
+    return 0
+
+
+def _topics(project, settings, args):
+    from judgments_core.chat import ClaudeChat, make_chat
+
+    if project.topics is None:
+        raise NotImplementedError(f"projekt {project.name} nie ma jeszcze tematów")
+    levels = ("A", "B") if args.level == "oba" else (args.level,)
+    collection = settings.qdrant_collection or collection_name(project.name, settings.embed_model)
+    vectors = QdrantStore(settings.qdrant_url, collection, settings.embed_model)
+    cache = project.migrations.parent / "database" / "tematy" / collection
+    if args.listing:
+        with db.connect(settings.db_dsn) as conn:
+            model = project.topics(conn, vectors, cache, settings.embed_model)
+            for level in levels:
+                print("\n".join(model.listing(level)))
+                print()
+        return 0
+    with _logged_run(project, settings, "tematy", lock=f"{project.name}:tematy") as (store, run):
+        model = project.topics(
+            store.conn, vectors, cache, settings.embed_model, refresh=args.refresh
+        )
+        if not args.names_only:
+            for level in levels:
+                built = model.build(
+                    level,
+                    min_cluster_size=args.min_cluster_size,
+                    min_samples=args.min_samples,
+                    sample=args.sample,
+                )
+                log.info(
+                    "poziom %s: %d tematów z %d elementów (próbka %d, odstające w próbce %.0f%%,"
+                    " średnie podobieństwo do środka %.3f)",
+                    level,
+                    built.topics,
+                    built.items,
+                    built.sample,
+                    built.outliers * 100,
+                    built.mean_score,
+                )
+                run.counts["records"] = run.counts.get("records", 0) + built.items
+        if not args.no_names:
+            if args.claude is None:
+                chat, suffix = make_chat(settings), settings.chat_suffix
+            else:
+                chat = _claude_chat(settings, args.claude, args.max_usd)
+                suffix = ""  # /no_think itp. tylko dla modeli lokalnych
+            log.info("nazwy tematów: %s", chat.describe())
+            for level in levels:
+                named, left = model.name_topics(
+                    chat,
+                    level,
+                    suffix=suffix,
+                    only_missing=not args.rename,
+                    limit=args.name_limit,
+                )
+                log.info("poziom %s: nazwanych %d tematów", level, named)
+                if left:
+                    log.warning(
+                        "Bez nazwy zostało %d tematów: popraw przyczynę wyżej (model czatu w LM"
+                        " Studio, klucz, limit) i uruchom tematy --tylko-nazwy",
+                        left,
+                    )
+                    break
+            if isinstance(chat, ClaudeChat):
+                log.info(
+                    "Claude: %d tokenów wejścia, %d wyjścia, szacunkowo $%.2f",
+                    chat.input_tokens,
+                    chat.output_tokens,
+                    chat.cost_usd,
+                )
+    log.info("Tematy do przejrzenia: python -m %s tematy --lista", project.name)
     return 0
 
 

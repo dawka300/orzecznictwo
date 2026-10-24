@@ -117,6 +117,14 @@ class Retriever(ABC):
     # Części orzeczenia, których fragmenty idą na koniec kolejki w orzeczeniu (np. zdania
     # odrębne: nie mogą wypierać uzasadnienia sądu); zostają, gdy innych nie ma.
     last_parts = ()
+    # Orzeczenia często cytowane przez najlepsze wyniki dołączają do rankingu (with_cited):
+    # waga ich listy w rrf (0 = wyłączone), ile wyników „głosuje”, od ilu cytujących.
+    cited_weight = 0.0
+    cited_from = CANDIDATES
+    cited_min = 3
+    # Reranker (gdy włączony): tyle pierwszych fragmentów orzeczenia ocenia, 0 = wszystkie.
+    # 1 = najlepszy fragment według wektorów: ~3x mniej par, czyli ~3x szybciej na CPU.
+    rerank_passages = 1
 
     def __init__(self, semantic=None, reranker=None):
         self.semantic = semantic
@@ -154,6 +162,67 @@ class Retriever(ABC):
         """The case's outcome from the metadata ("" = unknown); checked against answers."""
         return ""
 
+    def cited_by(self, cur, ids):
+        """[(judgment id, how many of ids cite it)], most cited first; [] = the project
+        has no citations (the default)."""
+        return []
+
+    def filtered(self, query):
+        """Whether the query has filters (state, article ...): cited judgments are then not
+        added, they could break them."""
+        return False
+
+    def with_cited(self, cur, query, hits):
+        """The search hits fused (rrf) with the judgments the best of them cite most:
+        a leading case worded unlike the question (Salduz, Soering) is cited by the
+        smaller cases that are found. Off when cited_weight is 0."""
+        if not self.cited_weight or self.filtered(query) or not hits:
+            return hits
+        top = [hit.id for hit, _ in self.collapse(hits)][: self.cited_from]
+        cited = [i for i, n in self.cited_by(cur, top) if n >= self.cited_min]
+        if not cited:
+            return hits
+        by_id = {hit.id: hit for hit in hits}
+        new = [i for i in cited if i not in by_id]
+        if new:
+            by_id.update({hit.id: hit for hit in self.hits(cur, new)})
+        scores = rrf(([hit.id for hit in hits], cited), weights=(1.0, self.cited_weight))
+        order = sorted((i for i in scores if i in by_id), key=lambda i: -scores[i])
+        return [by_id[i] for i in order]
+
+    def twin_keys(self, hit):
+        """Keys of the case a hit belongs to (e.g. application numbers): hits sharing one
+        are stages of one case (admissibility, chamber, grand chamber ...), and only the
+        preferred one goes into the context. Empty = not collapsed (the default)."""
+        return ()
+
+    def twin_rank(self, hit):
+        """Which stage of a case stays: the lowest; ties keep the search order."""
+        return 0
+
+    def twin_label(self, hit):
+        """How another stage of the case is named next to the one kept."""
+        return self.describe(hit, "")[0]
+
+    def collapse(self, hits):
+        """[(hit, [its twins])] in search order: each case at the place of its best-ranked
+        stage, represented by its preferred stage (twin_rank)."""
+        groups, owner = [], {}
+        for hit in hits:
+            keys = [k for k in self.twin_keys(hit) if k]
+            found = next((owner[k] for k in keys if k in owner), None)
+            if found is None:
+                found = len(groups)
+                groups.append([])
+            groups[found].append(hit)
+            for k in keys:
+                owner.setdefault(k, found)
+        out = []
+        for group in groups:
+            kept = min(group, key=self.twin_rank)  # min: pierwszy przy remisie
+            out.append((kept, [h for h in group if h is not kept]))
+        return out
+
     def query(self, text, **filters):
         filters = {k: v for k, v in filters.items() if k != "mode" or v}
         return self.query_class(text=text, **{"mode": self.mode, **filters})
@@ -162,7 +231,10 @@ class Retriever(ABC):
         """The best passages for query.text with the query's filters, packed."""
         budget = budget_chars or self.budget_chars
         ranking = self.ranking(cur, query)
-        hits = ranking.hits[: self.candidates]
+        # Etapy jednej sprawy zwinięte: zwolnione miejsca biorą kolejne orzeczenia.
+        collapsed = self.collapse(self.with_cited(cur, query, ranking.hits))
+        twins = {hit.id: others for hit, others in collapsed}
+        hits = [hit for hit, _ in collapsed][: self.candidates]
         notice = ranking.notice
         passages = {}
         if self.semantic is not None and hits and query.text.strip():
@@ -185,7 +257,7 @@ class Retriever(ABC):
             for i, (_, _, _, body) in found.items()
         }
         order = list(found)
-        ranked = [h.id for h in ranking.hits]
+        ranked = [hit.id for hit, _ in collapsed]
         if self.reranker is not None and candidates:
             try:
                 order = self._rerank(query.text, found, candidates)
@@ -197,6 +269,9 @@ class Retriever(ABC):
         for judgment_id, picks in chosen:
             hit, document, language, body = found[judgment_id]
             title, details, url = self.describe(hit, document)
+            if twins.get(judgment_id):
+                stages = "; ".join(self.twin_label(t) for t in twins[judgment_id])
+                details = f"{details}; inne etapy tej sprawy: {stages}"
             spans = [candidates[judgment_id][k] for k in picks]
             fragments = [
                 Fragment(c.start, c.end, c.heading, body[c.start : c.end].strip())
@@ -313,16 +388,21 @@ class Retriever(ABC):
         )
 
     def _rerank(self, question, found, candidates):
-        """Score every candidate passage; candidates sorted in place, judgments by their
-        best passage (a tie keeps the search order)."""
-        pairs = [(i, c, found[i][3][c.core[0] : c.core[1]]) for i in found for c in candidates[i]]
+        """Score the first rerank_passages candidate passages of each judgment (0 = all);
+        those sorted in place, judgments by their best passage (a tie keeps the search
+        order)."""
+        n = self.rerank_passages or None
+        pairs = [
+            (i, c, found[i][3][c.core[0] : c.core[1]]) for i in found for c in candidates[i][:n]
+        ]
         scores = self.reranker.scores(question, [text for _, _, text in pairs])
         best = {}
         for (i, c, _), score in zip(pairs, scores):
             c.score = score
             best[i] = max(best.get(i, score), score)
         for i in found:
-            candidates[i].sort(key=lambda c: -c.score)
+            # Tylko ocenione między sobą: nieocenione mają score 0, a ocena bywa ujemna.
+            candidates[i][:n] = sorted(candidates[i][:n], key=lambda c: -c.score)
         position = {i: n for n, i in enumerate(found)}
         return sorted(found, key=lambda i: (-best[i], position[i]))
 

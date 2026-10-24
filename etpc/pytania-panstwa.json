@@ -1,0 +1,42 @@
+[
+  {
+    "pytanie": "Polska policja wiedziała o groźbach męża wobec żony i nic nie zrobiła - czy państwo odpowiada za przemoc domową?",
+    "oczekiwane": ["33401/02"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Polski pracodawca czytał prywatne wiadomości pracownika na służbowym komunikatorze i go zwolnił",
+    "oczekiwane": ["61496/08"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Czy polski portal internetowy odpowiada za obraźliwe komentarze czytelników pod artykułem?",
+    "oczekiwane": ["64569/09"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Polska policja przechowuje DNA i odciski palców osób uniewinnionych - czy to narusza prywatność?",
+    "oczekiwane": ["30562/04"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Zatrzymany w Polsce był przesłuchany przez policję bez adwokata i jego wyjaśnienia posłużyły do skazania",
+    "oczekiwane": ["36391/02"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Polski sąd nakazał dziennikarzowi ujawnić źródło informacji pod groźbą kary",
+    "oczekiwane": ["17488/90"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Czy w Polsce można zakazać zasłaniania twarzy w miejscach publicznych, np. noszenia burki?",
+    "oczekiwane": ["43835/11"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Ekstradycja z Polski do państwa, w którym grozi kara śmierci i wieloletnie oczekiwanie w celi śmierci",
+    "oczekiwane": ["14038/88"],
+    "filtry": {}
+  }
+]

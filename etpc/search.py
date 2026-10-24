@@ -201,6 +201,7 @@ class SearchQuery:
     sort: str = ""
     page: int = 1
     mode: str = ""  # "" hybrydowe / pelnotekstowe / znaczeniowe
+    page_size: int = PAGE_SIZE  # RAG bierze więcej (zwijanie etapów jednej sprawy)
 
 
 @dataclass
@@ -303,7 +304,7 @@ def _hybrid(cur, q, semantic):
     if q.sort and ids:
         ids = [row[0] for row in _run(cur, *_ids_query(q, None, only_ids=ids, top=len(ids)))]
     page = max(q.page, 1)
-    hits = _hits(cur, ids[(page - 1) * PAGE_SIZE : page * PAGE_SIZE])
+    hits = _hits(cur, ids[(page - 1) * q.page_size : page * q.page_size])
     for hit in hits:
         hit.score = scores[hit.id]
     found_by_meaning = set(by_meaning)
@@ -441,7 +442,7 @@ def _ids_query(q, terms, only_ids=None, top=None):
     if top is not None:
         return sql, args + [top, 0]
     page = max(q.page, 1)
-    return sql, args + [PAGE_SIZE, (page - 1) * PAGE_SIZE]
+    return sql, args + [q.page_size, (page - 1) * q.page_size]
 
 
 def _like_prefix(text):

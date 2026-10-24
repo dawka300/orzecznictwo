@@ -157,6 +157,22 @@ class QdrantStore:
         )
         return [(p["payload"].get("part", ""), p["vector"]) for p in result["points"]]
 
+    def scroll(self, payload, exclude=None, page=1000):
+        """Every point (payload fields, vector), page after page; exclude as in search."""
+        body = {"limit": page, "with_payload": list(payload), "with_vector": True}
+        if exclude:
+            body["filter"] = {"must_not": [_condition(f, v) for f, v in exclude.items()]}
+        offset = None
+        while True:
+            if offset is not None:
+                body["offset"] = offset
+            result = self._call("POST", "/points/scroll", body)
+            for p in result["points"]:
+                yield p["payload"], p["vector"]
+            offset = result.get("next_page_offset")
+            if offset is None:
+                return
+
     @staticmethod
     def _query(vector, k, filters, exclude):
         body = {

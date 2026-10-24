@@ -174,10 +174,11 @@ def _why(error, command):
     )
 
 
-def rrf(rankings, k=RRF_K):
-    """Reciprocal rank fusion: {id: score} from ranked id lists (a high place in both wins)."""
+def rrf(rankings, k=RRF_K, weights=None):
+    """Reciprocal rank fusion: {id: score} from ranked id lists (a high place in both wins);
+    weights = one per list (default 1)."""
     scores = {}
-    for ranking in rankings:
+    for ranking, weight in zip(rankings, weights or [1.0] * len(rankings)):
         for rank, item in enumerate(ranking):
-            scores[item] = scores.get(item, 0.0) + 1 / (k + rank + 1)
+            scores[item] = scores.get(item, 0.0) + weight / (k + rank + 1)
     return scores

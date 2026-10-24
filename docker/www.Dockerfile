@@ -28,6 +28,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends mariadb-client 
 RUN pip install --no-cache-dir "pypdf>=5"
 # Raport Claude w analizie dokumentu (opcjonalnie: klucz ANTHROPIC_API_KEY w .env).
 RUN pip install --no-cache-dir anthropic
+# Tematy orzeczeń (python -m etpc|nsa tematy): BERTopic = UMAP + HDBSCAN + c-TF-IDF.
+RUN pip install --no-cache-dir bertopic
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HF_HUB_DISABLE_TELEMETRY=1
 CMD ["python", "-m", "portal", "--host", "0.0.0.0", "--port", "8080"]

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from judgments_core.chat import ChatError, ChatModel, HttpChat, without_thinking
+from judgments_core.chat import ChatError, ChatModel, ClaudeChat, HttpChat, without_thinking
 from judgments_core.pipeline import RagPipeline, check_citations
 from judgments_core.rag import Fragment, Reference, Retrieval
 
@@ -145,3 +145,48 @@ def test_reasoning_effort_and_thinking_that_ate_the_limit():
     plain = Session(post=Response(lines=sse("ok")))
     HttpChat("http://h/v1/chat/completions", "m", session=plain).complete([])
     assert "reasoning_effort" not in plain.posted[0][1]
+
+
+class FakeClaude:
+    """Anthropic client stand-in: records requests, answers with fixed usage."""
+
+    def __init__(self, text="NAZWA: Ekstradycja", stop_reason="end_turn"):
+        self.requests = []
+        self.text = text
+        self.stop_reason = stop_reason
+        self.messages = self  # client.messages.create
+        self.beta = self  # client.beta.messages.create
+
+    def create(self, **body):
+        from types import SimpleNamespace
+
+        self.requests.append(body)
+        return SimpleNamespace(
+            usage=SimpleNamespace(input_tokens=1_000_000, output_tokens=100_000),
+            stop_reason=self.stop_reason,
+            content=[
+                SimpleNamespace(type="thinking"),
+                SimpleNamespace(type="text", text=self.text),
+            ],
+        )
+
+
+def test_claude_chat_counts_cost_and_stops_at_the_limit():
+    client = FakeClaude()
+    chat = ClaudeChat("claude-sonnet-5-5", "key", max_usd=3.0, client=client)
+    messages = [{"role": "system", "content": "S"}, {"role": "user", "content": "U"}]
+    assert chat.complete(messages) == "NAZWA: Ekstradycja"
+    request = client.requests[0]
+    assert request["system"] == "S" and request["messages"] == [{"role": "user", "content": "U"}]
+    assert request["fallbacks"] == "default" and request["output_config"] == {"effort": "low"}
+    assert chat.cost_usd == pytest.approx(3.0)  # 1M x $2 + 0.1M x $10
+    with pytest.raises(ChatError, match="limit"):
+        chat.complete(messages)
+    assert len(client.requests) == 1
+
+
+def test_claude_chat_without_fallback_for_haiku_and_empty_on_refusal():
+    client = FakeClaude(stop_reason="refusal")
+    chat = ClaudeChat("claude-haiku-5-5", "key", client=client)
+    assert chat.complete([{"role": "user", "content": "U"}]) == ""
+    assert "fallbacks" not in client.requests[0]

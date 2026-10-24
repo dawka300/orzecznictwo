@@ -167,8 +167,13 @@ def test_reranker_reorders_judgments_and_passages():
     start = BODY_A.index("Paragraph 30")
     semantic = FakeSemantic({1: [passage(1, start, 120), passage(1, 0, 60)]})
     reranker = FakeReranker()
-    result = FakeRetriever(semantic, reranker).retrieve(None, Query("refusal"), budget_chars=5_000)
-    question, texts = reranker.calls[0]
+    light = FakeRetriever(semantic, reranker).retrieve(None, Query("refusal"), budget_chars=5_000)
+    assert len(reranker.calls[0][1]) == 2  # domyślnie najlepszy fragment A + okno B
+    assert [s.judgment_id for s in light.sources] == [2, 1]
+    retriever = FakeRetriever(semantic, reranker)
+    retriever.rerank_passages = 0  # wszystkie fragmenty
+    result = retriever.retrieve(None, Query("refusal"), budget_chars=5_000)
+    question, texts = reranker.calls[1]
     assert question == "refusal" and len(texts) == 3  # 2 fragmenty A + okno B
     assert texts[0] == BODY_A[start : start + 120]  # ocenia sam fragment, bez poszerzenia
     assert [s.judgment_id for s in result.sources] == [2, 1]  # B mówi "refused"
@@ -301,3 +306,77 @@ def test_like_text_fuses_own_chunks_and_filters_by_result():
     assert "Twój tekst: 2 fragmentów" in result.notice
     only = retriever.like_text(None, text, NsaChunker(), k=5, result_contains="oddal")
     assert [s.judgment_id for s in only.sources] == [3]
+
+
+@dataclass
+class StageHit:
+    id: int
+    title: str
+    appnos: tuple
+    rank: int = 0
+
+
+class StagesRetriever(FakeRetriever):
+    """Hits 1 and 3 are stages of one case (application 1/01, 3 preferred); 2 is another."""
+
+    def ranking(self, cur, query):
+        hits = [
+            StageHit(1, "A (chamber)", ("1/01",), rank=1),
+            StageHit(2, "B v. Poland", ("2/02",)),
+            StageHit(3, "A (grand chamber)", ("1/01", "9/09"), rank=0),
+        ]
+        return Ranking(hits, re.compile("cassation"))
+
+    def bodies(self, cur, wanted):
+        return {i: (f"001-{i}", "ENG", BODY_A if i != 2 else BODY_B) for i in wanted}
+
+    def twin_keys(self, hit):
+        return hit.appnos
+
+    def twin_rank(self, hit):
+        return hit.rank
+
+
+def test_stages_of_one_case_take_one_place_in_the_context():
+    retriever = StagesRetriever()
+    result = retriever.retrieve(None, Query("legal aid cassation"), budget_chars=5_000)
+    # Sprawa na miejscu swojego najlepszego etapu, reprezentowana przez etap preferowany.
+    assert [s.judgment_id for s in result.sources] == [3, 2]
+    assert result.ranked == [3, 2]
+    assert result.sources[0].details == "wyrok; inne etapy tej sprawy: A (chamber)"
+    assert result.sources[1].details == "wyrok"
+    # Bez kluczy (domyślnie) nic się nie zwija.
+    assert [h.id for h, twins in FakeRetriever().collapse(retriever.ranking(None, None).hits)] == [
+        1,
+        2,
+        3,
+    ]
+
+
+class CitingRetriever(FakeRetriever):
+    """Hits 1, 2 found; both cite 7 (a leading case the search missed), only 1 cites 8."""
+
+    cited_weight = 1.0
+    cited_min = 2
+
+    def bodies(self, cur, wanted):
+        return {i: (f"001-{i}", "ENG", BODY_A) for i in wanted}
+
+    def cited_by(self, cur, ids):
+        return [(7, 2), (8, 1)]
+
+    def hits(self, cur, ids):
+        return [Hit(i, f"Leading {i}") for i in ids]
+
+    def filtered(self, query):
+        return bool(query.respondent)
+
+
+def test_leading_case_cited_by_the_hits_joins_the_ranking():
+    retriever = CitingRetriever()
+    result = retriever.retrieve(None, Query("legal aid cassation"), budget_chars=20_000)
+    assert result.ranked[:3] == [1, 7, 2]  # 7 pierwsze na liście cytowanych: remis z 1, przed 2
+    assert 8 not in result.ranked  # za mało cytujących
+    assert "Leading 7" in [s.title for s in result.sources]
+    # Z filtrem (np. państwo) nic nie dołącza: cytowane mogłyby go łamać.
+    assert retriever.retrieve(None, Query("legal aid", respondent="POL")).ranked == [1, 2]
