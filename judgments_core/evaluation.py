@@ -6,6 +6,10 @@ judgments that should be found, named by keys the project understands
 
 [{"pytanie": "...", "oczekiwane": ["8932/05", "59519/00"], "filtry": {"respondent": "POL"}}]
 
+Optional "szum": keys of judgments that came up for the question and must not
+(off-topic, e.g. famous cases pulled in by citations): reported when they get
+into the context, and kept as hard negatives for fine-tuning.
+
 For each question: the place of each expected judgment in the search ranking
 and whether it made it into the packed context. Summary: found at place 1 /
 in the top 5 / in the context, MRR (1 / place of the first expected
@@ -24,6 +28,7 @@ class Question:
     text: str
     expected: list
     filters: dict = field(default_factory=dict)
+    noise: list = field(default_factory=list)  # klucze orzeczeń niepożądanych („szum”)
 
 
 @dataclass
@@ -36,6 +41,7 @@ class Score:
     chars: int
     mode: str
     error: str = ""
+    noise_in_context: list = field(default_factory=list)  # klucze szumu, które weszły
 
     @property
     def first(self):
@@ -47,7 +53,10 @@ class Score:
 def load(path):
     with open(path, encoding="utf-8") as f:
         items = json.load(f)
-    return [Question(q["pytanie"], q["oczekiwane"], q.get("filtry") or {}) for q in items]
+    return [
+        Question(q["pytanie"], q["oczekiwane"], q.get("filtry") or {}, q.get("szum") or [])
+        for q in items
+    ]
 
 
 def evaluate(retriever, cur, questions, budget_chars=None):
@@ -70,7 +79,11 @@ def evaluate(retriever, cur, questions, budget_chars=None):
                 continue
             places[key] = min((place[i] for i in ids if i in place), default=0)
             in_context[key] = bool(ids & context)
-        scores.append(Score(q, places, in_context, unknown, seconds, result.chars, result.mode))
+        noise = retriever.expected(cur, q.noise) if q.noise else {}
+        noisy = [k for k, ids in noise.items() if ids and ids & context]
+        scores.append(
+            Score(q, places, in_context, unknown, seconds, result.chars, result.mode, "", noisy)
+        )
     return scores
 
 
@@ -89,6 +102,8 @@ def report(scores):
         lines.append(f"    {found}  ({s.mode or '?'}, {s.seconds:.1f} s, kontekst {s.chars} zn.)")
         if s.unknown:
             lines.append(f"    brak w bazie: {', '.join(s.unknown)}")
+        if s.noise_in_context:
+            lines.append(f"    szum w kontekście: {', '.join(s.noise_in_context)}")
     rated = [s for s in scores if s.places]
     if not rated:
         lines.append("Brak pytań do oceny (oczekiwane orzeczenia nie są w bazie).")
@@ -103,6 +118,10 @@ def report(scores):
         f"  w pierwszej 5:      {sum(0 < s.first <= 5 for s in rated) / n:.0%}",
         f"  MRR:                {sum(1 / s.first for s in rated if s.first) / n:.3f}",
         f"  oczekiwane w kontekście: {in_context} z {expected} ({in_context / expected:.0%})",
-        f"  średnio {sum(s.seconds for s in rated) / n:.1f} s na pytanie",
     ]
+    noise = sum(len(s.question.noise) for s in rated)
+    if noise:
+        noisy = sum(len(s.noise_in_context) for s in rated)
+        lines.append(f"  szum w kontekście:  {noisy} z {noise} znanych (mniej = lepiej)")
+    lines.append(f"  średnio {sum(s.seconds for s in rated) / n:.1f} s na pytanie")
     return lines

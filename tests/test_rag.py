@@ -138,6 +138,15 @@ def test_evaluation_reports_places_and_context():
     assert "MRR:                0.750" in report
 
 
+def test_evaluation_counts_noise_in_the_context():
+    # 1/01 (orzeczenie 1) wchodzi do kontekstu, 2/02 przy limicie 100 nie.
+    question = evaluation.Question("legal aid", ["1/01"], noise=["1/01", "2/02", "8/88"])
+    scores = evaluation.evaluate(FakeRetriever(FakeSemantic()), None, [question], 100)
+    assert scores[0].noise_in_context == ["1/01"]
+    report = "\n".join(evaluation.report(scores))
+    assert "szum w kontekście: 1/01" in report and "1 z 3 znanych" in report
+
+
 def test_query_takes_the_project_mode_unless_given():
     class Semantic(FakeRetriever):
         mode = "znaczeniowe"

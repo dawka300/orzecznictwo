@@ -58,5 +58,54 @@
     "pytanie": "Sędzia ukarany dyscyplinarnie za krytykę reformy sądownictwa w mediach społecznościowych",
     "oczekiwane": ["16915/21"],
     "filtry": {}
+  },
+  {
+    "pytanie": "Sąd odmówił zwolnienia od kosztów sądowych, bo doliczył dochody współmałżonka, zakładając wspólne gospodarstwo domowe, choć strona wyjaśniała, że od lat żyją osobno",
+    "oczekiwane": ["23779/02"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Sąd uznał oświadczenie o stanie majątkowym za niewiarygodne i pominął przedstawione dokumenty, oceniając hipotetyczne możliwości zarobkowe zamiast faktów",
+    "oczekiwane": ["17271/21", "32971/03"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Sąd odmówił zwolnienia od opłaty sądowej i nie rozważył zwolnienia częściowego, choć opłata wielokrotnie przekraczała dochód",
+    "oczekiwane": ["73002/01", "38399/03"],
+    "filtry": {"respondent": "POL"}
+  },
+  {
+    "pytanie": "Pełnomocnik z urzędu odmówił sporządzenia skargi kasacyjnej do NSA, a strona dowiedziała się o tym za późno, by znaleźć innego",
+    "oczekiwane": ["65546/13"],
+    "filtry": {"respondent": "POL"}
+  },
+  {
+    "pytanie": "Czy dostęp do zawodu adwokata jest chroniony przez prawo do poszanowania życia prywatnego (art. 8)?",
+    "oczekiwane": ["26713/05", "30141/15"],
+    "filtry": {},
+    "szum": ["2346/02", "46221/99", "25703/11", "7025/04"]
+  },
+  {
+    "pytanie": "Czy ocena wiedzy na egzaminie zawodowym (adwokackim, lekarskim) podlega kontroli sądowej z art. 6 Konwencji?",
+    "oczekiwane": ["8543/79", "49636/99", "43956/98"],
+    "filtry": {},
+    "szum": ["43447/19", "4907/18", "1469/20", "49868/19"]
+  },
+  {
+    "pytanie": "Czy spór o wpis na listę adwokatów albo o prawo wykonywania zawodu dotyczy praw o charakterze cywilnym w rozumieniu art. 6?",
+    "oczekiwane": ["8950/80", "6878/75"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Odmowa dopuszczenia do zawodu z powodu wcześniejszego skazania karnego",
+    "oczekiwane": ["34369/97"],
+    "filtry": {},
+    "szum": ["5100/71", "30210/96", "26772/95", "7511/13"]
+  },
+  {
+    "pytanie": "Lekarz zawieszony w prawie wykonywania zawodu w postępowaniu dyscyplinarnym przed izbą lekarską - dostęp do sądu i jawność",
+    "oczekiwane": ["6878/75"],
+    "filtry": {},
+    "szum": ["5809/08", "35763/97", "46221/99"]
   }
 ]
