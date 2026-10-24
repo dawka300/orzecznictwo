@@ -11,10 +11,16 @@ Polish. The official SDK (anthropic, in the www image); the model from the setti
 from __future__ import annotations
 
 import html
+import json
 import os
 import re
+import time
 
 from judgments_core.settings import DOTENV_PATH, read_dotenv
+
+# Każda odpowiedź Claude (analiza dokumentu, badanie) z tym, co wysłano: materiał do nauki
+# i porównań, lokalnie (badania/ w .gitignore).
+SAVE_DIR = DOTENV_PATH.parent / "badania"
 
 FALLBACK_MODEL = "claude-opus-4-8"  # gdy model główny odmówi (stop_reason "refusal")
 MAX_TOKENS = 16000
@@ -88,9 +94,29 @@ def markers_prompt(markers, filename):
 
 def report(settings, markers, filename):
     """Claude's report as text; ClaudeError when there is none."""
+    return ask(settings, SYSTEM, markers_prompt(markers, filename))[0]
+
+
+# $ za milion tokenów (wejście, wyjście) - do kosztu w raporcie; inny model: tylko tokeny
+PRICES = {"claude-opus-5-5": (4.0, 20.0), "claude-sonnet-5-5": (2.0, 10.0)}
+
+
+def cost(settings, usage):
+    """'12 345 tokenów wejścia, 2 100 wyjścia, ~$0.09' for the report."""
+    tokens_in, tokens_out = (f"{usage[k]:,}".replace(",", " ") for k in ("input", "output"))
+    text = f"{tokens_in} tokenów wejścia, {tokens_out} wyjścia"
+    price = PRICES.get(settings.claude_model)
+    if price:
+        text += f", ~${(usage['input'] * price[0] + usage['output'] * price[1]) / 1e6:.2f}"
+    return text
+
+
+def ask(settings, system, prompt, timeout_s=600.0):
+    """(Claude's answer as text, {"input": tokens, "output": tokens}); ClaudeError when
+    there is no answer."""
     import anthropic
 
-    client = anthropic.Anthropic(api_key=api_key(settings), timeout=300.0)
+    client = anthropic.Anthropic(api_key=api_key(settings), timeout=timeout_s)
     try:
         response = client.beta.messages.create(
             model=settings.claude_model,
@@ -98,8 +124,8 @@ def report(settings, markers, filename):
             betas=["server-side-fallback-2026-06-01"],
             fallbacks=[{"model": FALLBACK_MODEL}],
             output_config={"effort": "high"},
-            system=SYSTEM,
-            messages=[{"role": "user", "content": markers_prompt(markers, filename)}],
+            system=system,
+            messages=[{"role": "user", "content": prompt}],
         )
     except anthropic.AuthenticationError as error:
         raise ClaudeError("nieprawidłowy klucz API Anthropic") from error
@@ -116,7 +142,40 @@ def report(settings, markers, filename):
     text = "".join(block.text for block in response.content if block.type == "text").strip()
     if not text:
         raise ClaudeError("pusta odpowiedź")
-    return text
+    if response.stop_reason == "max_tokens":
+        text += "\n\n(odpowiedź ucięta na limicie długości)"
+    usage = {"input": response.usage.input_tokens, "output": response.usage.output_tokens}
+    return text, usage
+
+
+def save(kind, ident, files, meta, root=None):
+    """badania/<kind>/<date>_<ident>/ with files ({name: text}) and meta.json; the folder.
+    A file name ending in .csv gets a BOM (Excel reads Polish letters)."""
+    stamp = time.strftime("%Y-%m-%d_%H%M%S")
+    folder = (root or SAVE_DIR) / kind / f"{stamp}_{ident}"
+    folder.mkdir(parents=True, exist_ok=True)
+    for name, text in files.items():
+        encoding = "utf-8-sig" if name.endswith(".csv") else "utf-8"
+        (folder / name).write_text(text, encoding=encoding)
+    meta = {"zapisano": stamp, **meta}
+    (folder / "meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return folder
+
+
+def markers_csv(markers):
+    """The markers as CSV: key, title, per 1000 words, count, words found."""
+    lines = ["znacznik,nazwa,na_1000_slow,liczba,slowa"]
+    for m in markers.markers:
+        found = "; ".join(f"{w} x{n}" for w, n in sorted(m.found.items(), key=lambda x: -x[1]))
+        lines.append(",".join(_csv_cell(v) for v in (m.key, m.title, m.per_1000, m.count, found)))
+    return "\n".join(lines) + "\n"
+
+
+def _csv_cell(value):
+    text = str(value)
+    return f'"{text.replace(chr(34), chr(34) * 2)}"' if any(c in text for c in ',"\n') else text
 
 
 def to_html(text):

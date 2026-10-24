@@ -425,6 +425,8 @@ def layout(
         ("/", "Szukaj"),
         ("/analiza", "Analiza dokumentu"),
         ("/porownanie", "Porównanie dokumentów"),
+        ("/teczka", "Teczka sprawy"),
+        ("/badanie", "Badanie"),
         ("/statystyki", "Statystyki"),
     ),
     header=True,
@@ -558,6 +560,16 @@ details summary{cursor:pointer;color:var(--accent)}
 pre.legend{white-space:pre-wrap;font-size:12px;color:var(--muted)}
 h2.layer{margin-top:28px;padding-top:12px;border-top:2px solid var(--line)}
 section.claude{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:4px 18px}
+/* teczka sprawy: wykresy osi */
+svg.axis-chart{width:100%;height:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin:4px 0 8px}
+.axis-chart .zero{stroke:var(--line);stroke-width:1}.axis-chart .border{stroke:var(--line);stroke-dasharray:3 3}
+.axis-chart text{fill:var(--muted);font-size:11px}.axis-chart .doc{text-anchor:middle;font-weight:600}
+.axis-chart .mean{stroke-width:2;opacity:.6}
+.r-skarzacy{fill:var(--accent);stroke:var(--accent)}.r-organ{fill:var(--decision-t);stroke:var(--decision-t)}
+.r-sad{fill:var(--judgment-t);stroke:var(--judgment-t)}.r-inny{fill:var(--muted);stroke:var(--muted)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:currentColor;margin-left:8px}
+.dot.r-skarzacy{color:var(--accent)}.dot.r-organ{color:var(--decision-t)}.dot.r-sad{color:var(--judgment-t)}.dot.r-inny{color:var(--muted)}
+.analysis select,.analysis input:not([type]){font:inherit;margin-right:12px}
 /* tabele statystyk: dwa słupki, każda tabela pod poprzednią (bez dziur obok długich) */
 .tables{column-count:2;column-gap:16px}
 .card-table{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:4px 16px 12px;overflow:auto;break-inside:avoid;display:inline-block;width:100%;box-sizing:border-box;margin:0 0 16px}

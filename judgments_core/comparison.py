@@ -24,14 +24,15 @@ from dataclasses import dataclass, field
 
 from judgments_core.analysis import (
     _ROOT_HREF,
+    FILE_TYPES,
     MAX_JOBS,
     DocumentError,
     _base_url,
     choose_embedder,
     clean,
-    extract_text,
     html_to_pdf,
     parse_form,
+    read_document,
 )
 from judgments_core.web import Response, e, number, shorten
 
@@ -244,7 +245,9 @@ def _document(fields, file_field, text_field, what):
     filename, data = fields.get(file_field) or ("", b"")
     pasted = (fields.get(text_field) or "").strip()
     if data:
-        text = extract_text(filename, data)
+        text, note = read_document(filename, data)
+        if note:
+            filename = f"{filename} ({note})"
     elif pasted:
         filename, text = f"{what} (tekst wklejony)", clean(pasted)
     else:
@@ -255,16 +258,16 @@ def _document(fields, file_field, text_field, what):
 
 
 def _form():
-    return """<h1>Porównanie dokumentów</h1>
+    return f"""<h1>Porównanie dokumentów</h1>
 <p class=hint>Analiza absencji: które argumenty Twojego pisma (skargi, skargi kasacyjnej, zarzutów)
 mają odpowiedź w rozważaniach sądu, a które sąd pominął. Oba dokumenty są cięte na akapity
 i porównywane po znaczeniu. Dokumenty zostają na tym komputerze i nie są zapisywane.</p>
 <form class=analysis method=post action="/porownanie" enctype="multipart/form-data">
 <fieldset><legend>1. Twoje pismo (zarzuty)</legend>
-<p><label>Plik <input type=file name=pismo accept=".docx,.pdf,.txt"></label></p>
+<p><label>Plik <input type=file name=pismo accept="{FILE_TYPES}"></label></p>
 <p><label>albo tekst<br><textarea name=tekst_pisma rows=5></textarea></label></p></fieldset>
 <fieldset><legend>2. Orzeczenie (z uzasadnieniem)</legend>
-<p><label>Plik <input type=file name=orzeczenie accept=".docx,.pdf,.txt"></label></p>
+<p><label>Plik <input type=file name=orzeczenie accept="{FILE_TYPES}"></label></p>
 <p><label>albo tekst<br><textarea name=tekst_orzeczenia rows=5></textarea></label></p></fieldset>
 <p><label><input type=checkbox name=rozwazania value=1 checked> porównuj tylko z rozważaniami sądu
 (od „zważył, co następuje” / „THE LAW”) - wcześniej sąd streszcza zarzuty stron</label></p>

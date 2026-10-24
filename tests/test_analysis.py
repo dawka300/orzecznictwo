@@ -39,7 +39,36 @@ def test_documents_to_text():
     with pytest.raises(analysis.DocumentError, match=".doc"):
         analysis.extract_text("stary.doc", b"")
     with pytest.raises(analysis.DocumentError, match="obsługiwane"):
-        analysis.extract_text("obraz.png", b"")
+        analysis.extract_text("arkusz.xlsx", b"")
+
+
+def test_photo_and_scanned_pdf_go_through_ocr(monkeypatch):
+    from pypdf import PdfWriter
+
+    from judgments_core import ocr
+
+    monkeypatch.setattr(ocr, "available", lambda: True)
+    monkeypatch.setattr(ocr, "image_text", lambda data, suffix: "Skarga na decyzję organu " * 3)
+    text, note = analysis.read_document("Zdjęcie.JPG", b"obraz")
+    assert text.startswith("Skarga na decyzję") and note == "OCR"
+    # PDF bez warstwy tekstu (skan): strony bez tekstu idą do OCR
+    writer, pdf = PdfWriter(), io.BytesIO()
+    writer.add_blank_page(width=595, height=842)
+    writer.add_blank_page(width=595, height=842)
+    writer.write(pdf)
+    seen = []
+
+    def pages_text(data, pages):
+        seen.extend(pages)
+        return {n: f"Strona {n}: uzasadnienie wyroku sądu administracyjnego" for n in pages}
+
+    monkeypatch.setattr(ocr, "pdf_pages_text", pages_text)
+    text, note = analysis.read_document("skan.pdf", pdf.getvalue())
+    assert seen == [1, 2] and note == "OCR: 2 z 2 stron" and "Strona 2: uzasadnienie" in text
+    # bez OCR: komunikat zamiast pustego tekstu
+    monkeypatch.setattr(ocr, "available", lambda: False)
+    with pytest.raises(analysis.DocumentError, match="OCR"):
+        analysis.read_document("skan.pdf", pdf.getvalue())
 
 
 def request(body, content_type, path="/analiza"):
@@ -245,10 +274,18 @@ def test_claude_report_parts(monkeypatch):
     assert "&lt;b&gt;" in html  # treść modelu escapowana
 
 
-def test_report_has_both_layers_and_claude(monkeypatch):
+def test_report_has_both_layers_and_claude(monkeypatch, tmp_path):
     monkeypatch.setattr(analysis, "lm_studio_has_model", lambda settings: False)
     monkeypatch.setattr(claude_report, "available", lambda settings: (True, ""))
-    monkeypatch.setattr(claude_report, "report", lambda s, m, f: "## Założenia\n- teza bez dowodu")
+    monkeypatch.setattr(
+        claude_report,
+        "ask",
+        lambda s, system, prompt: (
+            "## Założenia\n- teza bez dowodu",
+            {"input": 1000, "output": 200},
+        ),
+    )
+    monkeypatch.setattr(claude_report, "SAVE_DIR", tmp_path)
     pages = analysis.DocumentAnalysis(
         Settings(), FakeRetriever(), NsaChunker(), FakeConnection, "m"
     )
@@ -266,3 +303,10 @@ def test_report_has_both_layers_and_claude(monkeypatch):
     layer1, layer2 = page.index("Warstwa 1: orzeczenia"), page.index("Warstwa 2: język")
     assert layer1 < layer2 < page.index("Raport Claude") < page.index("<h3>Założenia</h3>")
     assert "Pewność deklarowana" in page
+    # odpowiedź Claude zapisana z tym, co wysłano (materiał do nauki)
+    (saved,) = (tmp_path / "analiza").iterdir()
+    assert (saved / "claude.md").read_text(encoding="utf-8").startswith("## Założenia")
+    assert "Pewność deklarowana" in (saved / "wyslane.md").read_text(encoding="utf-8")
+    assert (saved / "znaczniki.csv").read_text(encoding="utf-8-sig").startswith("znacznik,nazwa")
+    assert '"tokeny"' in (saved / "meta.json").read_text(encoding="utf-8")
+    assert "zapisano:" in page and "tokenów wejścia" in page

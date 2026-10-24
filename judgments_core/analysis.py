@@ -2,8 +2,9 @@
 -> the closest judgments in the base, grouped by their outcome.
 
 The common part for every project:
-1. the text: .docx (standard library: the XML inside the zip), .pdf (pypdf; a scan
-   without a text layer needs OCR - refused with a message), .txt, or pasted;
+1. the text: .docx (standard library: the XML inside the zip), .pdf (pypdf; pages
+   without a text layer - a scan - through OCR, judgments_core/ocr.py), a photo of a page
+   (OCR), .txt, or pasted;
 2. the model for the document's vectors: LM Studio when it answers and has the
    embedding model loaded (fast, on the graphics card), else the query model already
    loaded in this process (sentence-transformers, CPU) - the vectors are the same model;
@@ -37,7 +38,7 @@ from xml.etree import ElementTree
 
 import requests
 
-from judgments_core import claude_report
+from judgments_core import claude_report, ocr
 from judgments_core import markers as text_markers
 from judgments_core.embeddings import make_embedder
 from judgments_core.web import Response, e, number, shorten
@@ -45,6 +46,9 @@ from judgments_core.web import Response, e, number, shorten
 log = logging.getLogger(__name__)
 
 MAX_UPLOAD = 20_000_000  # bajtów
+FILE_TYPES = (
+    ".docx,.pdf,.txt,.jpg,.jpeg,.png,.tif,.tiff"  # accept= pól plików (OCR: skany, zdjęcia)
+)
 MAX_JOBS = 20  # tyle ostatnich raportów w pamięci
 RESULTS = 20  # orzeczeń w raporcie (domyślnie)
 MAX_RESULTS = 50
@@ -68,19 +72,33 @@ class DocumentError(ValueError):
 
 
 def extract_text(filename, data):
-    """Plain text of an uploaded .docx, .pdf or .txt; DocumentError otherwise."""
+    """Plain text of an uploaded .docx, .pdf, photo or .txt; DocumentError otherwise."""
+    return read_document(filename, data)[0]
+
+
+def read_document(filename, data):
+    """(plain text, note): the note says when OCR read the text ("OCR: 3 z 5 stron"),
+    else ""; DocumentError when the file can't be read."""
     name = (filename or "").lower()
+    note = ""
     if name.endswith(".docx"):
         text = docx_text(data)
     elif name.endswith(".pdf"):
-        text = pdf_text(data)
+        text, note = pdf_text(data, with_note=True)
+    elif name.endswith(ocr.IMAGE_TYPES):
+        try:
+            text, note = ocr.image_text(data, "." + name.rsplit(".", 1)[-1]), "OCR"
+        except ocr.OcrError as error:
+            raise DocumentError(str(error)) from error
+        if len(text.strip()) < 20:
+            raise DocumentError("OCR nie znalazł tekstu na zdjęciu (ostrość, oświetlenie, kadr)")
     elif name.endswith((".txt", ".md")):
         text = decode(data)
     elif name.endswith(".doc"):
         raise DocumentError("stary format .doc - zapisz w Wordzie jako .docx albo PDF")
     else:
-        raise DocumentError("obsługiwane pliki: .docx, .pdf, .txt")
-    return clean(text)
+        raise DocumentError("obsługiwane pliki: .docx, .pdf, zdjęcie (.jpg, .png, .tif), .txt")
+    return clean(text), note
 
 
 def docx_text(data):
@@ -104,7 +122,12 @@ def docx_text(data):
     return "\n".join(paragraphs)
 
 
-def pdf_text(data):
+PAGE_WITHOUT_TEXT = 30  # znaków: mniej = strona to skan, idzie do OCR
+
+
+def pdf_text(data, with_note=False):
+    """Text of a PDF page by page; pages without a text layer (a scan, a mixed PDF) are
+    read by OCR when it is installed. with_note: (text, note) as in read_document."""
     try:
         from pypdf import PdfReader  # obraz www (docker/www.Dockerfile)
     except ImportError as error:
@@ -113,14 +136,30 @@ def pdf_text(data):
         reader = PdfReader(io.BytesIO(data))
         if reader.is_encrypted:
             reader.decrypt("")
-        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        pages = [page.extract_text() or "" for page in reader.pages]
     except Exception as error:
         raise DocumentError(f"nie można odczytać PDF ({type(error).__name__})") from error
+    scanned = [n for n, page in enumerate(pages, 1) if len(page.strip()) < PAGE_WITHOUT_TEXT]
+    note = ""
+    if scanned and ocr.available():
+        try:
+            read = ocr.pdf_pages_text(data, scanned)
+        except ocr.OcrError as error:
+            raise DocumentError(str(error)) from error
+        for n, text in read.items():
+            pages[n - 1] = text
+        note = f"OCR: {len(read)} z {len(pages)} stron"
+        if len(read) < len(scanned):
+            note += f", pominięto {len(scanned) - len(read)} (limit {ocr.MAX_PAGES})"
+    elif scanned:
+        note = f"{len(scanned)} z {len(pages)} stron bez tekstu pominięto (brak OCR)"
+    text = "\n".join(pages)
     if len(text.strip()) < 50:
         raise DocumentError(
-            "PDF nie ma warstwy tekstu (skan) - potrzebny OCR; skopiuj tekst i wklej go w polu niżej"
+            "PDF nie ma warstwy tekstu (skan), a OCR nie jest dostępny albo nic nie odczytał;"
+            " skopiuj tekst i wklej go w polu niżej"
         )
-    return text
+    return (text, note) if with_note else text
 
 
 def decode(data):
@@ -210,6 +249,8 @@ class Job:
     claude: bool = False  # użytkownik zgodził się wysłać znaczniki do Claude
     claude_report: str = ""
     claude_error: str = ""
+    claude_cost: str = ""
+    claude_saved: str = ""  # katalog w badania/analiza/
 
 
 class DocumentAnalysis:
@@ -262,12 +303,7 @@ class DocumentAnalysis:
             }
             if job.claude:
                 job.step = "Claude pisze raport ze znaczników (do kilku minut)"
-                try:
-                    job.claude_report = claude_report.report(
-                        self.settings, job.markers, job.filename
-                    )
-                except claude_report.ClaudeError as error:
-                    job.claude_error = str(error)
+                self._claude(job)
             job.status = "gotowe"
         except Exception as error:
             log.exception("analiza dokumentu %s", job.id)
@@ -275,6 +311,36 @@ class DocumentAnalysis:
         finally:
             job.seconds = time.monotonic() - started
             job.step = ""
+
+    def _claude(self, job):
+        """Claude's report on the markers, saved with what was sent (badania/analiza/)."""
+        prompt = claude_report.markers_prompt(job.markers, job.filename)
+        try:
+            job.claude_report, usage = claude_report.ask(
+                self.settings, claude_report.SYSTEM, prompt
+            )
+        except claude_report.ClaudeError as error:
+            job.claude_error = str(error)
+            return
+        job.claude_cost = claude_report.cost(self.settings, usage)
+        files = {
+            "claude.md": job.claude_report + "\n",
+            "wyslane.md": claude_report.SYSTEM + "\n\n---\n\n" + prompt + "\n",
+            "znaczniki.csv": claude_report.markers_csv(job.markers),
+        }
+        meta = {
+            "analiza": job.id,
+            "plik": job.filename,
+            "model": self.settings.claude_model,
+            "tokeny": usage,
+            "koszt": job.claude_cost,
+            "slow": job.markers.words,
+            "jezyk": job.markers.lang,
+        }
+        try:
+            job.claude_saved = str(claude_report.save("analiza", job.id, files, meta))
+        except OSError as error:
+            job.claude_saved = f"nie zapisano ({error})"
 
     # --- strony ---
 
@@ -299,7 +365,9 @@ class DocumentAnalysis:
             filename, data = fields.get("plik") or ("", b"")
             pasted = (fields.get("tekst") or "").strip()
             if data:
-                text = extract_text(filename, data)
+                text, note = read_document(filename, data)
+                if note:
+                    filename = f"{filename} ({note})"
             elif pasted:
                 filename, text = "tekst wklejony", clean(pasted)
             else:
@@ -342,11 +410,11 @@ def _form(settings):
         for key, text in SIDES.items()
     )
     return f"""<h1>Analiza dokumentu</h1>
-<p class=hint>Wgraj orzeczenie albo pismo (.docx, .pdf, .txt) albo wklej tekst. Dokument jest
+<p class=hint>Wgraj orzeczenie albo pismo (Word, PDF - także skan, zdjęcie strony, tekst) albo wklej tekst. Dokument jest
 cięty na fragmenty, każdy szuka w bazie najbliższych orzeczeń po znaczeniu, a raport dzieli je
 według wyniku sprawy. Dokument zostaje na tym komputerze i nie jest zapisywany.</p>
 <form class=analysis method=post action="/analiza" enctype="multipart/form-data">
-<p><label>Plik <input type=file name=plik accept=".docx,.pdf,.txt"></label></p>
+<p><label>Plik <input type=file name=plik accept="{FILE_TYPES}"></label></p>
 <p><label>albo tekst<br><textarea name=tekst rows=8 cols=80></textarea></label></p>
 <fieldset><legend>Na poparcie stanowiska</legend>{sides}</fieldset>
 <p><label>Ile orzeczeń <input type=number name=ile value={RESULTS} min=5 max={MAX_RESULTS}></label></p>
@@ -526,7 +594,8 @@ ukrytego sprawcy.</p>
     if job.claude_report:
         parts.append(
             "<h2 class=layer>Raport Claude</h2><p class=hint>Na podstawie znaczników i zdań wyżej;"
-            " to interpretacja modelu - sprawdź ją z pełnym tekstem.</p>"
+            " to interpretacja modelu - sprawdź ją z pełnym tekstem."
+            f" {e(job.claude_cost)} · zapisano: {e(job.claude_saved or '-')}</p>"
             f"<section class=claude>{claude_report.to_html(job.claude_report)}</section>"
         )
     elif job.claude_error:

@@ -1,20 +1,24 @@
 #!/usr/bin/env bash
 # Kolejka paczek wektorów na wynajętej maszynie (Vast.ai), uruchamiana u siebie (Git Bash).
 #
-# Na maszynie zawsze NAPRZOD paczek (domyślnie 2: liczona + jedna czekająca), więc karta nie
-# stoi w czasie wysyłania. Gotowe wektory od razu: pobranie, import do bazy, usunięcie paczki
-# z maszyny (dysk). Na maszynie liczy vast_start.sh z CZEKAJ_S (czeka na dosyłane paczki).
+# Na maszynie zawsze NAPRZOD paczek (domyślnie liczba kart + 2: każda karta liczy swoją, dwie
+# czekają), więc karty nie stoją w czasie wysyłania. Policzona paczka (dowolna, karty kończą
+# w różnej kolejności): pobranie wektorów, usunięcie z maszyny (dysk), import do bazy w tle
+# (po jednym naraz), a w tym czasie dalej wysyłanie i pobieranie. Na maszynie liczy
+# vast_start.sh z CZEKAJ_S (czeka na dosyłane paczki).
 #
 #   narzedzia/vast_kolejka.sh PORT HOST                      # wszystkie paczki bez wektorów
 #   narzedzia/vast_kolejka.sh PORT HOST nsa-0003 nsa-0004    # tylko te
 #   PROJEKT=etpc NAPRZOD=3 narzedzia/vast_kolejka.sh PORT HOST
+#   NAPRZOD=8 WOLNE_GB=4 narzedzia/vast_kolejka.sh PORT HOST  # 4 karty + 4 czekające
 #
 # Wznawianie: przerwane (Ctrl+C, zamknięty terminal, restart) wystarczy uruchomić jeszcze raz.
 # - paczka zaimportowana = plik <nazwa>.zaimportowano u Ciebie: pomijana;
 # - wektory ściągnięte, import przerwany: tylko import, bez ponownego pobierania;
 # - paczka już na maszynie: nie jest wysyłana drugi raz;
 # - na maszynie licz_paczke.py wznawia od brakującej części (co 4096 fragmentów), a liczenie,
-#   które przestało działać (restart maszyny), kolejka uruchamia znowu (co 2 min sprawdza).
+#   które przestało działać (restart maszyny), kolejka uruchamia znowu.
+# Import czeka, gdy blokadę paczek trzyma eksport (`paczki`), i próbuje znowu.
 # Log: logs/vast_kolejka.log, gdy uruchomione jak w docker/licz/VAST.md.
 set -euo pipefail
 
@@ -22,7 +26,6 @@ PORT=${1:?podaj PORT i HOST z przycisku Connect (ssh -p PORT root@HOST)}
 HOST=${2:?podaj HOST}
 shift 2
 PROJEKT=${PROJEKT:-nsa}
-NAPRZOD=${NAPRZOD:-2}
 cd "$(dirname "$0")/.."
 LOKALNIE="$PROJEKT/database/paczki"
 ZDALNIE=/workspace/paczki
@@ -31,29 +34,71 @@ SCP=(scp -o BatchMode=yes -o ServerAliveInterval=30 -o ConnectTimeout=30 -P "$PO
 
 zdalnie() { "${SSH[@]}" "$@" 2>/dev/null; }
 log() { echo "$(date '+%H:%M:%S') $*"; }
+# Polecenie, które musi się udać (scp, mv/rm na maszynie): zerwane połączenie = do 5 prób
+# co 30 s, zanim kolejka się zatrzyma.
+ponow() {
+    local proba
+    for proba in 1 2 3 4 5; do
+        "$@" && return 0
+        log "nie wyszło (próba $proba z 5): ${*: -1}"
+        sleep 30
+    done
+    return 1
+}
 
-# Paczki do zrobienia: podane albo lokalne bez .wektory.npy, po nazwie; bez podanych
-# lista jest odświeżana, gdy się skończy (eksport paczek może iść w tym czasie).
-podane=$#
+if [ -z "${NAPRZOD:-}" ]; then
+    karty=$(zdalnie "nvidia-smi -L | wc -l" || echo 1)
+    NAPRZOD=$((karty + 2))
+fi
+WOLNE_GB=${WOLNE_GB:-4}
+log "Na maszynie naraz: $NAPRZOD paczek (wysyłanie tylko przy >= $WOLNE_GB GB wolnego)"
+
+# Stan: kolejka (do wysłania), na_maszynie (wysłane, liczone), do_importu (wektory u nas),
+# importowana (import w tle), zrobione (zaimportowane w tym uruchomieniu).
+kolejka=()
+na_maszynie=()
+do_importu=()
+importowana=""
+import_pid=""
+import_po=0  # po zajętej blokadzie: następna próba importu nie wcześniej (sekundy epoki)
 zrobione=" "
+
+w_toku() { echo " ${na_maszynie[*]:-} ${do_importu[*]:-} $importowana $zrobione "; }
+
+# Paczki do zrobienia: podane albo lokalne bez .zaimportowano, po nazwie; bez podanych
+# lista jest odświeżana, gdy się skończy (eksport paczek może iść w tym czasie).
 lokalne() {
-    local plik nazwa
+    local plik nazwa zajete
+    zajete=$(w_toku)
     for plik in "$LOKALNIE"/*.jsonl.gz; do
         [[ $plik == *.meta.jsonl.gz ]] && continue
         [ -e "$plik" ] || continue
         nazwa=$(basename "$plik" .jsonl.gz)
         [ -f "$LOKALNIE/$nazwa.zaimportowano" ] && continue
-        [[ $zrobione == *" $nazwa "* ]] && continue
+        [[ $zajete == *" $nazwa "* ]] && continue
         echo "$nazwa"
     done
 }
+# Wektory już ściągnięte (import przerwany): od razu do importu, bez wysyłania.
+rozdziel() {
+    local nazwa
+    for nazwa in "$@"; do
+        if [ -f "$LOKALNIE/$nazwa.wektory.npy" ]; then
+            do_importu+=("$nazwa")
+        else
+            kolejka+=("$nazwa")
+        fi
+    done
+}
+podane=$#
 if [ "$podane" -gt 0 ]; then
-    kolejka=("$@")
+    rozdziel "$@"
 else
-    mapfile -t kolejka < <(lokalne)
+    mapfile -t nowe < <(lokalne)
+    rozdziel "${nowe[@]}"
 fi
-[ ${#kolejka[@]} -gt 0 ] || { log "Nic do zrobienia."; exit 0; }
-log "Do policzenia: ${kolejka[*]}"
+[ $((${#kolejka[@]} + ${#do_importu[@]})) -gt 0 ] || { log "Nic do zrobienia."; exit 0; }
+log "Do policzenia: ${kolejka[*]:-}${do_importu[*]:+ (tylko import: ${do_importu[*]})}"
 
 # Skrypty na maszynie: pod inną nazwą, potem zmiana (działający vast_start.sh czyta swój
 # plik w trakcie - nadpisanie w miejscu by go zepsuło).
@@ -62,8 +107,20 @@ for skrypt in licz_paczke.py vast_start.sh; do
     "${SCP[@]}" "docker/licz/$skrypt" "root@$HOST:/workspace/$skrypt.nowy" 2>/dev/null
     zdalnie "mv /workspace/$skrypt.nowy /workspace/$skrypt"
 done
+# Paczki zostawione na maszynie przez poprzednie uruchomienie: liczą się do NAPRZOD.
+na_zdalnej=" $(zdalnie "ls $ZDALNIE" | sed -n 's/\.jsonl\.gz$//p' | tr '\n' ' ' || true) "
+reszta=()
+for nazwa in "${kolejka[@]}"; do
+    if [[ $na_zdalnej == *" $nazwa "* ]]; then
+        na_maszynie+=("$nazwa")
+    else
+        reszta+=("$nazwa")
+    fi
+done
+kolejka=("${reszta[@]}")
+
 uruchom() {
-    zdalnie "pgrep -f 'vast_start.sh --w-tle' >/dev/null || CZEKAJ_S=1800 bash /workspace/vast_start.sh" || true
+    zdalnie "pgrep -f '[v]ast_start.sh --' >/dev/null || CZEKAJ_S=1800 bash /workspace/vast_start.sh" || true
 }
 
 wyslij() {
@@ -74,65 +131,109 @@ wyslij() {
     fi
     log "$nazwa: wysyłam"
     # Pod inną nazwą, potem zmiana: maszyna nie zacznie liczyć niepełnego pliku.
-    "${SCP[@]}" "$LOKALNIE/$nazwa.jsonl.gz" "root@$HOST:$ZDALNIE/$nazwa.jsonl.gz.wysylane" 2>/dev/null
-    zdalnie "mv $ZDALNIE/$nazwa.jsonl.gz.wysylane $ZDALNIE/$nazwa.jsonl.gz"
+    ponow "${SCP[@]}" -q "$LOKALNIE/$nazwa.jsonl.gz" "root@$HOST:$ZDALNIE/$nazwa.jsonl.gz.wysylane"
+    ponow zdalnie "mv $ZDALNIE/$nazwa.jsonl.gz.wysylane $ZDALNIE/$nazwa.jsonl.gz"
     log "$nazwa: wysłana"
 }
 
+# Import w tle; kod wyjścia: 0 = zaimportowana, 2 = blokada zajęta (eksport), 1 = błąd.
 importuj() {
     local nazwa=$1
-    log "$nazwa: import"
-    # Kod wyjścia nie wystarcza: zajęta blokada (inny import) też kończy się kodem 0.
-    if docker compose run --rm --no-deps www python -m "$PROJEKT" paczka-import "$nazwa" \
-        > "$LOKALNIE/$nazwa.import.log" 2>&1 \
-        && grep -q "zapisano wektory" "$LOKALNIE/$nazwa.import.log"; then
+    # Kod wyjścia nie wystarcza: zajęta blokada (inny import, eksport) też kończy się kodem 0.
+    docker compose run --rm --no-deps www python -m "$PROJEKT" paczka-import "$nazwa" \
+        > "$LOKALNIE/$nazwa.import.log" 2>&1 || true
+    if grep -q "zapisano wektory" "$LOKALNIE/$nazwa.import.log"; then
         touch "$LOKALNIE/$nazwa.zaimportowano"
-        grep -E "kontrola|zapisano" "$LOKALNIE/$nazwa.import.log" | tail -n 2
         return 0
     fi
-    log "$nazwa: IMPORT NIEUDANY - zob. $LOKALNIE/$nazwa.import.log; paczka zostaje na maszynie"
-    tail -n 5 "$LOKALNIE/$nazwa.import.log"
+    grep -q "jeszcze trwa" "$LOKALNIE/$nazwa.import.log" && return 2
     return 1
 }
 
-odbierz() {
+pobierz() {
     local nazwa=$1
-    # Wektory już ściągnięte, a import przerwany: tylko import (po ponownym uruchomieniu).
-    if [ ! -f "$LOKALNIE/$nazwa.wektory.npy" ]; then
-        log "$nazwa: policzona, pobieram wektory"
-        "${SCP[@]}" "root@$HOST:$ZDALNIE/$nazwa.wektory.npy" "$LOKALNIE/$nazwa.wektory.npy.pobierane" 2>/dev/null
-        mv "$LOKALNIE/$nazwa.wektory.npy.pobierane" "$LOKALNIE/$nazwa.wektory.npy"
-    fi
-    importuj "$nazwa" || return 1
-    zdalnie "rm -f $ZDALNIE/$nazwa.jsonl.gz $ZDALNIE/$nazwa.wektory.npy"
-    log "$nazwa: gotowe, usunięta z maszyny"
+    log "$nazwa: policzona, pobieram wektory"
+    ponow "${SCP[@]}" -q "root@$HOST:$ZDALNIE/$nazwa.wektory.npy" "$LOKALNIE/$nazwa.wektory.npy.pobierane"
+    mv "$LOKALNIE/$nazwa.wektory.npy.pobierane" "$LOKALNIE/$nazwa.wektory.npy"
+    ponow zdalnie "rm -f $ZDALNIE/$nazwa.jsonl.gz $ZDALNIE/$nazwa.wektory.npy"
+    log "$nazwa: pobrana, usunięta z maszyny"
 }
 
-na_maszynie=()
 while true; do
     if [ ${#kolejka[@]} -eq 0 ] && [ "$podane" -eq 0 ]; then
-        mapfile -t kolejka < <(lokalne | grep -v -x -F -e "${na_maszynie[@]:-__}" || true)
+        mapfile -t kolejka < <(lokalne)
     fi
-    [ ${#kolejka[@]} -gt 0 ] || [ ${#na_maszynie[@]} -gt 0 ] || break
+    if [ ${#kolejka[@]} -eq 0 ] && [ ${#na_maszynie[@]} -eq 0 ] \
+        && [ ${#do_importu[@]} -eq 0 ] && [ -z "$importowana" ]; then
+        break
+    fi
+    zmiana=0
+
     while [ ${#na_maszynie[@]} -lt "$NAPRZOD" ] && [ ${#kolejka[@]} -gt 0 ]; do
+        # Bezpiecznik dysku maszyny: liczona paczka rośnie do ~2 GB (części+wynik).
+        wolne=$(zdalnie "df --output=avail -BG $ZDALNIE | tail -n 1 | tr -dc 0-9" || echo 0)
+        if [ "${wolne:-0}" -lt "$WOLNE_GB" ]; then
+            log "na maszynie wolne ${wolne:-?} GB (< $WOLNE_GB), wstrzymuję wysyłanie"
+            break
+        fi
         wyslij "${kolejka[0]}"
         na_maszynie+=("${kolejka[0]}")
         kolejka=("${kolejka[@]:1}")
+        zmiana=1
+        uruchom  # karty liczą już pierwszą, gdy reszta się wysyła
     done
-    uruchom
-    pierwsza=${na_maszynie[0]}
-    # Gotowa = licz_paczke.py wypisał "Gotowe: <plik>" (zapis pliku zakończony).
-    if zdalnie "test -f $ZDALNIE/$pierwsza.wektory.npy && grep -q 'Gotowe: $ZDALNIE/$pierwsza.wektory.npy' /workspace/licz.log"; then
-        if ! odbierz "$pierwsza"; then
-            log "Zatrzymuję kolejkę: najpierw trzeba wyjaśnić nieudany import."
+    if [ ${#na_maszynie[@]} -gt 0 ]; then
+        uruchom
+        # Gotowe = linia "Gotowe: <plik>" w logu którejś karty (zapis pliku zakończony).
+        gotowe=" $(zdalnie "cat /workspace/licz*.log 2>/dev/null | tr '\r' '\n' | sed -n 's|^Gotowe: $ZDALNIE/\([^ ]*\)\.wektory\.npy.*|\1|p' | sort -u | tr '\n' ' '" || true) "
+        zostaja=()
+        for nazwa in "${na_maszynie[@]}"; do
+            if [[ $gotowe == *" $nazwa "* ]] && zdalnie "test -f $ZDALNIE/$nazwa.wektory.npy"; then
+                pobierz "$nazwa"
+                do_importu+=("$nazwa")
+                zmiana=1
+            else
+                zostaja+=("$nazwa")
+            fi
+        done
+        na_maszynie=("${zostaja[@]}")
+    fi
+
+    # Koniec importu w tle?
+    if [ -n "$importowana" ] && ! kill -0 "$import_pid" 2>/dev/null; then
+        kod=0
+        wait "$import_pid" || kod=$?
+        if [ "$kod" -eq 0 ]; then
+            grep -E "kontrola|zapisano" "$LOKALNIE/$importowana.import.log" | tail -n 2
+            log "$importowana: zaimportowana"
+            zrobione+="$importowana "
+        elif [ "$kod" -eq 2 ]; then
+            log "$importowana: blokada paczek zajęta (eksport?), spróbuję za 5 min"
+            do_importu=("$importowana" "${do_importu[@]}")
+            import_po=$(($(date +%s) + 300))
+        else
+            log "$importowana: IMPORT NIEUDANY - zob. $LOKALNIE/$importowana.import.log"
+            tail -n 5 "$LOKALNIE/$importowana.import.log"
+            log "Zatrzymuję kolejkę: najpierw trzeba wyjaśnić nieudany import (liczenie na maszynie trwa)."
             exit 1
         fi
-        zrobione+="$pierwsza "
-        na_maszynie=("${na_maszynie[@]:1}")
-    else
-        postep=$(zdalnie "tail -c 300 /workspace/licz.log | tr '\r' '\n' | grep '/' | tail -n 1" || true)
-        log "czekam: $pierwsza ${postep:+- $postep}"
-        sleep 120
+        importowana=""
+        import_pid=""
+        zmiana=1
+    fi
+    if [ -z "$importowana" ] && [ ${#do_importu[@]} -gt 0 ] && [ "$(date +%s)" -ge "$import_po" ]; then
+        importowana=${do_importu[0]}
+        do_importu=("${do_importu[@]:1}")
+        log "$importowana: import (w tle)"
+        importuj "$importowana" &
+        import_pid=$!
+        zmiana=1
+    fi
+
+    if [ "$zmiana" -eq 0 ]; then
+        postep=$(zdalnie 'for f in /workspace/licz-gpu*.log; do tail -c 300 "$f" | tr "\r" "\n" | grep " / " | tail -n 1; done' | tr -s ' ' | paste -sd'|' || true)
+        log "liczone: ${na_maszynie[*]:-} | import: ${importowana:--} | czeka na import: ${do_importu[*]:--} | ${postep}"
+        sleep 60
     fi
 done
 log "Wszystkie paczki policzone i zaimportowane. Pamiętaj: Instances -> Destroy."

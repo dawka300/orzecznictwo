@@ -14,7 +14,9 @@ from judgments_core.analysis import DocumentAnalysis
 from judgments_core.comparison import DocumentComparison
 from judgments_core.embed import read_progress
 from judgments_core.embeddings import make_embedder
+from judgments_core.folder import CaseFolder
 from judgments_core.qdrant import QdrantStore, collection_name
+from judgments_core.research import Research
 from judgments_core.semantic import SemanticUnavailable
 from judgments_core.web import (
     Response,
@@ -91,12 +93,18 @@ class NsaWebApp(WebApp):
             getattr(semantic, "embedder", None),
         )
         self.comparison = DocumentComparison(settings, getattr(semantic, "embedder", None))
+        self.folder = CaseFolder(settings, getattr(semantic, "embedder", None))
+        self.research = Research(settings, getattr(semantic, "embedder", None))
 
     def route(self, request):
         if request.path == "/analiza" or request.path.startswith("/analiza/"):
             return self.analysis.handle(request, _layout)
         if request.path == "/porownanie" or request.path.startswith("/porownanie/"):
             return self.comparison.handle(request, _layout)
+        if request.path == "/teczka" or request.path.startswith("/teczka/"):
+            return self.folder.handle(request, _layout)
+        if request.path == "/badanie" or request.path.startswith("/badanie/"):
+            return self.research.handle(request, _layout)
         match = _JUDGMENT_PATH.match(request.path)
         if request.path not in ("/", "/statystyki") and not match:
             return Response(

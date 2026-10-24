@@ -30,6 +30,11 @@ RUN pip install --no-cache-dir "pypdf>=5"
 RUN pip install --no-cache-dir anthropic
 # Tematy orzeczeń (python -m etpc|nsa tematy): BERTopic = UMAP + HDBSCAN + c-TF-IDF.
 RUN pip install --no-cache-dir bertopic
+# OCR wgrywanych skanów i zdjęć (judgments_core/ocr.py): Tesseract z polskim i angielskim,
+# pdftoppm (poppler-utils) zamienia strony PDF na obrazy. Lokalnie, nic nie wychodzi.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        tesseract-ocr tesseract-ocr-pol tesseract-ocr-eng poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HF_HUB_DISABLE_TELEMETRY=1
 CMD ["python", "-m", "portal", "--host", "0.0.0.0", "--port", "8080"]
