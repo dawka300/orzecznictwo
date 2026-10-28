@@ -23,6 +23,7 @@ import pymysql
 from judgments_core.source import utc_now
 
 CORE_MIGRATIONS = Path(__file__).parent / "migrations"
+LIBRARY_MIGRATIONS = Path(__file__).parent / "migrations_teczki"
 MIGRATION_RE = re.compile(r"^\d{3}_\w+\.sql$")
 
 log = logging.getLogger(__name__)
@@ -613,3 +614,206 @@ def read_state(cur, key):
     cur.execute("SELECT value FROM sync_state WHERE `key` = %s", (key,))
     row = cur.fetchone()
     return row[0] if row else None
+
+
+# --- teczka sprawy (baza teczki) ---------------------------------------------
+
+PART_BYTES = 4_000_000  # oryginał pliku w częściach (max_allowed_packet domyślnie 16 MB)
+
+
+class StoredDocument(NamedTuple):
+    id: int
+    catalog_id: int | None
+    title: str
+    filename: str
+    role: str
+    doc_date: object  # date albo None
+    note: str
+    chars: int
+    size: int
+    created_at: datetime
+
+
+DOCUMENT_COLUMNS = "id, catalog_id, title, filename, role, doc_date, note, chars, size, created_at"
+
+
+class LibraryStore:
+    """The case folder's database: catalogs (a tree), documents with the text read once
+    (OCR included) and the original file in parts. One connection, autocommit."""
+
+    def __init__(self, conn):
+        self.conn = conn
+
+    def migrate(self):
+        return migrate(self.conn, ("teczki", LIBRARY_MIGRATIONS))
+
+    # katalogi
+
+    def catalogs(self):
+        """[(id, parent_id, name)] of all catalogs, by name."""
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT id, parent_id, name FROM catalogs ORDER BY name, id")
+            return list(cur.fetchall())
+
+    def add_catalog(self, name, parent_id=None):
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO catalogs (parent_id, name, created_at) VALUES (%s, %s, %s)",
+                (parent_id, name, _naive_utc(utc_now())),
+            )
+            new_id = cur.lastrowid
+        self.conn.commit()
+        return new_id
+
+    def rename_catalog(self, catalog_id, name):
+        with self.conn.cursor() as cur:
+            cur.execute("UPDATE catalogs SET name = %s WHERE id = %s", (name, catalog_id))
+        self.conn.commit()
+
+    def catalog_is_empty(self, catalog_id):
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT (SELECT COUNT(*) FROM catalogs WHERE parent_id = %s)"
+                " + (SELECT COUNT(*) FROM documents WHERE catalog_id = %s)",
+                (catalog_id, catalog_id),
+            )
+            return cur.fetchone()[0] == 0
+
+    def delete_catalog(self, catalog_id):
+        with self.conn.cursor() as cur:
+            cur.execute("DELETE FROM catalogs WHERE id = %s", (catalog_id,))
+        self.conn.commit()
+
+    # dokumenty
+
+    def documents(self, catalog_id=None, everywhere=False):
+        """StoredDocuments of one catalog (None = the top level), or of all (everywhere);
+        by date (undated last), then by the order of import."""
+        where, params = "", ()
+        if not everywhere:
+            where = "WHERE catalog_id <=> %s"
+            params = (catalog_id,)
+        with self.conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {DOCUMENT_COLUMNS} FROM documents {where}"
+                " ORDER BY doc_date IS NULL, doc_date, id",
+                params,
+            )
+            return [StoredDocument(*row) for row in cur.fetchall()]
+
+    def document(self, document_id):
+        with self.conn.cursor() as cur:
+            cur.execute(f"SELECT {DOCUMENT_COLUMNS} FROM documents WHERE id = %s", (document_id,))
+            row = cur.fetchone()
+        return StoredDocument(*row) if row else None
+
+    def find_sha(self, sha256):
+        """The id of a document with these file bytes, or None."""
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT id FROM documents WHERE sha256 = %s LIMIT 1", (sha256,))
+            row = cur.fetchone()
+        return row[0] if row else None
+
+    def add_document(self, catalog_id, title, filename, role, note, sha256, text, data):
+        """A new document with its text and (when there is one) the original file."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO documents (catalog_id, title, filename, role, note, sha256,"
+                " chars, size, text, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (
+                    catalog_id,
+                    title,
+                    filename,
+                    role,
+                    note,
+                    sha256,
+                    len(text),
+                    len(data),
+                    text,
+                    _naive_utc(utc_now()),
+                ),
+            )
+            new_id = cur.lastrowid
+            for part, start in enumerate(range(0, len(data), PART_BYTES)):
+                cur.execute(
+                    "INSERT INTO document_parts (document_id, part, data) VALUES (%s, %s, %s)",
+                    (new_id, part, data[start : start + PART_BYTES]),
+                )
+        self.conn.commit()
+        return new_id
+
+    def text(self, document_id):
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT text FROM documents WHERE id = %s", (document_id,))
+            row = cur.fetchone()
+        return row[0] if row else None
+
+    def original(self, document_id):
+        """The original file's bytes (b"" for a pasted text)."""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT data FROM document_parts WHERE document_id = %s ORDER BY part",
+                (document_id,),
+            )
+            return b"".join(row[0] for row in cur.fetchall())
+
+    def update_document(self, document_id, title, role, doc_date, catalog_id):
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE documents SET title = %s, role = %s, doc_date = %s, catalog_id = %s"
+                " WHERE id = %s",
+                (title, role, doc_date, catalog_id, document_id),
+            )
+        self.conn.commit()
+
+    def move_documents(self, document_ids, catalog_id):
+        if not document_ids:
+            return
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "UPDATE documents SET catalog_id = %s WHERE id IN %s",
+                (catalog_id, list(document_ids)),
+            )
+        self.conn.commit()
+
+    def delete_documents(self, document_ids):
+        if not document_ids:
+            return
+        with self.conn.cursor() as cur:
+            ids = list(document_ids)
+            cur.execute("DELETE FROM document_parts WHERE document_id IN %s", (ids,))
+            cur.execute("DELETE FROM document_vectors WHERE document_id IN %s", (ids,))
+            cur.execute("DELETE FROM documents WHERE id IN %s", (ids,))
+        self.conn.commit()
+
+    # wektory fragmentów (klucz: model + sha256 tekstu fragmentu)
+
+    def vectors_lookup(self, model, shas):
+        """{sha256: vector bytes} of the fragments already computed (any document)."""
+        if not shas:
+            return {}
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT sha256, vector FROM document_vectors WHERE model = %s AND sha256 IN %s",
+                (model, list(shas)),
+            )
+            return dict(cur.fetchall())
+
+    def vectors_save(self, document_id, model, rows):
+        """rows: [(sha256, vector bytes)] of one document; already saved ones stay."""
+        if not rows:
+            return
+        with self.conn.cursor() as cur:
+            cur.executemany(
+                "INSERT IGNORE INTO document_vectors (document_id, model, sha256, vector)"
+                " VALUES (%s, %s, %s, %s)",
+                [(document_id, model, sha, vector) for sha, vector in rows],
+            )
+        self.conn.commit()
+
+    def vectors_count(self, document_id):
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM document_vectors WHERE document_id = %s", (document_id,)
+            )
+            return cur.fetchone()[0]

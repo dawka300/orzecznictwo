@@ -183,22 +183,62 @@ def clean(text):
     return "\n".join(lines).strip()
 
 
-def parse_form(request, limit=MAX_UPLOAD):
-    """Fields of a POST form: {name: text} and, for files, {name: (filename, bytes)}."""
+def parse_form(request, limit=MAX_UPLOAD, lists=()):
+    """Fields of a POST form: {name: text} and, for files, {name: (filename, bytes)}.
+    Names in lists (several files in one field, ticked checkboxes) give a list of all
+    their values instead of the last one."""
     content_type = request.environ.get("CONTENT_TYPE", "")
     body = request.body(limit)
+    fields = {name: [] for name in lists}
     if "multipart/form-data" not in content_type:
-        return {k: v[-1] for k, v in parse_qs(body.decode("utf-8", "replace")).items()}
-    message = BytesParser(policy=HTTP).parsebytes(
-        b"Content-Type: " + content_type.encode("latin-1") + b"\r\n\r\n" + body
-    )
-    fields = {}
-    for part in message.iter_parts():
-        name = part.get_param("name", header="content-disposition")
-        payload = part.get_payload(decode=True) or b""
-        filename = part.get_filename()
-        fields[name] = (filename, payload) if filename is not None else decode(payload)
+        pairs = [
+            (k, v)
+            for k, values in parse_qs(body.decode("utf-8", "replace")).items()
+            for v in values
+        ]
+    else:
+        message = BytesParser(policy=HTTP).parsebytes(
+            b"Content-Type: " + content_type.encode("latin-1") + b"\r\n\r\n" + body
+        )
+        pairs = []
+        for part in message.iter_parts():
+            name = part.get_param("name", header="content-disposition")
+            payload = part.get_payload(decode=True) or b""
+            filename = part.get_filename()
+            pairs.append((name, (filename, payload) if filename is not None else decode(payload)))
+    for name, value in pairs:
+        if name in lists:
+            fields[name].append(value)
+        else:
+            fields[name] = value
     return fields
+
+
+def form_document(fields, file_field, text_field, what, library=None, pasted_name=""):
+    """(name, text, stored id) of one document of a form: a file (read here, OCR when needed), a
+    pasted text, or a document of the case folder (field <file_field>_teczka: its text
+    is stored, no reading again; stored id = its number, else 0); DocumentError for the
+    user otherwise."""
+    stored = str(fields.get(f"{file_field}_teczka") or "").strip()
+    filename, data = fields.get(file_field) or ("", b"")
+    pasted = (fields.get(text_field) or "").strip()
+    stored_id = 0
+    if data:
+        text, note = read_document(filename, data)
+        if note:
+            filename = f"{filename} ({note})"
+    elif pasted:
+        filename, text = pasted_name or f"{what} (tekst wklejony)", clean(pasted)
+    elif stored.isdigit() and library is not None:
+        stored_id = int(stored)
+        filename, text = library.read(stored_id)
+    else:
+        raise DocumentError(
+            f"brak dokumentu: {what} - wybierz plik, wklej tekst albo wybierz z teczki"
+        )
+    if len(text) < 200:
+        raise DocumentError(f"za mało tekstu: {what} (najmniej ~200 znaków)")
+    return filename, text, stored_id
 
 
 # --- model wektorów ------------------------------------------------------------
@@ -247,6 +287,7 @@ class Job:
     groups: dict = field(default_factory=dict)  # judgment id -> grupa
     markers: object = None  # judgments_core.markers.Markers (warstwa 2)
     claude: bool = False  # użytkownik zgodził się wysłać znaczniki do Claude
+    stored_id: int = 0  # dokument z teczki: wektory z bazy (library.py)
     claude_report: str = ""
     claude_error: str = ""
     claude_cost: str = ""
@@ -255,6 +296,8 @@ class Job:
 
 class DocumentAnalysis:
     """Jobs of one project's pages: start, progress, report (handle() = the pages)."""
+
+    library = None  # library.Library: dokumenty z teczki (ustawia strona projektu)
 
     def __init__(self, settings, retriever, chunker, connect, semantic_embedder):
         self.settings = settings
@@ -265,9 +308,9 @@ class DocumentAnalysis:
         self.jobs = {}
         self.lock = threading.Lock()
 
-    def start(self, filename, text, side, count, claude=False):
+    def start(self, filename, text, side, count, claude=False, stored_id=0):
         job = Job(uuid.uuid4().hex[:12], filename, side, count, len(text))
-        job.claude = claude
+        job.claude, job.stored_id = claude, stored_id
         with self.lock:
             self.jobs[job.id] = job
             while len(self.jobs) > MAX_JOBS:
@@ -287,6 +330,9 @@ class DocumentAnalysis:
             job.markers = text_markers.analyse(text)  # warstwa 2: lokalnie, chwila
             job.step = "sprawdzam LM Studio"
             embedder, how = choose_embedder(self.settings, self.semantic_embedder)
+            if job.stored_id and self.library is not None:  # dokument z teczki: wektory z bazy
+                embedder = self.library.embedder_for(embedder, owner=job.stored_id)
+                how += ", wektory zapisane w teczce"
             job.embedder = how
             job.step = f"liczę wektory dokumentu ({how}) i szukam w bazie"
             with contextlib.closing(self.connect()) as conn, conn.cursor() as cur:
@@ -353,39 +399,32 @@ class DocumentAnalysis:
             if job is None:
                 body = "<p class=error>Nie ma takiej analizy (serwer był restartowany?).</p>"
                 return Response(
-                    layout("Analiza dokumentu", body + _form(self.settings)), "404 Not Found"
+                    layout("Analiza dokumentu", body + _form(self.settings, self.library)),
+                    "404 Not Found",
                 )
             if match.group(2) and job.status == "gotowe":
                 return _pdf_response(job, self.retriever, layout, _base_url(request))
             return Response(layout("Analiza dokumentu", _job_page(job, self.retriever)))
         if request.method != "POST":
-            return Response(layout("Analiza dokumentu", _form(self.settings)))
+            page = _form(self.settings, self.library, request.get_int("teczka"))
+            return Response(layout("Analiza dokumentu", page))
         try:
             fields = parse_form(request)
-            filename, data = fields.get("plik") or ("", b"")
-            pasted = (fields.get("tekst") or "").strip()
-            if data:
-                text, note = read_document(filename, data)
-                if note:
-                    filename = f"{filename} ({note})"
-            elif pasted:
-                filename, text = "tekst wklejony", clean(pasted)
-            else:
-                raise DocumentError("wybierz plik albo wklej tekst")
-            if len(text) < 200:
-                raise DocumentError("za mało tekstu do analizy (najmniej ~200 znaków)")
+            filename, text, stored_id = form_document(
+                fields, "plik", "tekst", "dokument", self.library, "tekst wklejony"
+            )
         except (DocumentError, ValueError) as error:
             return Response(
                 layout(
                     "Analiza dokumentu",
-                    f"<p class=error>{e(error)}</p>" + _form(self.settings),
+                    f"<p class=error>{e(error)}</p>" + _form(self.settings, self.library),
                 ),
                 "400 Bad Request",
             )
         side = fields.get("strona") if fields.get("strona") in SIDES else "skarzacy"
         count = min(max(_int(fields.get("ile"), RESULTS), 5), MAX_RESULTS)
         claude = bool(fields.get("claude")) and claude_report.available(self.settings)[0]
-        job = self.start(filename, text, side, count, claude)
+        job = self.start(filename, text, side, count, claude, stored_id)
         return Response("", "303 See Other", headers=[("Location", f"/analiza/{job.id}")])
 
 
@@ -396,7 +435,7 @@ def _int(value, default):
         return default
 
 
-def _form(settings):
+def _form(settings, library=None, selected=0):
     ready, why = claude_report.available(settings)
     claude = (
         "<label><input type=checkbox name=claude value=1> wyślij znaczniki językowe do Claude"
@@ -415,6 +454,7 @@ cięty na fragmenty, każdy szuka w bazie najbliższych orzeczeń po znaczeniu, 
 według wyniku sprawy. Dokument zostaje na tym komputerze i nie jest zapisywany.</p>
 <form class=analysis method=post action="/analiza" enctype="multipart/form-data">
 {file_field("plik", FILE_TYPES)}
+{library.choices_html("plik_teczka", selected) if library else ""}
 <p><label>albo tekst<br><textarea name=tekst rows=8 cols=80></textarea></label></p>
 <fieldset><legend>Na poparcie stanowiska</legend>{sides}</fieldset>
 <p><label>Ile orzeczeń <input type=number name=ile value={RESULTS} min=5 max={MAX_RESULTS}></label></p>

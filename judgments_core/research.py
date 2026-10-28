@@ -128,14 +128,17 @@ class Research(CaseFolder):
     intro = """Narzędzie badawcze: miary psychologiczne i językowe jednego tekstu, do własnych
 analiz. Wybierz sekcje raportu; liczby akapit po akapicie pobierzesz jako CSV (R, JASP, SPSS,
 Excel). Pliki: Word, PDF (także skan - OCR), zdjęcie strony, tekst. Tekst zostaje na tym
-komputerze i nie jest zapisywany. Plan badania i opis miar: psychologia.md. Kilka dokumentów
-jednej sprawy (kto komu odpowiedział, zmiany między nimi): Teczka sprawy."""
+komputerze i nie jest zapisywany (dokument z Teczki sprawy: bez ponownego czytania i OCR).
+Plan badania i opis miar: psychologia.md. Kilka dokumentów
+jednej sprawy (kto komu odpowiedział, zmiany między nimi): Analiza sprawy."""
     report_headers = ""
 
-    def document_html(self, slot):
-        """One text: a file or a pasted text (no role and name - nothing to compare with)."""
+    def document_html(self, slot, selected=0):
+        """One text: a file, a pasted text or a document of the case folder (no role and
+        name - nothing to compare with)."""
         return f"""<fieldset><legend>Tekst</legend>
 {file_field(f"dok{slot}_plik", FILE_TYPES)}
+{self.library.choices_html(f"dok{slot}_plik_teczka", selected) if self.library else ""}
 <p><label>albo wklej tekst<br><textarea name=dok{slot}_tekst rows=8></textarea></label></p></fieldset>"""
 
     def report_columns(self, d):

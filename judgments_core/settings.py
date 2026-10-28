@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, fields, replace
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 # .env w katalogu repozytorium, nie w bieżącym - cron uruchamia z katalogu domowego.
 DOTENV_PATH = Path(__file__).resolve().parent.parent / ".env"
@@ -97,6 +98,9 @@ class Settings:
     # Anthropic (puste = ANTHROPIC_API_KEY ze środowiska albo .env; bez klucza raportu nie ma).
     claude_api_key: str = ""
     claude_model: str = "claude-opus-5-5"
+    # Teczka sprawy (judgments_core/library.py): baza z dokumentami użytkownika, wspólna
+    # dla projektów; puste = baza "teczki" na tym samym serwerze co db_dsn.
+    library_dsn: str = ""
 
     @classmethod
     def from_env(cls, prefix, environ=None, dotenv_path=DOTENV_PATH):
@@ -117,4 +121,15 @@ class Settings:
                     raise ValueError(f"Zła wartość {key}={source[key]!r}: {e}") from e
         if not changes.get("db_dsn"):
             changes["db_dsn"] = LOCAL_DSN.format(name=prefix.lower())
+        if not changes.get("library_dsn"):
+            changes["library_dsn"] = with_database(changes["db_dsn"], LIBRARY_DATABASE)
         return replace(settings, **changes)
+
+
+LIBRARY_DATABASE = "teczki"
+
+
+def with_database(dsn, name):
+    """The same server and user, another database: mysql://u:p@host:3306/etpc -> .../name."""
+    parts = urlsplit(dsn)
+    return urlunsplit(parts._replace(path="/" + name))

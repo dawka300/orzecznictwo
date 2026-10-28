@@ -37,6 +37,8 @@ from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+import pymysql
+
 from judgments_core import db
 from judgments_core.backup import dump_database
 from judgments_core.embeddings import make_embedder
@@ -446,6 +448,15 @@ def _migrate(project, settings):
     with db.connect(settings.db_dsn) as conn:
         applied = db.migrate(conn, ("core", db.CORE_MIGRATIONS), (project.name, project.migrations))
     log.info("Zastosowano migracje: %s", ", ".join(applied) if applied else "brak nowych")
+    # Teczka sprawy: osobna baza wspólna dla projektów (strony tworzą tabele też same).
+    if not settings.library_dsn:
+        return 0
+    try:
+        with db.connect(settings.library_dsn, connect_timeout=3) as conn:
+            applied = db.LibraryStore(conn).migrate()
+        log.info("Teczka sprawy: %s", ", ".join(applied) if applied else "brak nowych migracji")
+    except pymysql.Error as e:
+        log.warning("Teczka sprawy: baza niedostępna (%s) - komendy.md, „Teczka sprawy”", e)
     return 0
 
 

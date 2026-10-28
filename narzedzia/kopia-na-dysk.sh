@@ -12,6 +12,7 @@
 # <kopia>/_bazy/qdrant/   snapshoty kolekcji Qdranta (dwa ostatnie na kolekcję)
 # <kopia>/_bazy/<projekt>.sql.gz   zrzut bazy projektów podanych po katalogu
 #                     (python -m <projekt> kopia w kontenerze, prosto na ten dysk)
+# Baza teczki (Teczka sprawy: dokumenty użytkownika) celowo NIE jest kopiowana.
 set -euo pipefail
 
 target="${1:?podaj katalog kopii, np. \"/g/projekty AI/orzecznictwo-szkielet\"}"

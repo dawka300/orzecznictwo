@@ -405,19 +405,28 @@ def print_button(label="Pobierz PDF"):
     )
 
 
-def file_field(name, accept):
+def file_field(name, accept, multiple=False, auto=False):
     """A file input in a box that also takes a file dragged onto it (DROP_JS in layout);
-    the browser's own "choose file" button stays."""
+    the browser's own "choose file" button stays. multiple: several files at once; auto:
+    the form is sent as soon as files are dropped or chosen."""
+    extra = " multiple" if multiple else ""
+    hint = "albo przeciągnij pliki tutaj" if multiple else "albo przeciągnij plik tutaj"
+    if auto:
+        extra += ' onchange="this.form.requestSubmit()"'
+        hint += " - dodadzą się od razu"
     return (
-        f'<label class=drop><input type=file name={name} accept="{e(accept)}">'
-        "<span>albo przeciągnij plik tutaj</span></label>"
+        f"<label class=drop{' data-auto' if auto else ''}>"
+        f'<input type=file name={name} accept="{e(accept)}"{extra}>'
+        f"<span>{hint}</span></label>"
     )
 
 
-# Przeciąganie pliku na pole .drop: plik trafia do jego <input type=file> (jeden, pierwszy).
+# Przeciąganie plików na pole .drop: trafiają do jego <input type=file> (pole "multiple": wszystkie;
+# pojedyncze: pierwszy, kolejne do następnych pustych pól formularza); data-auto = wysyłka od razu.
 # Plik upuszczony obok pola nie otwiera się w karcie (formularz by przepadł).
 DROP_JS = """
 const dropZone = ev => ev.target.closest && ev.target.closest('.drop');
+const asFiles = list => { const d = new DataTransfer(); list.forEach(f => d.items.add(f)); return d.files; };
 document.addEventListener('dragover', ev => {
   if (!ev.dataTransfer.types.includes('Files')) return;
   ev.preventDefault();
@@ -436,9 +445,54 @@ document.addEventListener('drop', ev => {
   const zone = dropZone(ev);
   if (!zone || !ev.dataTransfer.files.length) return;
   zone.classList.remove('over');
-  const one = new DataTransfer();
-  one.items.add(ev.dataTransfer.files[0]);
-  zone.querySelector('input[type=file]').files = one.files;
+  const input = zone.querySelector('input[type=file]');
+  const files = [...ev.dataTransfer.files];
+  if (input.multiple) input.files = asFiles(files);
+  else {
+    // Kilka plików na pole pojedyncze: kolejne trafiają do następnych pustych pól formularza.
+    const inputs = [...input.form.querySelectorAll('.drop input[type=file]:not([multiple])')];
+    const free = inputs.slice(inputs.indexOf(input) + 1).filter(i => !i.files.length);
+    [input, ...free].forEach((target, n) => { if (files[n]) target.files = asFiles([files[n]]); });
+  }
+  if (zone.dataset.auto !== undefined) input.form.requestSubmit();
+});
+// Wysyłanie formularza z plikami: pasek postępu, potem strona, którą zwrócił serwer.
+const mb = n => (n / 1e6).toFixed(1);
+document.addEventListener('submit', ev => {
+  const form = ev.target;
+  const inputs = [...form.querySelectorAll('input[type=file]')];
+  if (!inputs.some(i => i.files.length) || !window.FormData) return;
+  ev.preventDefault();
+  const data = new FormData(form, ev.submitter);
+  let box = form.querySelector('.upload');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'upload';
+    box.innerHTML = '<div class=progress><div></div></div><p class=progress-line></p>';
+    form.appendChild(box);
+  }
+  const fill = box.querySelector('.progress div'), line = box.querySelector('p');
+  const buttons = [...form.querySelectorAll('button')];
+  buttons.forEach(b => { b.disabled = true; });
+  const count = inputs.reduce((n, i) => n + i.files.length, 0);
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', form.action);
+  xhr.upload.onprogress = e => {
+    if (!e.lengthComputable) return;
+    const p = 100 * e.loaded / e.total;
+    fill.style.width = p + '%';
+    line.textContent = `Wysyłanie ${count === 1 ? 'pliku' : count + ' plików'}: ${Math.round(p)}% (${mb(e.loaded)} z ${mb(e.total)} MB)`;
+  };
+  xhr.upload.onload = () => { line.textContent = 'Wysłano. Serwer czyta dokumenty (skan: OCR może potrwać)...'; };
+  xhr.onload = () => {
+    if (xhr.status < 400 && xhr.responseURL) { window.location = xhr.responseURL; return; }
+    document.open(); document.write(xhr.responseText); document.close();
+  };
+  xhr.onerror = () => {
+    line.textContent = 'Nie udało się wysłać - sprawdź, czy serwer działa, i spróbuj jeszcze raz.';
+    buttons.forEach(b => { b.disabled = false; });
+  };
+  xhr.send(data);
 });
 """
 
@@ -463,8 +517,9 @@ def layout(
         ("/", "Szukaj"),
         ("/analiza", "Analiza dokumentu"),
         ("/porownanie", "Porównanie dokumentów"),
-        ("/teczka", "Teczka sprawy"),
+        ("/sprawa", "Analiza sprawy"),
         ("/badanie", "Badanie"),
+        ("/teczka", "Teczka sprawy"),
         ("/statystyki", "Statystyki"),
     ),
     header=True,
@@ -601,6 +656,18 @@ details summary{cursor:pointer;color:var(--accent)}
 .drop input[type=file]:focus-visible::file-selector-button{outline:2px solid var(--accent);outline-offset:2px}
 .drop span{margin-left:10px;color:var(--muted)}
 .drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.upload{margin:10px 0}
+/* teczka sprawy: katalogi i dokumenty */
+button.secondary{background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent)}
+button.danger{background:none;color:#b42318;border:1px solid #b42318}
+.crumbs{margin:6px 0 10px}.catalogs{list-style:none;padding:0;display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+.catalogs li a{display:inline-block;padding:7px 12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;text-decoration:none}
+.library-add{margin:0 0 16px}.library-add details{margin:6px 0}
+table.library{width:100%}table.library th{text-align:left}table.library td:first-child{width:28px}
+.library-actions,.library-new,.library-manage{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0}
+.library-actions select,.library-new input,.library-manage input{width:auto;min-width:220px}
+.library-manage form{display:flex;gap:8px;align-items:center}
+.library-text{white-space:pre-wrap;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 18px}
 .hit{margin:0 0 18px}.hit h3{font-size:16px;margin:0 0 2px}
 .hit blockquote{margin:4px 0 10px;padding:6px 12px;border-left:3px solid var(--line)}
 pre.legend{white-space:pre-wrap;font-size:12px;color:var(--muted)}

@@ -29,10 +29,9 @@ from judgments_core.analysis import (
     DocumentError,
     _base_url,
     choose_embedder,
-    clean,
+    form_document,
     html_to_pdf,
     parse_form,
-    read_document,
 )
 from judgments_core.web import Response, e, file_field, number, shorten
 
@@ -145,11 +144,14 @@ class Comparison:
     marker_found: bool = False
     only_reasoning: bool = True
     passages: int = 0
+    stored: tuple = (0, 0)  # numery w teczce (pismo, orzeczenie); 0 = plik albo tekst
     matches: list = field(default_factory=list)
 
 
 class DocumentComparison:
     """Comparisons of one project's pages (handle() = the pages)."""
+
+    library = None  # library.Library: dokumenty z teczki (ustawia strona projektu)
 
     def __init__(self, settings, semantic_embedder):
         self.settings = settings
@@ -157,9 +159,9 @@ class DocumentComparison:
         self.jobs = {}
         self.lock = threading.Lock()
 
-    def start(self, brief_name, brief, judgment_name, judgment, only_reasoning=True):
+    def start(self, brief_name, brief, judgment_name, judgment, only_reasoning=True, stored=(0, 0)):
         job = Comparison(uuid.uuid4().hex[:12], brief_name, judgment_name)
-        job.only_reasoning = only_reasoning
+        job.only_reasoning, job.stored = only_reasoning, stored
         with self.lock:
             self.jobs[job.id] = job
             while len(self.jobs) > MAX_JOBS:
@@ -186,6 +188,12 @@ class DocumentComparison:
                 raise DocumentError("za mało tekstu w jednym z dokumentów")
             job.passages = len(passages)
             texts = arguments + passages
+            if any(job.stored) and self.library is not None:  # z teczki: wektory z bazy
+                owned = {t: job.stored[0] for t in arguments if job.stored[0]}
+                owned.update({t: job.stored[1] for t in passages if job.stored[1]})
+                embedder = self.library.embedder_for(embedder, owned=owned)
+                how += ", wektory zapisane w teczce"
+                job.embedder = how
             job.total, vectors = len(texts), []
             for start in range(0, len(texts), EMBED_BATCH):
                 vectors += embedder.embed(texts[start : start + EMBED_BATCH])
@@ -214,21 +222,27 @@ class DocumentComparison:
             job = self.get(match.group(1))
             if job is None:
                 body = "<p class=error>Nie ma takiego porównania (serwer był restartowany?).</p>"
-                return Response(layout("Porównanie dokumentów", body + _form()), "404 Not Found")
+                return Response(
+                    layout("Porównanie dokumentów", body + _form(self.library)), "404 Not Found"
+                )
             if match.group(2) and job.status == "gotowe":
                 return _pdf(job, layout, _base_url(request))
             return Response(layout("Porównanie dokumentów", _job_page(job)))
         if request.method != "POST":
-            return Response(layout("Porównanie dokumentów", _form()))
+            return Response(layout("Porównanie dokumentów", _form(self.library)))
         try:
             fields = parse_form(request)
-            brief_name, brief = _document(fields, "pismo", "tekst_pisma", "pismo")
-            judgment_name, judgment = _document(
-                fields, "orzeczenie", "tekst_orzeczenia", "orzeczenie"
+            brief_name, brief, brief_id = form_document(
+                fields, "pismo", "tekst_pisma", "pismo", self.library
+            )
+            judgment_name, judgment, judgment_id = form_document(
+                fields, "orzeczenie", "tekst_orzeczenia", "orzeczenie", self.library
             )
         except (DocumentError, ValueError) as error:
             return Response(
-                layout("Porównanie dokumentów", f"<p class=error>{e(error)}</p>" + _form()),
+                layout(
+                    "Porównanie dokumentów", f"<p class=error>{e(error)}</p>" + _form(self.library)
+                ),
                 "400 Bad Request",
             )
         job = self.start(
@@ -237,27 +251,12 @@ class DocumentComparison:
             judgment_name,
             judgment,
             only_reasoning=bool(fields.get("rozwazania")),
+            stored=(brief_id, judgment_id),
         )
         return Response("", "303 See Other", headers=[("Location", f"/porownanie/{job.id}")])
 
 
-def _document(fields, file_field, text_field, what):
-    filename, data = fields.get(file_field) or ("", b"")
-    pasted = (fields.get(text_field) or "").strip()
-    if data:
-        text, note = read_document(filename, data)
-        if note:
-            filename = f"{filename} ({note})"
-    elif pasted:
-        filename, text = f"{what} (tekst wklejony)", clean(pasted)
-    else:
-        raise DocumentError(f"brak dokumentu: {what} - wybierz plik albo wklej tekst")
-    if len(text) < 200:
-        raise DocumentError(f"za mało tekstu: {what} (najmniej ~200 znaków)")
-    return filename, text
-
-
-def _form():
+def _form(library=None):
     return f"""<h1>Porównanie dokumentów</h1>
 <p class=hint>Analiza absencji: które argumenty Twojego pisma (skargi, skargi kasacyjnej, zarzutów)
 mają odpowiedź w rozważaniach sądu, a które sąd pominął. Oba dokumenty są cięte na akapity
@@ -265,9 +264,11 @@ i porównywane po znaczeniu. Dokumenty zostają na tym komputerze i nie są zapi
 <form class=analysis method=post action="/porownanie" enctype="multipart/form-data">
 <fieldset><legend>1. Twoje pismo (zarzuty)</legend>
 {file_field("pismo", FILE_TYPES)}
+{library.choices_html("pismo_teczka") if library else ""}
 <p><label>albo tekst<br><textarea name=tekst_pisma rows=5></textarea></label></p></fieldset>
 <fieldset><legend>2. Orzeczenie (z uzasadnieniem)</legend>
 {file_field("orzeczenie", FILE_TYPES)}
+{library.choices_html("orzeczenie_teczka") if library else ""}
 <p><label>albo tekst<br><textarea name=tekst_orzeczenia rows=5></textarea></label></p></fieldset>
 <p><label><input type=checkbox name=rozwazania value=1 checked> porównuj tylko z rozważaniami sądu
 (od „zważył, co następuje” / „THE LAW”) - wcześniej sąd streszcza zarzuty stron</label></p>

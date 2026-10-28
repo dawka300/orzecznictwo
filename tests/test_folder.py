@@ -47,7 +47,7 @@ class KeywordEmbedder:
         return out
 
 
-def form(fields, path="/teczka"):
+def form(fields, path="/sprawa"):
     boundary = "B"
     body = (
         b"".join(
@@ -149,7 +149,7 @@ def test_folder_report(monkeypatch):
         assert title in page
     assert page.index("Warstwa psychologiczna") < page.index("Kto komu odpowiedział")
     assert page.count("<svg class=axis-chart") == len(axes.AXES)
-    assert f'href="/teczka/{job.id}.pdf"' in page
+    assert f'href="/sprawa/{job.id}.pdf"' in page
 
 
 def test_one_document_is_refused():

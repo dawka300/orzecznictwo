@@ -250,6 +250,15 @@ Na razie tylko ETPC. Liczy lokalnie na CPU (minuty do kilkudziesięciu minut). W
 | http://127.0.0.1:8080 | portal (usługa `www`, działa sama): `/etpc/`, `/nsa/`, statystyki `/etpc/statystyki`, `/nsa/statystyki` |
 | `www --host 0.0.0.0 --port 8081` | jeden projekt sam; z kontenera trzeba wystawić port: `docker compose run --rm --no-deps -p 127.0.0.1:8081:8081 www python -m etpc www --host 0.0.0.0 --port 8081` (8080 zajmuje `www`) |
 
+## Teczka sprawy (`/etpc/teczka`, `/nsa/teczka`: ta sama baza)
+Dokumenty użytkownika zapisane raz: tekst odczytany przy imporcie (Word, PDF, skan i zdjęcie przez OCR, tekst), oryginał pliku i **wektory fragmentów** (akapity, rozważania sądu, fragmenty jak w bazie projektu; tabela `document_vectors`, klucz = skrót tekstu fragmentu), w zagnieżdżonych katalogach. Analizy dokumentów z teczki biorą gotowe wektory (brakujące liczą i dopisują); dokumenty wrzucone wprost do analizy liczą się na bieżąco i nic nie zostawiają. Na stronie dokumentu „Policz wektory” = brakujące (np. dla dokumentów sprzed 2026-10-29). W Analizie dokumentu, Porównaniu, Analizie sprawy (`/sprawa`, kilka dokumentów bez zapisu) i Badaniu wybierasz je z listy „albo z teczki” - bez ponownego OCR. „Analizuj zaznaczone” = Analiza sprawy zaznaczonych dokumentów w kolejności dat (rola i data ustawiane na stronie dokumentu). Baza MariaDB `teczki` (`<PREFIKS>_LIBRARY_DSN`, puste = `teczki` na serwerze z `DB_DSN`), tylko lokalnie, poza gitem i poza `narzedzia/kopia-na-dysk.sh`.
+
+| Polecenie | Co robi |
+|---|---|
+| `docker exec orzecznictwo-szkielet-db-1 mariadb -uroot -proot -e "CREATE DATABASE IF NOT EXISTS teczki CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON teczki.* TO 'szkielet'@'%';"` | raz, na bazie utworzonej przed 2026-10-28 (nowe wolumeny dostają ją z `docker/mariadb-init.sql`) |
+| `docker compose run --rm --no-deps www python -m etpc migracje` | tworzy też tabele teczki (strona robi to sama przy pierwszym wejściu) |
+| `docker exec orzecznictwo-szkielet-db-1 mariadb-dump -uroot -proot teczki \| gzip > teczki.sql.gz` | ręczna kopia teczki (trzymać zaszyfrowaną: dokumenty klientów) |
+
 ## Typowe sekwencje (`orz` = skrót z góry)
 ```
 # nowe orzeczenia od źródła aż do wyszukiwarki

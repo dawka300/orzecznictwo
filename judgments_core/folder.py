@@ -1,4 +1,4 @@
-"""The case folder on the pages ("Teczka sprawy"): several documents of one case in
+"""The case analysis on the pages ("Analiza sprawy"): several documents of one case in
 chronological order (a complaint, the answer to it, the judgment, a cassation appeal...),
 each with its author's role, read together.
 
@@ -12,7 +12,8 @@ Across the folder:
 - the course on the axes paragraph by paragraph (charts) and document by document;
 - the change between consecutive documents and which earlier document of the other side
   a document is closest to (whose frame it takes over).
-Signals to read with the text, not a diagnosis. No database: the documents stay in memory.
+Signals to read with the text, not a diagnosis. No database: the documents stay in memory
+(documents stored in the case folder, library.py, are picked from a list, read already).
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from judgments_core.analysis import (
     DocumentError,
     _base_url,
     choose_embedder,
+    form_document,
     html_to_pdf,
     parse_form,
 )
@@ -41,7 +43,6 @@ from judgments_core.comparison import (
     PARTLY,
     REASONING_MARKERS,
     STATUSES,
-    _document,
     status_of,
     units,
 )
@@ -76,6 +77,7 @@ class Document:
     role: str
     label: str
     text: str
+    stored_id: int = 0  # numer w teczce (library.py): wektory z bazy; 0 = plik albo tekst
     units: list = field(default_factory=list)
     own: list = field(default_factory=list)  # numery akapitów do odpowiedzi (sąd: rozważania)
     vectors: list = field(default_factory=list)
@@ -156,17 +158,19 @@ class CaseFolder:
     address, the title, the number of documents and the form (e.g. research.Research)."""
 
     job_class = None  # None = Folder; potomek: dataclass z dodatkowymi polami (research.py)
-    base = "/teczka"
-    title = "Teczka sprawy"
+    base = "/sprawa"
+    title = "Analiza sprawy"
     slots = SLOTS
     min_documents = MIN_DOCUMENTS
-    noun = "teczka"  # „Nowa teczka”, „Nie ma takiej teczki”
-    button = "Analizuj teczkę"
+    noun = "analiza sprawy"
+    button = "Analizuj sprawę"
+    library = None  # library.Library: dokumenty z teczki (ustawia strona projektu)
     intro = """Kilka dokumentów jednej sprawy <b>w kolejności, w jakiej powstały</b> (np. skarga,
 odpowiedź na skargę, wyrok, skarga kasacyjna). Raport pokazuje, kto na które argumenty
 odpowiedział, a które pominął, jak dokumenty przesuwają się na osiach znaczeniowych
 (sprawczość, eskalacja, domknięcie, emocje) i jak zmienia się ich język. Pliki: Word, PDF
-(także skan - OCR), zdjęcie strony, tekst. Dokumenty zostają na tym komputerze i nie są
+(także skan - OCR), zdjęcie strony, tekst albo dokument z Teczki sprawy (bez ponownego
+czytania i OCR). Dokumenty z plików zostają na tym komputerze i nie są
 zapisywane."""
 
     def __init__(self, settings, semantic_embedder):
@@ -212,6 +216,10 @@ zapisywane."""
                 doc.markers = text_markers.analyse(doc.text)
                 doc.style = psyche.style(doc.text)
             texts = [u for doc in job.documents for u in doc.units]
+            owned = {u: d.stored_id for d in job.documents if d.stored_id for u in d.units}
+            if owned and self.library is not None:  # dokumenty z teczki: wektory z bazy
+                embedder = self.library.embedder_for(embedder, owned=owned)
+                job.embedder = how = how + ", wektory zapisane w teczce"
             job.total, vectors = len(texts), []
             for start in range(0, len(texts), EMBED_BATCH):
                 vectors += embedder.embed(texts[start : start + EMBED_BATCH])
@@ -265,10 +273,10 @@ zapisywane."""
                 return self.download(job, match.group(2), layout, request)
             return Response(layout(self.title, self.job_page(job)))
         if request.method != "POST":
-            return Response(layout(self.title, self.form()))
+            return Response(layout(self.title, self.form(request.get_int("teczka"))))
         try:
             fields = parse_form(request)
-            documents = read_documents(fields, self.slots, self.min_documents)
+            documents = read_documents(fields, self.slots, self.min_documents, self.library)
             sections = self.chosen_sections(fields)
         except (DocumentError, ValueError) as error:
             return Response(
@@ -289,8 +297,11 @@ zapisywane."""
 
     # --- HTML ---
 
-    def form(self):
-        slots = "".join(self.document_html(slot) for slot in range(1, self.slots + 1))
+    def form(self, selected=0):
+        slots = "".join(
+            self.document_html(slot, selected if slot == 1 else 0)
+            for slot in range(1, self.slots + 1)
+        )
         return f"""<h1>{e(self.title)}</h1>
 <p class=hint>{self.intro}</p>
 <form class=analysis method=post action="{self.base}" enctype="multipart/form-data">
@@ -299,7 +310,7 @@ zapisywane."""
 <p><button type=submit>{e(self.button)}</button></p>
 </form>"""
 
-    def document_html(self, slot):
+    def document_html(self, slot, selected=0):
         """One document's fields: who writes it, its name, a file or a text."""
         options = "".join(f"<option value={key}>{e(name)}</option>" for key, name in ROLES)
         required = " (wymagany)" if slot <= self.min_documents else ""
@@ -307,6 +318,7 @@ zapisywane."""
 <p><label>Kto pisze <select name=dok{slot}_rola>{options}</select></label>
 <label>Nazwa <input name=dok{slot}_nazwa placeholder="np. skarga, odpowiedź na skargę, wyrok WSA"></label></p>
 {file_field(f"dok{slot}_plik", FILE_TYPES)}
+{self.library.choices_html(f"dok{slot}_plik_teczka", selected) if self.library else ""}
 <p><label>albo tekst<br><textarea name=dok{slot}_tekst rows=3></textarea></label></p></fieldset>"""
 
     def report_columns(self, d):
@@ -388,21 +400,23 @@ zapisywane."""
         )
 
 
-def read_documents(fields, slots=SLOTS, minimum=MIN_DOCUMENTS):
-    """Filled slots of the form, in their order (= chronological)."""
+def read_documents(fields, slots=SLOTS, minimum=MIN_DOCUMENTS, library=None):
+    """Filled slots of the form, in their order (= chronological); a slot is a file, a
+    pasted text or a document of the case folder (library)."""
     documents = []
     for slot in range(1, slots + 1):
         _, data = fields.get(f"dok{slot}_plik") or ("", b"")
-        if not data and not (fields.get(f"dok{slot}_tekst") or "").strip():
+        stored = str(fields.get(f"dok{slot}_plik_teczka") or "").strip()
+        if not data and not (fields.get(f"dok{slot}_tekst") or "").strip() and not stored:
             continue
         label = (fields.get(f"dok{slot}_nazwa") or "").strip()[:80]
-        name, text = _document(
-            fields, f"dok{slot}_plik", f"dok{slot}_tekst", label or f"dokument {slot}"
+        name, text, stored_id = form_document(
+            fields, f"dok{slot}_plik", f"dok{slot}_tekst", label or f"dokument {slot}", library
         )
         role = fields.get(f"dok{slot}_rola") or "inny"
         if role not in ROLE_NAMES:
             role = "inny"
-        documents.append(Document(len(documents) + 1, name, role, label, text))
+        documents.append(Document(len(documents) + 1, name, role, label, text, stored_id))
     if len(documents) < minimum:
         raise DocumentError(f"za mało dokumentów: potrzeba co najmniej {minimum}")
     return documents
