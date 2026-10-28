@@ -2,16 +2,13 @@
 chronological order (a complaint, the answer to it, the judgment, a cassation appeal...),
 each with its author's role, read together.
 
-For every document: paragraphs (as in the comparison), their vectors, the psychological
-layer (judgments_core/psyche.py: emotions, cognitive distortions, cognitive style), the
-semantic axes (judgments_core/axes.py) and the language markers (judgments_core/markers.py).
-Across the folder:
-- who answered whom: every argument of an earlier document gets its closest paragraph in
-  each later document of another role (a court: only its own reasoning), with the
-  comparison's thresholds - what was answered and what passed over;
-- the course on the axes paragraph by paragraph (charts) and document by document;
-- the change between consecutive documents and which earlier document of the other side
-  a document is closest to (whose frame it takes over).
+For every document: paragraphs (as in the comparison) and their vectors. Across the case:
+who answered whom - every argument of an earlier document gets its closest paragraph in
+each later document of another role (a court: only its own reasoning), with the
+comparison's thresholds - what was answered and what passed over. A legal analysis: no
+psychological measures here. The research tab (research.Research, psychology = True)
+adds the psychological layer (psyche.py), the semantic axes (axes.py), the language
+markers (markers.py) and the change between documents on the axes.
 Signals to read with the text, not a diagnosis. No database: the documents stay in memory
 (documents stored in the case folder, library.py, are picked from a list, read already).
 """
@@ -165,10 +162,15 @@ class CaseFolder:
     noun = "analiza sprawy"
     button = "Analizuj sprawę"
     library = None  # library.Library: dokumenty z teczki (ustawia strona projektu)
+    # Analiza sprawy jest prawna: tylko "kto komu odpowiedział". Miary psychologiczne (emocje,
+    # zniekształcenia, osie, styl, znaczniki, zmiany na osiach) liczy tylko Badanie (research.py).
+    psychology = False
+    default_sections = ("odpowiedzi",)
     intro = """Kilka dokumentów jednej sprawy <b>w kolejności, w jakiej powstały</b> (np. skarga,
 odpowiedź na skargę, wyrok, skarga kasacyjna). Raport pokazuje, kto na które argumenty
-odpowiedział, a które pominął, jak dokumenty przesuwają się na osiach znaczeniowych
-(sprawczość, eskalacja, domknięcie, emocje) i jak zmienia się ich język. Pliki: Word, PDF
+odpowiedział, a które pominął (sąd: tylko jego rozważania), z cytatami - materiał do
+zarzutu braku odniesienia się do argumentów strony. Miary psychologiczne i językowe
+pojedynczego tekstu: zakładka Badanie. Pliki: Word, PDF
 (także skan - OCR), zdjęcie strony, tekst albo dokument z Teczki sprawy (bez ponownego
 czytania i OCR). Dokumenty z plików zostają na tym komputerze i nie są
 zapisywane."""
@@ -182,9 +184,9 @@ zapisywane."""
             rf"^{re.escape(self.base)}/([0-9a-f]{{12}})(\.pdf|\.csv|-dokumenty\.csv|\.zip)?$"
         )
 
-    def start(self, documents, sections=tuple(SECTIONS)):
+    def start(self, documents, sections=None):
         job = (self.job_class or Folder)(
-            uuid.uuid4().hex[:12], documents=documents, sections=sections
+            uuid.uuid4().hex[:12], documents=documents, sections=sections or self.default_sections
         )
         with self.lock:
             self.jobs[job.id] = job
@@ -213,8 +215,9 @@ zapisywane."""
                     doc.own = list(range(len(doc.units)))
                 if not doc.units:
                     raise DocumentError(f"za mało tekstu: {doc.title}")
-                doc.markers = text_markers.analyse(doc.text)
-                doc.style = psyche.style(doc.text)
+                if self.psychology:
+                    doc.markers = text_markers.analyse(doc.text)
+                    doc.style = psyche.style(doc.text)
             texts = [u for doc in job.documents for u in doc.units]
             owned = {u: d.stored_id for d in job.documents if d.stored_id for u in d.units}
             if owned and self.library is not None:  # dokumenty z teczki: wektory z bazy
@@ -225,38 +228,48 @@ zapisywane."""
                 vectors += embedder.embed(texts[start : start + EMBED_BATCH])
                 job.done = len(vectors)
                 job.step = f"liczę wektory: {job.done} z {job.total} akapitów ({how})"
-            job.step = "osie znaczeniowe"
-            job.axes = semantic_axes.cached(embedder, how)
-            all_scores = semantic_axes.scores(vectors, job.axes)
-            job.step = "emocje i zniekształcenia poznawcze"
-            neutral, job.categories = psyche.cached(embedder, how)
-            all_psyche = psyche.scores(vectors, neutral, job.categories)
-            job.thresholds = psyche.thresholds(all_psyche, job.categories)
             position = 0
             for doc in job.documents:
                 count = len(doc.units)
                 doc.vectors = [normalised(v) for v in vectors[position : position + count]]
-                doc.scores = all_scores[position : position + count]
-                doc.means = {a.key: sum(s[a.key] for s in doc.scores) / count for a in job.axes}
-                doc.psyche = all_psyche[position : position + count]
-                doc.marked = {
-                    c.key: [
-                        k
-                        for k, s in enumerate(doc.psyche)
-                        if job.thresholds[c.key] and s[c.key] >= job.thresholds[c.key]
-                    ]
-                    for c in job.categories
-                }
                 position += count
+            if self.psychology:
+                self._psychology(job, embedder, how, vectors)
             job.step = "kto komu odpowiedział"
             job.answers = answers(job.documents)
-            job.steps = steps(job.documents, job.axes)
+            if self.psychology:
+                job.steps = steps(job.documents, job.axes)
             job.status = "gotowe"
         except Exception as error:  # noqa: BLE001 - błąd do raportu
             job.status, job.error = "blad", f"{type(error).__name__}: {error}"
         finally:
             job.seconds = time.monotonic() - started
             job.step = ""
+
+    def _psychology(self, job, embedder, how, vectors):
+        """The research measures: semantic axes, emotions and cognitive distortions."""
+        job.step = "osie znaczeniowe"
+        job.axes = semantic_axes.cached(embedder, how)
+        all_scores = semantic_axes.scores(vectors, job.axes)
+        job.step = "emocje i zniekształcenia poznawcze"
+        neutral, job.categories = psyche.cached(embedder, how)
+        all_psyche = psyche.scores(vectors, neutral, job.categories)
+        job.thresholds = psyche.thresholds(all_psyche, job.categories)
+        position = 0
+        for doc in job.documents:
+            count = len(doc.units)
+            doc.scores = all_scores[position : position + count]
+            doc.means = {a.key: sum(s[a.key] for s in doc.scores) / count for a in job.axes}
+            doc.psyche = all_psyche[position : position + count]
+            doc.marked = {
+                c.key: [
+                    k
+                    for k, s in enumerate(doc.psyche)
+                    if job.thresholds[c.key] and s[c.key] >= job.thresholds[c.key]
+                ]
+                for c in job.categories
+            }
+            position += count
 
     # --- strony ---
 
@@ -287,8 +300,8 @@ zapisywane."""
         return Response("", "303 See Other", headers=[("Location", f"{self.base}/{job.id}")])
 
     def chosen_sections(self, fields):
-        """The report's sections: all in the case folder."""
-        return tuple(SECTIONS)
+        """The report's sections: in the case analysis only who answered whom."""
+        return self.default_sections
 
     def download(self, job, suffix, layout, request):
         if suffix == ".pdf":
@@ -359,7 +372,7 @@ zapisywane."""
         rows = "".join(
             f"<tr><td>{d.number}</td>{self.report_columns(d)}"
             f"<td>{e(shorten(d.name, 60))}</td><td class=num>{len(d.units)}</td>"
-            f"<td class=num>{number(d.markers.words)}</td></tr>"
+            f"<td class=num>{number(d.markers.words if d.markers else len(d.text.split()))}</td></tr>"
             for d in job.documents
         )
         html = [

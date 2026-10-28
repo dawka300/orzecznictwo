@@ -134,22 +134,38 @@ def test_folder_report(monkeypatch):
     wyrok_skarga = next(a for a in job.answers if (a.target, a.source) == (3, 1))
     statuses = [m[0] for m in wyrok_skarga.matches]
     assert statuses[0] == "odniesiono"  # zarzut o ePUAP ma odpowiedź w rozważaniach
-    assert len(job.steps) == 2 and job.steps[1].closest in (1, 2)
-    skarga = job.documents[0]
-    assert skarga.marked["strach"]  # akapit ze „boję się” wyróżniony
+    # analiza sprawy jest prawna: bez miar psychologicznych (te liczy tylko Badanie)
+    assert job.steps == [] and job.axes == [] and job.documents[0].markers is None
     page = pages.handle(Request({"PATH_INFO": path}), layout).body.decode()
+    assert "Kto komu odpowiedział" in page
     for title in (
         "Warstwa psychologiczna",
         "Zniekształcenia poznawcze",
         "Styl poznawczy",
         "Osie znaczeniowe w czasie",
-        "Kto komu odpowiedział",
         "Zmiany między kolejnymi dokumentami",
     ):
-        assert title in page
-    assert page.index("Warstwa psychologiczna") < page.index("Kto komu odpowiedział")
-    assert page.count("<svg class=axis-chart") == len(axes.AXES)
+        assert title not in page
     assert f'href="/sprawa/{job.id}.pdf"' in page
+
+
+def test_research_keeps_the_psychological_measures(monkeypatch):
+    from judgments_core import research
+
+    monkeypatch.setattr(folder, "choose_embedder", lambda settings, own: (own, "test"))
+    pages = research.Research(Settings(), KeywordEmbedder())
+    sections = tuple(research.RESEARCH_SECTIONS)
+    job = pages.start([folder.Document(1, "skarga", "skarzacy", "skarga", COMPLAINT)], sections)
+    for _ in range(200):
+        if job.status != "liczy":
+            break
+        time.sleep(0.05)
+    assert job.status == "gotowe", job.error
+    assert job.documents[0].marked["strach"]  # akapit ze „boję się” wyróżniony
+    page = pages.report(job)
+    for title in ("Warstwa psychologiczna", "Styl poznawczy", "Osie znaczeniowe w czasie"):
+        assert title in page
+    assert page.count("<svg class=axis-chart") == len(axes.AXES)
 
 
 def test_one_document_is_refused():

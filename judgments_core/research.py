@@ -123,6 +123,7 @@ class Research(CaseFolder):
     title = "Badanie"
     slots = 1
     min_documents = 1
+    psychology = True  # miary psychologiczne i językowe (CaseFolder liczy tylko odpowiedzi)
     noun = "badanie"
     button = "Policz"
     intro = """Narzędzie badawcze: miary psychologiczne i językowe jednego tekstu, do własnych
