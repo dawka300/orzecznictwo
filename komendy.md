@@ -115,6 +115,19 @@ orz etpc stan
 | `docker compose build www` | przebuduj obraz po zmianie `docker/www.Dockerfile` albo `requirements.txt` |
 | `docker compose logs -f www` | log portalu (też `logs/www/`) |
 
+## Docker: profile pamięci (użytkownik 32 GB / deweloper 64 GB)
+`docker-compose.yml` = **profil użytkownika** (komputer z 32 GB RAM): bufor MariaDB 3G, 2 połączenia czytające w `przetworz`. `docker-compose.dev.yml` = **profil deweloperski** (64 GB): nadpisuje tylko różnice (bufor 8G, ustawienia masowego zapisu, 4 połączenia). Profil dev włącza linia w `.env` (compose czyta ją sam, polecenia się nie zmieniają):
+```
+COMPOSE_FILE=docker-compose.yml;docker-compose.dev.yml
+```
+| Polecenie | Co robi |
+|---|---|
+| `docker compose config \| grep buffer-pool` | który profil jest włączony (3G = użytkownik, 8G = dev) |
+| `docker compose up -d db www` | **przełącza profil** po zmianie linii w `.env`: odtwarza bazę (przerywa przebiegi i połączenia; po ~1 min działa) - w spokojnej chwili |
+| `$env:COMPOSE_FILE="docker-compose.yml"; docker compose up -d db www` | jednorazowo profil użytkownika (np. pomiar czasu `ocen` jak na 32 GB), bez ruszania `.env`; powrót: `Remove-Item Env:COMPOSE_FILE; docker compose up -d db www` |
+
+Pamięć dla Dockera ustawia `%USERPROFILE%\.wslconfig` (poza repo; po zmianie `wsl --shutdown` i Docker od nowa): użytkownik `[wsl2] memory=22GB`, dev `memory=52GB` + `swap=8GB`. Qdrant: kolekcje int8 w RAM (ustawienie kolekcji, nie compose); na 32 GB NSA będzie potrzebować kwantyzacji binarnej albo wektorów na dysku (do zrobienia).
+
 ## Docker: sposoby uruchamiania zadań
 ```
 # na pierwszym planie (Ctrl+C przerywa)
@@ -190,6 +203,8 @@ NSA ma dwa poziomy (`nsa/embed.py` `full_chunks`): **pełne fragmenty** tylko dl
 | `paczka-import nsa-0001` | wczytuje plik `nsa-0001.wektory.npy` do Qdranta (z kontrolą, czy liczył ten sam model) | po otrzymaniu pliku od kolegi: włożyć go do `nsa/database/paczki/` i wtedy `paczka-import nsa-0001` |
 
 Liczenie paczki u kolegi z kartą NVIDIA: `docker/licz/README.md`, wynajęte GPU: `docker/licz/VAST.md`. Panel Qdranta: http://127.0.0.1:6333/dashboard
+
+Stan indeksu kolekcji (Git Bash): `curl -s localhost:6333/collections/nsa_text-embedding-bge-m3 | grep -o '"status":"[a-z]*"\|"indexed_vectors_count":[0-9]*'` (`yellow` = Qdrant buduje indeks; `green` + `indexed_vectors_count` ~ liczba punktów = gotowe); postęp segmentów: `curl -s localhost:6333/collections/nsa_text-embedding-bge-m3/optimizations | grep -o '"queued_[a-z]*":[0-9]*'`. Przy masowym imporcie paczek indeksowanie można wyłączyć (`PATCH .../collections/<kolekcja>` z `{"optimizers_config":{"indexing_threshold":0}}`, import ~10x szybszy) i po imporcie włączyć z powrotem (`10000`); pusty `{"optimizers_config":{}}` budzi optymalizator.
 
 ## Szukanie i RAG
 | Polecenie / opcja | Co daje | Kiedy / przykład |

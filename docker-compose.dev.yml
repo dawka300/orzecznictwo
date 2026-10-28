@@ -1,0 +1,26 @@
+# Profil deweloperski (komputer z 64 GB RAM, Docker/WSL ~52 GB): nadpisuje tylko
+# różnice względem docker-compose.yml (profil użytkownika, 32 GB). Włączany linią
+# w .env: COMPOSE_FILE=docker-compose.yml;docker-compose.dev.yml
+# "command" nie łączy się z bazowym, tylko go zastępuje - stąd pełna lista.
+# Qdrant: kolekcje int8 w RAM (always_ram) - ustawienie kolekcji, nie compose.
+services:
+  db:
+    command:
+      - "--character-set-server=utf8mb4"
+      - "--collation-server=utf8mb4_unicode_ci"
+      # 8G (2026-10-24): teksty + FULLTEXT ETPC w pamięci, hybryda RAG ETPC ~0,6 s
+      # na pytanie zamiast ~61 s przy 4G.
+      - "--innodb-buffer-pool-size=8G"
+      # Masowy zapis (przetworz NSA/ETPC, notepad.md "Przyspieszenie przetwarzania"):
+      # commit bez fsync na każdą porcję (przebiegi są wznawialne), większy dziennik,
+      # tempo zapisu dla SSD, większy bufor FULLTEXT. Pomiar: 2840 -> 4860 rekordów/min.
+      - "--innodb-flush-log-at-trx-commit=2"
+      - "--innodb-log-file-size=1G"
+      - "--innodb-io-capacity=2000"
+      - "--innodb-io-capacity-max=4000"
+      - "--innodb-ft-cache-size=80000000"
+
+  www:
+    environment:
+      ETPC_READ_CONNECTIONS: "4"
+      NSA_READ_CONNECTIONS: "4"

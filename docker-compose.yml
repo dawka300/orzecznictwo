@@ -1,5 +1,11 @@
 # Lokalna MariaDB do pracy i testów (na hostingu jest MariaDB hostingu).
 # Wersję warto ustawić taką jak na seohost (sprawdzić w panelu: SELECT VERSION()).
+#
+# Profile pamięci: ten plik = profil użytkownika (komputer z 32 GB RAM, Docker/WSL
+# ~22 GB). Profil deweloperski (64 GB) nadpisuje różnice w docker-compose.dev.yml;
+# włącza go linia w .env: COMPOSE_FILE=docker-compose.yml;docker-compose.dev.yml
+# Zmiana profilu zmienia "command" bazy -> `docker compose up -d db` odtworzy kontener
+# bazy (przerywa przebiegi): przełączać świadomie, polecenia zadań zawsze z --no-deps.
 services:
   db:
     image: mariadb:10.11
@@ -14,22 +20,16 @@ services:
     volumes:
       - dbdata:/var/lib/mysql
       - ./docker/mariadb-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    # Bufor InnoDB: domyślne 128 MB to za mało dla ~10 GB ETPC (wyszukiwanie
-    # pełnotekstowe czytało z dysku: "court" 45 s). Na hostingu ustawia hosting.
-    # 8G (2026-10-24): teksty + FULLTEXT ETPC w pamięci, hybryda RAG ETPC ~0,6 s na
-    # pytanie zamiast ~61 s przy 4G. Przy 64 GB RAM więcej (NSA).
+    # Bufor InnoDB (profil użytkownika 3G): po przejściu wyszukiwania po słowach do
+    # Elasticsearch baza oddaje głównie wiersze po id i metadane - odczyt z dysku M.2
+    # to milisekundy. Do tego czasu FULLTEXT poza buforem bywa bardzo wolny (ETPC
+    # hybryda ~61 s przy 4G, ~0,6 s przy 8G) - profil dev ma 8G. Na hostingu ustawia hosting.
     command:
       - "--character-set-server=utf8mb4"
       - "--collation-server=utf8mb4_unicode_ci"
-      - "--innodb-buffer-pool-size=8G"
-      # Masowy zapis (przetworz NSA/ETPC, notepad.md "Przyspieszenie przetwarzania"):
-      # commit bez fsync na każdą porcję (przebiegi są wznawialne), większy dziennik,
-      # tempo zapisu dla SSD, większy bufor FULLTEXT. Pomiar: 2840 -> 4860 rekordów/min.
-      - "--innodb-flush-log-at-trx-commit=2"
-      - "--innodb-log-file-size=1G"
+      - "--innodb-buffer-pool-size=3G"
       - "--innodb-io-capacity=2000"
       - "--innodb-io-capacity-max=4000"
-      - "--innodb-ft-cache-size=80000000"
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s
@@ -76,9 +76,10 @@ services:
       # kopia bazy z kontenera: mariadb-dump z obrazu łączy się z db (host z DSN);
       # wygrywa z ETPC_DUMP_COMMAND z .env (docker exec - w kontenerze nie ma dockera)
       # (--skip-ssl: klient 11.8 bez tego ostrzega przy każdej kopii; sieć lokalna)
-      # przetworz: teksty porcji czytane naraz 4 połączeniami (judgments_core.db.RawReader)
-      ETPC_READ_CONNECTIONS: "4"
-      NSA_READ_CONNECTIONS: "4"
+      # przetworz: teksty porcji czytane naraz kilkoma połączeniami
+      # (judgments_core.db.RawReader); profil dev: 4
+      ETPC_READ_CONNECTIONS: "2"
+      NSA_READ_CONNECTIONS: "2"
       ETPC_DUMP_COMMAND: mariadb-dump --skip-ssl
       NSA_DUMP_COMMAND: mariadb-dump --skip-ssl
       # testy (docker compose run --rm www python -m pytest): tylko baza robocza
