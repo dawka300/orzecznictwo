@@ -51,6 +51,9 @@ if [ -z "${NAPRZOD:-}" ]; then
     NAPRZOD=$((karty + 2))
 fi
 WOLNE_GB=${WOLNE_GB:-4}
+# Karty i limit mocy (hosty Vast obcinają go bez informacji w ofercie): do porównań kart.
+zdalnie "nvidia-smi --query-gpu=name,memory.total,power.limit,power.default_limit,driver_version --format=csv,noheader" |
+    while IFS= read -r karta; do log "Karta: $karta (nazwa, pamięć, limit mocy, fabrycznie, sterownik)"; done || true
 log "Na maszynie naraz: $NAPRZOD paczek (wysyłanie tylko przy >= $WOLNE_GB GB wolnego)"
 
 # Stan: kolejka (do wysłania), na_maszynie (wysłane, liczone), do_importu (wektory u nas),
