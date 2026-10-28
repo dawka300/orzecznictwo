@@ -143,10 +143,25 @@ wyslij() {
 
 # Import w tle; kod wyjścia: 0 = zaimportowana, 2 = blokada zajęta (eksport), 1 = błąd.
 importuj() {
-    local nazwa=$1
+    local nazwa=$1 kontener="$PROJEKT-import-$nazwa"
+    # Kontener w tle i sprawdzanie co 10 s zamiast `docker compose run` na pierwszym planie:
+    # 2026-10-28 przy pełnej pamięci WSL (Qdrant ~11 GB + baza 6 GB na 20 GB, swap) klient
+    # Dockera tracił połączenie ("error waiting for container: unexpected EOF"), a Qdrant
+    # zabił brak pamięci. Przyczyną była pamięć; kontener w tle chroni tylko przed zerwaniem
+    # klienta. Działający już import (kolejka uruchomiona ponownie) nie jest przerywany.
+    if [ "$(docker inspect -f '{{.State.Running}}' "$kontener" 2>/dev/null)" != true ]; then
+        docker rm -f "$kontener" > /dev/null 2>&1 || true
+        if ! docker compose run -d --no-deps --name "$kontener" www \
+            python -m "$PROJEKT" paczka-import "$nazwa" > "$LOKALNIE/$nazwa.import.log" 2>&1; then
+            return 1
+        fi
+    fi
+    while [ "$(docker inspect -f '{{.State.Running}}' "$kontener" 2>/dev/null)" = true ]; do
+        sleep 10
+    done
     # Kod wyjścia nie wystarcza: zajęta blokada (inny import, eksport) też kończy się kodem 0.
-    docker compose run --rm --no-deps www python -m "$PROJEKT" paczka-import "$nazwa" \
-        > "$LOKALNIE/$nazwa.import.log" 2>&1 || true
+    docker logs "$kontener" > "$LOKALNIE/$nazwa.import.log" 2>&1 || true
+    docker rm "$kontener" > /dev/null 2>&1 || true
     if grep -q "zapisano wektory" "$LOKALNIE/$nazwa.import.log"; then
         touch "$LOKALNIE/$nazwa.zaimportowano"
         return 0
