@@ -164,9 +164,7 @@ def test_research_one_text_chosen_sections_and_csv(monkeypatch):
     monkeypatch.setattr(folder, "choose_embedder", lambda settings, own: (own, "test"))
     pages = research.Research(Settings(), KeywordEmbedder())
     layout = lambda title, body: body
-    request = form(
-        {"sekcja_psychologia": "1", "dok1_nazwa": "skarga", "dok1_tekst": COMPLAINT}, "/badanie"
-    )
+    request = form({"sekcja_psychologia": "1", "dok1_tekst": COMPLAINT}, "/badanie")
     response = pages.handle(request, layout)
     assert response.status == "303 See Other"
     path = dict(response.headers)["Location"]
@@ -214,8 +212,7 @@ def test_research_asks_claude_and_saves(monkeypatch, tmp_path):
     monkeypatch.setattr(claude_report, "ask", ask)
     pages = research.Research(Settings(), KeywordEmbedder())
     layout = lambda title, body: body
-    fields = {"sekcja_psychologia": "1", "dok1_rola": "skarzacy", "dok1_tekst": COMPLAINT}
-    fields |= {"dok2_rola": "organ", "dok2_tekst": ANSWER}
+    fields = {"sekcja_psychologia": "1", "dok1_tekst": COMPLAINT}
     path = dict(pages.handle(form(fields, "/badanie"), layout).headers)["Location"]
     job = pages.get(path.rsplit("/", 1)[1])
     for _ in range(200):
@@ -254,3 +251,26 @@ def test_research_asks_claude_and_saves(monkeypatch, tmp_path):
         "raport.pdf",
         "wyslane.md",
     ]
+
+
+def test_research_form_has_one_text_without_role_and_name():
+    from judgments_core import research
+
+    page = research.Research(Settings(), KeywordEmbedder()).form()
+    assert "dok1_plik" in page and "dok2_plik" not in page
+    assert "Kto pisze" not in page and "dok1_nazwa" not in page
+    assert "sekcja_odpowiedzi" not in page and "sekcja_zmiany" not in page
+    assert "class=drop" in page
+
+
+def test_case_folder_form_keeps_role_name_and_drop():
+    page = folder.CaseFolder(Settings(), KeywordEmbedder()).form()
+    assert "Kto pisze" in page and "dok6_plik" in page and page.count("class=drop") == 6
+
+
+def test_layout_adds_drop_script_only_with_a_file_field():
+    from judgments_core.web import file_field, layout
+
+    with_file = layout("t", file_field("plik", ".pdf"), "Orzecznictwo")
+    assert "<script>" in with_file and "dataTransfer" in with_file
+    assert "<script>" not in layout("t", "<p>bez pliku</p>", "Orzecznictwo")

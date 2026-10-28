@@ -34,7 +34,7 @@ from judgments_core.analysis import (
     parse_form,
     read_document,
 )
-from judgments_core.web import Response, e, number, shorten
+from judgments_core.web import Response, e, file_field, number, shorten
 
 ANSWERED = 0.70  # cosinus bge-m3: zarzut omówiony (obca sprawa nie przekracza ~0.62; kalibracja I FZ 106/22)
 PARTLY = 0.62  # temat się pojawia, ale nie wprost
@@ -264,10 +264,10 @@ mają odpowiedź w rozważaniach sądu, a które sąd pominął. Oba dokumenty s
 i porównywane po znaczeniu. Dokumenty zostają na tym komputerze i nie są zapisywane.</p>
 <form class=analysis method=post action="/porownanie" enctype="multipart/form-data">
 <fieldset><legend>1. Twoje pismo (zarzuty)</legend>
-<p><label>Plik <input type=file name=pismo accept="{FILE_TYPES}"></label></p>
+{file_field("pismo", FILE_TYPES)}
 <p><label>albo tekst<br><textarea name=tekst_pisma rows=5></textarea></label></p></fieldset>
 <fieldset><legend>2. Orzeczenie (z uzasadnieniem)</legend>
-<p><label>Plik <input type=file name=orzeczenie accept="{FILE_TYPES}"></label></p>
+{file_field("orzeczenie", FILE_TYPES)}
 <p><label>albo tekst<br><textarea name=tekst_orzeczenia rows=5></textarea></label></p></fieldset>
 <p><label><input type=checkbox name=rozwazania value=1 checked> porównuj tylko z rozważaniami sądu
 (od „zważył, co następuje” / „THE LAW”) - wcześniej sąd streszcza zarzuty stron</label></p>

@@ -405,6 +405,44 @@ def print_button(label="Pobierz PDF"):
     )
 
 
+def file_field(name, accept):
+    """A file input in a box that also takes a file dragged onto it (DROP_JS in layout);
+    the browser's own "choose file" button stays."""
+    return (
+        f'<label class=drop><input type=file name={name} accept="{e(accept)}">'
+        "<span>albo przeciągnij plik tutaj</span></label>"
+    )
+
+
+# Przeciąganie pliku na pole .drop: plik trafia do jego <input type=file> (jeden, pierwszy).
+# Plik upuszczony obok pola nie otwiera się w karcie (formularz by przepadł).
+DROP_JS = """
+const dropZone = ev => ev.target.closest && ev.target.closest('.drop');
+document.addEventListener('dragover', ev => {
+  if (!ev.dataTransfer.types.includes('Files')) return;
+  ev.preventDefault();
+  const zone = dropZone(ev);
+  document.querySelectorAll('.drop.over').forEach(z => { if (z !== zone) z.classList.remove('over'); });
+  if (zone) { zone.classList.add('over'); ev.dataTransfer.dropEffect = 'copy'; }
+  else ev.dataTransfer.dropEffect = 'none';
+});
+document.addEventListener('dragleave', ev => {
+  const zone = dropZone(ev);
+  if (zone && !zone.contains(ev.relatedTarget)) zone.classList.remove('over');
+});
+document.addEventListener('drop', ev => {
+  if (!ev.dataTransfer.types.includes('Files')) return;
+  ev.preventDefault();
+  const zone = dropZone(ev);
+  if (!zone || !ev.dataTransfer.files.length) return;
+  zone.classList.remove('over');
+  const one = new DataTransfer();
+  one.items.add(ev.dataTransfer.files[0]);
+  zone.querySelector('input[type=file]').files = one.files;
+});
+"""
+
+
 # Ikona karty przeglądarki: biała waga na kolorze stron, SVG w adresie data: (bez pliku).
 FAVICON_SVG = (
     "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
@@ -442,13 +480,14 @@ def layout(
         f'<header lang=pl translate=no><a class=brand href="/">{e(brand)}</a>\n'
         f"<nav>{links}</nav></header>\n"
     )
+    script = f"<script>{DROP_JS}</script>" if "class=drop" in body else ""
     return f"""<!doctype html>
 <html lang={e(lang)}><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width, initial-scale=1">
 <title>{e(title)} - {e(brand)}</title>
 <link rel=icon type="image/svg+xml" href="{FAVICON}">
 <style>{CSS}</style></head>
-<body>{top if header else ""}<main>{body}</main></body></html>"""
+<body>{top if header else ""}<main>{body}</main>{script}</body></html>"""
 
 
 # Wspólny wygląd stron projektów (zmienne kolorów: jasny i ciemny motyw).
@@ -505,7 +544,7 @@ h1{font-size:22px;line-height:1.3;margin:4px 0 16px}h2{font-size:15px;margin:18p
 .filters{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;position:sticky;top:12px}
 .query{display:flex;gap:8px}.query input{flex:1;min-width:0}
 input,select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text);font:inherit}
-input[type=radio]{width:auto}
+input[type=radio],input[type=checkbox]{width:auto}
 button{padding:7px 14px;border:0;border-radius:7px;background:var(--accent);color:var(--panel);font:inherit;font-weight:600;cursor:pointer}
 a.button{display:inline-block;padding:7px 14px;border-radius:7px;background:var(--accent);color:var(--panel);font-weight:600;text-decoration:none}
 .field{display:flex;gap:14px;margin:10px 0 4px;color:var(--muted)}.radio{display:flex;align-items:center;gap:4px}
@@ -555,6 +594,13 @@ details summary{cursor:pointer;color:var(--accent)}
 .analysis textarea{width:100%;box-sizing:border-box;font:inherit}
 .analysis fieldset{border:1px solid var(--line);border-radius:8px;padding:8px 14px}
 .analysis fieldset label{display:block;margin:4px 0}
+.analysis label.drop{display:block;border:2px dashed var(--line);border-radius:8px;padding:12px 14px;margin:4px 0}
+.drop input[type=file]{width:auto;padding:0;border:0;background:none;color:var(--text);cursor:pointer}
+.drop input[type=file]::file-selector-button{margin-right:12px;padding:7px 14px;border:1px solid var(--accent);border-radius:7px;background:var(--accent-soft);color:var(--accent);font:inherit;font-weight:600;cursor:pointer;transition:background .15s,color .15s}
+.drop input[type=file]::file-selector-button:hover,.drop.over input[type=file]::file-selector-button{background:var(--accent);color:var(--panel)}
+.drop input[type=file]:focus-visible::file-selector-button{outline:2px solid var(--accent);outline-offset:2px}
+.drop span{margin-left:10px;color:var(--muted)}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
 .hit{margin:0 0 18px}.hit h3{font-size:16px;margin:0 0 2px}
 .hit blockquote{margin:4px 0 10px;padding:6px 12px;border-left:3px solid var(--line)}
 pre.legend{white-space:pre-wrap;font-size:12px;color:var(--muted)}

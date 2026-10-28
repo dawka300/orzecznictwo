@@ -41,7 +41,7 @@ import requests
 from judgments_core import claude_report, ocr
 from judgments_core import markers as text_markers
 from judgments_core.embeddings import make_embedder
-from judgments_core.web import Response, e, number, shorten
+from judgments_core.web import Response, e, file_field, number, shorten
 
 log = logging.getLogger(__name__)
 
@@ -414,7 +414,7 @@ def _form(settings):
 cięty na fragmenty, każdy szuka w bazie najbliższych orzeczeń po znaczeniu, a raport dzieli je
 według wyniku sprawy. Dokument zostaje na tym komputerze i nie jest zapisywany.</p>
 <form class=analysis method=post action="/analiza" enctype="multipart/form-data">
-<p><label>Plik <input type=file name=plik accept="{FILE_TYPES}"></label></p>
+{file_field("plik", FILE_TYPES)}
 <p><label>albo tekst<br><textarea name=tekst rows=8 cols=80></textarea></label></p>
 <fieldset><legend>Na poparcie stanowiska</legend>{sides}</fieldset>
 <p><label>Ile orzeczeń <input type=number name=ile value={RESULTS} min=5 max={MAX_RESULTS}></label></p>

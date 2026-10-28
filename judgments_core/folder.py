@@ -45,7 +45,7 @@ from judgments_core.comparison import (
     status_of,
     units,
 )
-from judgments_core.web import Response, e, number, shorten
+from judgments_core.web import Response, e, file_field, number, shorten
 
 SLOTS = 6  # tyle dokumentów w formularzu
 MIN_DOCUMENTS = 2
@@ -290,24 +290,30 @@ zapisywane."""
     # --- HTML ---
 
     def form(self):
-        options = "".join(f"<option value={key}>{e(name)}</option>" for key, name in ROLES)
-        slots = []
-        for slot in range(1, self.slots + 1):
-            required = " (wymagany)" if slot <= self.min_documents else ""
-            slots.append(
-                f"""<fieldset><legend>Dokument {slot}{required}</legend>
-<p><label>Kto pisze <select name=dok{slot}_rola>{options}</select></label>
-<label>Nazwa <input name=dok{slot}_nazwa placeholder="np. skarga, odpowiedź na skargę, wyrok WSA"></label></p>
-<p><label>Plik <input type=file name=dok{slot}_plik accept="{FILE_TYPES}"></label></p>
-<p><label>albo tekst<br><textarea name=dok{slot}_tekst rows=3></textarea></label></p></fieldset>"""
-            )
+        slots = "".join(self.document_html(slot) for slot in range(1, self.slots + 1))
         return f"""<h1>{e(self.title)}</h1>
 <p class=hint>{self.intro}</p>
 <form class=analysis method=post action="{self.base}" enctype="multipart/form-data">
 {self.options_html()}
-{"".join(slots)}
+{slots}
 <p><button type=submit>{e(self.button)}</button></p>
 </form>"""
+
+    def document_html(self, slot):
+        """One document's fields: who writes it, its name, a file or a text."""
+        options = "".join(f"<option value={key}>{e(name)}</option>" for key, name in ROLES)
+        required = " (wymagany)" if slot <= self.min_documents else ""
+        return f"""<fieldset><legend>Dokument {slot}{required}</legend>
+<p><label>Kto pisze <select name=dok{slot}_rola>{options}</select></label>
+<label>Nazwa <input name=dok{slot}_nazwa placeholder="np. skarga, odpowiedź na skargę, wyrok WSA"></label></p>
+{file_field(f"dok{slot}_plik", FILE_TYPES)}
+<p><label>albo tekst<br><textarea name=dok{slot}_tekst rows=3></textarea></label></p></fieldset>"""
+
+    def report_columns(self, d):
+        """The report table's cells for one document after its number (name, who writes)."""
+        return f"<td>{e(d.label or '-')}</td><td>{e(ROLE_NAMES[d.role])}</td>"
+
+    report_headers = "<th>nazwa</th><th>kto pisze</th>"
 
     def options_html(self):
         """Extra form fields before the documents (none in the case folder)."""
@@ -339,7 +345,7 @@ zapisywane."""
     def report(self, job, pdf=False):
         docs = {d.number: d for d in job.documents}
         rows = "".join(
-            f"<tr><td>{d.number}</td><td>{e(d.label or '-')}</td><td>{e(ROLE_NAMES[d.role])}</td>"
+            f"<tr><td>{d.number}</td>{self.report_columns(d)}"
             f"<td>{e(shorten(d.name, 60))}</td><td class=num>{len(d.units)}</td>"
             f"<td class=num>{number(d.markers.words)}</td></tr>"
             for d in job.documents
@@ -348,7 +354,7 @@ zapisywane."""
             f"""<h1>{e(self.title)}</h1>
 {"" if pdf else self.tools(job)}
 <p>{len(job.documents)} dokumentów · wektory: {e(job.embedder)} · {job.seconds:.0f} s</p>
-<table><tr><th>nr</th><th>nazwa</th><th>kto pisze</th><th>plik</th><th>akapitów</th><th>słów</th></tr>{rows}</table>
+<table><tr><th>nr</th>{self.report_headers}<th>plik</th><th>akapitów</th><th>słów</th></tr>{rows}</table>
 <p class=hint>Wszystkie liczby to sygnały do przeczytania z tekstem, nie diagnoza ani dowód.</p>"""
         ]
         renderers = {

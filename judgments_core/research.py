@@ -1,7 +1,7 @@
 """The research tab on the pages ("Badanie"): the case folder's measures for the user's
-own psychological research - up to RESEARCH_SLOTS documents (one is enough), the report
-sections to compute chosen in the form, and the numbers exported as CSV for statistics
-(R, JASP, SPSS): one row per paragraph and one row per document.
+own psychological research - one text (no role or name: several documents of a case are
+the case folder's job), the report sections to compute chosen in the form, and the numbers
+exported as CSV for statistics (R, JASP, SPSS): one row per paragraph and one per document.
 
 A child of folder.CaseFolder: the same computation (vectors, psychological layer, axes,
 answers, markers), another address, form and downloads. Local tool, the documents stay
@@ -26,14 +26,15 @@ from dataclasses import dataclass
 
 from judgments_core import claude_report
 from judgments_core import markers as text_markers
-from judgments_core.analysis import DocumentError, _base_url, parse_form
+from judgments_core.analysis import FILE_TYPES, DocumentError, _base_url, parse_form
 from judgments_core.folder import ROLE_NAMES, SECTIONS, CaseFolder, Folder
-from judgments_core.web import Response, e, shorten
+from judgments_core.web import Response, e, file_field, shorten
 
 MAX_TEXT_CHARS = 200_000  # pełnych tekstów do Claude razem (~60 tys. tokenów)
 QUOTES = 3  # najwyraźniejszych akapitów na kategorię w materiale dla Claude
 QUOTE_CHARS = 450
-RESEARCH_SLOTS = 10
+# Jeden tekst: "kto komu odpowiedział" i "zmiany" potrzebują kilku (Teczka sprawy).
+RESEARCH_SECTIONS = {k: v for k, v in SECTIONS.items() if k not in ("odpowiedzi", "zmiany")}
 TEXT_IN_CSV = 300  # tyle znaków akapitu w CSV (do rozpoznania, nie do analizy)
 STYLE_FIELDS = (
     ("words_per_sentence", "slow_na_zdanie"),
@@ -52,9 +53,8 @@ który jest psychologiem. Dostajesz opis metod, wyniki liczbowe i najwyraźniejs
 czasem także pełne teksty.
 
 Zadania:
-1. OPIS: co wyróżnia każdy dokument i jak miary zmieniają się między dokumentami (są w
-   kolejności powstania). Odwołuj się do konkretnych liczb i akapitów (numer dokumentu i
-   akapitu).
+1. OPIS: co wyróżnia tekst i jak miary zmieniają się w jego toku, akapit po akapicie.
+   Odwołuj się do konkretnych liczb i akapitów (numer akapitu).
 2. INTERPRETACJA: hipotezy w kategoriach psychologicznych - potrzeba domknięcia poznawczego
    (Kruglanski), ramy poznawcze i ich przejmowanie między stronami, zdolności narracyjne
    (spójność, integracja, sprawstwo i wspólnota), wyrażanie i regulacja emocji w tekście,
@@ -121,31 +121,40 @@ class Research(CaseFolder):
     job_class = ResearchJob
     base = "/badanie"
     title = "Badanie"
-    slots = RESEARCH_SLOTS
+    slots = 1
     min_documents = 1
     noun = "badanie"
     button = "Policz"
-    intro = """Narzędzie badawcze: miary psychologiczne i językowe dla jednego albo wielu
-tekstów (do 10, w kolejności powstania), do własnych analiz. Wybierz sekcje raportu; liczby
-akapit po akapicie i dokument po dokumencie pobierzesz jako CSV (R, JASP, SPSS, Excel).
-Pliki: Word, PDF (także skan - OCR), zdjęcie strony, tekst. Teksty zostają na tym komputerze
-i nie są zapisywane. Plan badania i opis miar: psychologia.md."""
+    intro = """Narzędzie badawcze: miary psychologiczne i językowe jednego tekstu, do własnych
+analiz. Wybierz sekcje raportu; liczby akapit po akapicie pobierzesz jako CSV (R, JASP, SPSS,
+Excel). Pliki: Word, PDF (także skan - OCR), zdjęcie strony, tekst. Tekst zostaje na tym
+komputerze i nie jest zapisywany. Plan badania i opis miar: psychologia.md. Kilka dokumentów
+jednej sprawy (kto komu odpowiedział, zmiany między nimi): Teczka sprawy."""
+    report_headers = ""
+
+    def document_html(self, slot):
+        """One text: a file or a pasted text (no role and name - nothing to compare with)."""
+        return f"""<fieldset><legend>Tekst</legend>
+{file_field(f"dok{slot}_plik", FILE_TYPES)}
+<p><label>albo wklej tekst<br><textarea name=dok{slot}_tekst rows=8></textarea></label></p></fieldset>"""
+
+    def report_columns(self, d):
+        return ""
 
     def options_html(self):
         boxes = "".join(
             f"<label><input type=checkbox name=sekcja_{key} value=1 checked> {e(name)}</label>"
-            for key, name in SECTIONS.items()
+            for key, name in RESEARCH_SECTIONS.items()
         )
         return (
             "<fieldset><legend>Sekcje raportu</legend>"
             "<p class=hint>Wektory, emocje, zniekształcenia, osie i znaczniki liczą się zawsze"
-            " (są w CSV); wybór decyduje, co pokazać na stronie i w PDF. „Kto komu"
-            " odpowiedział” i „zmiany” potrzebują co najmniej dwóch tekstów.</p>"
+            " (są w CSV); wybór decyduje, co pokazać na stronie i w PDF.</p>"
             f"{boxes}</fieldset>"
         )
 
     def chosen_sections(self, fields):
-        chosen = tuple(key for key in SECTIONS if fields.get(f"sekcja_{key}"))
+        chosen = tuple(key for key in RESEARCH_SECTIONS if fields.get(f"sekcja_{key}"))
         if not chosen:
             raise DocumentError("wybierz co najmniej jedną sekcję raportu")
         return chosen
