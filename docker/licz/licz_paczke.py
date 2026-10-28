@@ -9,6 +9,8 @@ Silniki:
 
 Wznawia się: co CZESC fragmentów zapisuje część do <nazwa>.czesci/; po przerwaniu
 (Ctrl+C, restart komputera) to samo polecenie liczy dalej od brakującej części.
+Kilka procesów na tej samej paczce (np. dwie karty: CUDA_VISIBLE_DEVICES=0 i =1) dzieli się
+częściami: każda część jest rezerwowana plikiem <numer>.zajeta, skleja jeden z nich.
 --limit N = tylko pierwsze N fragmentów (test szybkości), bez pliku wynikowego.
 
 Samodzielny plik (Python 3.9+, numpy; sentence-transformers albo requests), bez repozytorium.
@@ -28,6 +30,7 @@ import numpy as np
 
 CZESC = 4096  # fragmentów w jednym pliku części
 ZNAKOW_NA_TOKEN = 3.3  # bge-m3, polski tekst (do podglądu tempa)
+PORZUCONA_S = 3600  # blokada części bez działającego procesu (tylko Windows: po wieku)
 
 
 def wczytaj(sciezka):
@@ -53,6 +56,8 @@ class SentenceTransformers:
         self.batch = batch
 
     def licz(self, teksty):
+        # Tokenizacja w wątkach z wyprzedzeniem sprawdzona 2026-10-28 (5070, 5080, 5090):
+        # zysk w szumie (-2..+4%), karty ogranicza moc, nie CPU - zostaje model.encode.
         return self.model.encode(
             teksty,
             batch_size=self.batch,
@@ -107,41 +112,112 @@ def main(argv=None):
         silnik = SentenceTransformers(args.model or "BAAI/bge-m3", args.silnik, args.batch)
 
     czesci = paczka.parent / f"{nazwa}.czesci"
+    cel = paczka.parent / f"{nazwa}.wektory.npy"
+    pliki = [czesci / f"{i // CZESC:05d}.npy" for i in range(0, len(teksty), CZESC)]
     if not args.limit:
         czesci.mkdir(exist_ok=True)
-    start = time.monotonic()
+    start = poprzednia = time.monotonic()
     znaki = 0
-    for i in range(0, len(teksty), CZESC):
-        plik = czesci / f"{i // CZESC:05d}.npy"
-        if not args.limit and plik.is_file():
-            continue  # policzone w poprzednim uruchomieniu
-        kawalek = teksty[i : i + CZESC]
-        wektory = np.asarray(silnik.licz(kawalek), dtype=np.float16)
-        if not args.limit:
-            np.save(plik, wektory)
-        znaki += sum(map(len, kawalek))
-        s = time.monotonic() - start
-        print(
-            f"  {min(i + CZESC, len(teksty)):>9,} / {len(teksty):,}"
-            f"  ~{znaki / ZNAKOW_NA_TOKEN / s:,.0f} tokenów/s, {znaki / s:,.0f} znaków/s",
-            flush=True,
-        )
-    if args.limit:
-        print("Test zakończony (bez pliku wynikowego).")
-        return 0
-    wynik = np.concatenate(
-        [np.load(czesci / f"{i // CZESC:05d}.npy") for i in range(0, len(teksty), CZESC)]
-    )
-    cel = paczka.parent / f"{nazwa}.wektory.npy"
-    # Najpierw plik tymczasowy, potem zmiana nazwy: kto czeka na .wektory.npy
-    # (vast_kolejka.sh), nie ściągnie pliku w połowie zapisu.
-    tymczasowy = paczka.parent / f"{nazwa}.wektory.npy.zapis"
-    with open(tymczasowy, "wb") as f:
-        np.save(f, wynik)
-    os.replace(tymczasowy, cel)
-    print(f"Gotowe: {cel} ({wynik.shape[0]:,} x {wynik.shape[1]}). Odeślij ten plik.")
+    while True:
+        for numer, plik in enumerate(pliki):
+            blokada = plik.with_suffix(".zajeta")
+            if not args.limit:
+                if plik.is_file():
+                    continue  # policzone w poprzednim uruchomieniu albo przez inny proces
+                if not zajmij(blokada):
+                    continue  # tę część liczy inny proces (druga karta na tej samej paczce)
+            kawalek = teksty[numer * CZESC : (numer + 1) * CZESC]
+            wektory = np.asarray(silnik.licz(kawalek), dtype=np.float16)
+            if not args.limit:
+                zapisz(plik, wektory)
+                blokada.unlink(missing_ok=True)
+            znaki_czesci = sum(map(len, kawalek))
+            znaki += znaki_czesci
+            teraz = time.monotonic()
+            s, s_czesci = teraz - start, teraz - poprzednia
+            poprzednia = teraz
+            # Średnia od startu (z rozgrzewką) i tempo ostatniej części (bez niej, do porównań kart).
+            print(
+                f"  {min((numer + 1) * CZESC, len(teksty)):>9,} / {len(teksty):,}"
+                f"  ~{znaki / ZNAKOW_NA_TOKEN / s:,.0f} tokenów/s, {znaki / s:,.0f} znaków/s"
+                f" (ostatnia część ~{znaki_czesci / ZNAKOW_NA_TOKEN / s_czesci:,.0f} tokenów/s)",
+                flush=True,
+            )
+        if args.limit:
+            print("Test zakończony (bez pliku wynikowego).")
+            return 0
+        if cel.is_file() or not czesci.is_dir() or all(plik.is_file() for plik in pliki):
+            break
+        if not paczka.is_file():
+            sys.exit(f"Paczka {paczka} zniknęła w trakcie liczenia")
+        time.sleep(5)  # inny proces kończy swoje części (albo jego porzucone przejmiemy)
+
+    # Skleja jeden proces (blokada); inne czekają na gotowy plik.
+    sklejanie = paczka.parent / f"{nazwa}.sklejanie"
+    while not cel.is_file():
+        if not czesci.is_dir():
+            print(f"Paczkę {nazwa} skończył i odebrał inny proces.")
+            return 0
+        if zajmij(sklejanie):
+            try:
+                if not cel.is_file():
+                    wynik = np.concatenate([np.load(plik) for plik in pliki])
+                    # Plik tymczasowy, potem zmiana nazwy: kto czeka na .wektory.npy
+                    # (vast_kolejka.sh), nie ściągnie pliku w połowie zapisu.
+                    zapisz(cel, wynik)
+            finally:
+                sklejanie.unlink(missing_ok=True)
+        elif not paczka.is_file():
+            sys.exit(f"Paczka {paczka} zniknęła przed sklejeniem")
+        else:
+            time.sleep(5)
+    print(f"Gotowe: {cel} ({len(teksty):,} fragmentów). Odeślij ten plik.")
     print(f"Części w {czesci} można usunąć.")
     return 0
+
+
+def zapisz(plik, tablica):
+    """np.save przez plik tymczasowy: inny proces nigdy nie czyta połowy zapisu."""
+    tymczasowy = plik.with_name(plik.name + ".zapis")
+    with open(tymczasowy, "wb") as f:
+        np.save(f, tablica)
+    os.replace(tymczasowy, plik)
+
+
+def zajmij(blokada):
+    """Atomowa rezerwacja (plik z PID). Blokadę procesu, który już nie działa, przejmuje."""
+    for _ in range(2):
+        try:
+            fd = os.open(blokada, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileNotFoundError:
+            return False  # katalog części usunięty: paczka skończona gdzie indziej
+        except FileExistsError:
+            if not porzucona(blokada):
+                return False
+            blokada.unlink(missing_ok=True)
+            continue
+        with os.fdopen(fd, "w") as f:
+            f.write(str(os.getpid()))
+        return True
+    return False
+
+
+def porzucona(blokada):
+    try:
+        pid = blokada.read_text().strip()
+        wiek = time.time() - blokada.stat().st_mtime
+    except FileNotFoundError:
+        return True
+    # Windows: os.kill(pid, 0) zamyka proces, więc tam tylko po wieku; pusty PID = świeżo zajęta.
+    if os.name == "nt" or not pid.isdigit():
+        return wiek > PORZUCONA_S
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    return False
 
 
 if __name__ == "__main__":

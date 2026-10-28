@@ -175,8 +175,25 @@ poleceniem jeszcze raz:
   po linii `Gotowe:` w logu;
 - nieudany import zatrzymuje kolejkę (log w `<nazwa>.import.log`) - paczka zostaje na maszynie.
 
+**Kilka kart na jedną paczkę:** gdy nie ma już wolnej paczki, karta dołącza do paczki liczonej
+przez inną kartę (`licz_paczke.py` rezerwuje pojedyncze części plikami `<numer>.zajeta`, skleja
+jeden proces), więc na końcu nie stoi. `POMAGAJ=0` przy `vast_start.sh` wyłącza. Działa od
+uruchomienia z wersją skryptów z 2026-10-28; na starcie kolejka zapisuje też do logu kartę,
+limit mocy (z fabrycznym) i sterownik - hosty Vast obcinają moc bez informacji w ofercie.
+
 Nie edytuj `vast_kolejka.sh` ani `vast_start.sh`, gdy działają (bash czyta skrypt w trakcie):
 zatrzymaj, popraw, uruchom znowu.
+
+## Test karty w kilka minut (`narzedzia/vast_test_karty.sh`)
+
+Do porównań kart (wyniki w `graphic-card-rating.md`): stała próbka 24 576 fragmentów z paczki
+nsa-0041, kilka prób (wielkość batcha), przy każdej pobór i limit mocy, obciążenie, zegar
+i powód dławienia karty; wynik = tempo ostatniej części (bez rozgrzewki). ~5-8 min na karcie
+klasy 5070, pierwsza próba pobiera model (~2.3 GB).
+```bash
+bash narzedzia/vast_test_karty.sh PORT HOST                    # log: logs/test_karty.log
+PROBY="64 128" bash narzedzia/vast_test_karty.sh PORT HOST    # wielkości batcha
+```
 
 Przerwany import (`docker stop` kontenera `paczka-import`) potrafi zostawić w MariaDB działające
 zapytanie, które trzyma blokadę `nsa:paczki`; następny import kończy się wtedy od razu

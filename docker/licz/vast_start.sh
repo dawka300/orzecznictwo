@@ -49,6 +49,23 @@ zarezerwuj() {
         echo "$paczka"
         return
     done
+    # Nic wolnego: pomoc przy paczce, którą liczy inna karta (licz_paczke.py dzieli części
+    # między procesy), zamiast stać do końca. POMAGAJ=0 wyłącza.
+    [ "${POMAGAJ:-1}" = 1 ] || return 0
+    for paczka in "$KATALOG"/paczki/*.jsonl.gz; do
+        [ -e "$paczka" ] || continue
+        [ -f "${paczka%.jsonl.gz}.wektory.npy" ] && continue
+        [ -d "${paczka%.jsonl.gz}.zajeta" ] || continue
+        # Tylko gdy zostały części, których nikt nie liczy (inaczej karta tylko by czekała).
+        if [ -d "${paczka%.jsonl.gz}.czesci" ]; then
+            local wszystkie gotowe
+            wszystkie=$(( ($("$PY" -c "import gzip,json,sys; print(json.loads(gzip.open(sys.argv[1],'rt').readline())['count'])" "$paczka") + 4095) / 4096 ))
+            gotowe=$(ls "${paczka%.jsonl.gz}.czesci" 2>/dev/null | grep -cE '\.(npy|zajeta)$' || true)
+            [ "$gotowe" -lt "$wszystkie" ] || continue
+        fi
+        echo "pomoc $paczka"
+        return
+    done
     return 0
 }
 
@@ -69,17 +86,30 @@ if [ "$1" = "--karta" ]; then
             continue
         fi
         bezczynnie=0
+        pomoc=0
+        if [ "${paczka#pomoc }" != "$paczka" ]; then
+            pomoc=1
+            paczka=${paczka#pomoc }
+        fi
         nazwa=$(basename "$paczka" .jsonl.gz)
-        echo "--- $nazwa: liczę na karcie $karta"
+        if [ "$pomoc" = 1 ]; then
+            echo "--- $nazwa: pomagam na karcie $karta (części dzielone z inną kartą)"
+        else
+            echo "--- $nazwa: liczę na karcie $karta"
+        fi
         if "$PY" "$KATALOG/licz_paczke.py" "$paczka" --silnik "$SILNIK" --batch "$BATCH"; then
-            rm -rf "$KATALOG/paczki/$nazwa.czesci"
             # Gotowe dla vast_kolejka.sh (szuka tej linii we wszystkich licz*.log).
             echo "Gotowe: $KATALOG/paczki/$nazwa.wektory.npy"
         else
             echo "--- $nazwa: BŁĄD liczenia na karcie $karta"
             sleep 60
         fi
-        rmdir "$KATALOG/paczki/$nazwa.zajeta" 2>/dev/null || true
+        # Sprząta właściciel paczki (rezerwacja .zajeta), pomocnik nie: części mogą być
+        # jeszcze czytane przy sklejaniu.
+        if [ "$pomoc" = 0 ]; then
+            [ -f "$KATALOG/paczki/$nazwa.wektory.npy" ] && rm -rf "$KATALOG/paczki/$nazwa.czesci"
+            rmdir "$KATALOG/paczki/$nazwa.zajeta" 2>/dev/null || true
+        fi
     done
     echo "=== karta $karta: koniec $(date -u '+%Y-%m-%d %H:%M:%S') UTC"
     exit 0
@@ -95,7 +125,7 @@ nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv,nohea
 "$PY" -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-m3', device='cpu')"
 
 # Rezerwacje po poprzednim uruchomieniu (restart maszyny): nikt już nie liczy.
-rm -rf "$KATALOG"/paczki/*.zajeta
+rm -rf "$KATALOG"/paczki/*.zajeta "$KATALOG"/paczki/*.sklejanie "$KATALOG"/paczki/*.czesci/*.zajeta
 KARTY=${KARTY:-$(nvidia-smi -L | wc -l)}
 for karta in $(seq 0 $((KARTY - 1))); do
     bash "$0" --karta "$karta" >> "$KATALOG/licz-gpu$karta.log" 2>&1 &
