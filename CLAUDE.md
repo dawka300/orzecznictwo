@@ -35,3 +35,5 @@ Readable command cheat sheet for the user (Polish, by topic: Docker, fetching, p
 
 - Code identifiers and docstrings are English. CLI commands and flags (`pobierz`, `--na-sucho`, ...), help text, log/printed messages and comments are Polish; flags map to English `args.*` via `dest=`.
 - `ruff format` + `ruff check` before committing.
+
+@NOTEPAD.md
