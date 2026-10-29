@@ -9,6 +9,7 @@ from etpc.mcp import EtpcMcp
 from etpc.pipeline import EtpcRag
 from etpc.rag import EtpcRetriever
 from etpc.source import HudocSource
+from etpc.textindex import EtpcIndexJob
 from etpc.topics import EtpcTopics
 from etpc.verify import verify
 from etpc.web import EtpcWebApp
@@ -26,6 +27,7 @@ PROJECT = Project(
     transports=("requests", "curl", "playwright"),
     verify=verify,
     web=EtpcWebApp,
+    index_job=EtpcIndexJob,
     embed_job=EtpcEmbedJob,
     mcp=EtpcMcp,
     retriever=EtpcRetriever,

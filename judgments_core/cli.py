@@ -17,6 +17,7 @@ python -m etpc zapytaj "pytanie"        # odpowiedź modelu lokalnego (LM Studio
 python -m etpc ocen-odpowiedzi          # odpowiedzi na pytania wzorcowe + automatyczna ocena
 python -m nsa paczki --ile 2            # paczki fragmentów do policzenia na innym komputerze
 python -m nsa paczka-import nsa-0001    # wektory policzone gdzie indziej -> Qdrant
+python -m nsa indeksuj                  # teksty do Elasticsearch (wyszukiwanie po słowach)
 python -m etpc tematy                   # tematy orzeczeń (A) i fragmentów (B), BERTopic, nazwy od modelu czatu
 python -m etpc tematy --lista           # zapisane tematy do przejrzenia
 
@@ -47,6 +48,7 @@ from judgments_core.importer import Importer
 from judgments_core.qdrant import QdrantStore, collection_name
 from judgments_core.rag import render
 from judgments_core.settings import DOTENV_PATH, Settings
+from judgments_core.textindex import TextIndex
 from judgments_core.transport import make_transport
 from judgments_core.web import serve, shorten
 
@@ -74,6 +76,8 @@ class Project:
     web: Callable | None = None
     # klasa potomna judgments_core.embed.EmbedJob: polecenie wektory; None = brak
     embed_job: type | None = None
+    # klasa potomna judgments_core.textindex.IndexJob: polecenie indeksuj; None = brak
+    index_job: type | None = None
     # klasa potomna judgments_core.mcp.McpServer: polecenie mcp; None = brak
     mcp: type | None = None
     # klasa potomna judgments_core.rag.Retriever: polecenia fragmenty, ocen; None = brak
@@ -179,6 +183,22 @@ def build_parser(project):
         dest="from_start",
         action="store_true",
         help="policz wszystko od nowa (np. po zmianie chunkera)",
+    )
+    index = commands.add_parser(
+        "indeksuj", help="teksty nowych/zmienionych orzeczeń do indeksu słów (Elasticsearch)"
+    )
+    index.add_argument("--limit", type=int, help="zakończ po N zapisanych dokumentach")
+    index.add_argument(
+        "--budzet",
+        dest="time_budget_s",
+        type=int,
+        help="zakończ po tylu sekundach (domyślnie z ustawień, 0 = bez limitu)",
+    )
+    index.add_argument(
+        "--od-poczatku",
+        dest="from_start",
+        action="store_true",
+        help="usuń indeks i zbuduj od nowa (np. po zmianie mapowania lub analizatora)",
     )
     commands.add_parser("mcp", help="serwer MCP dla Claude'a (stdio; uruchamia go Claude)")
     passages = commands.add_parser(
@@ -435,6 +455,8 @@ def main(project, argv=None, settings=None):
             return _www(project, settings, args)
         if args.command == "wektory":
             return _embed(project, settings, args)
+        if args.command == "indeksuj":
+            return _index(project, settings, args)
         if args.command == "mcp":
             return _mcp(project, settings)
         if args.command == "fragmenty":
@@ -740,6 +762,42 @@ def _embed(project, settings, args):
         result.chunks,
         result.removed,
         vectors.count(),
+        end,
+    )
+    return 0
+
+
+def _index(project, settings, args):
+    if project.index_job is None:
+        raise NotImplementedError(f"projekt {project.name} nie ma indeksu słów")
+    if not settings.elastic_url:
+        log.error("Brak adresu Elasticsearch: ustaw %s_ELASTIC_URL", project.name.upper())
+        return 2
+    budget = settings.time_budget_s if args.time_budget_s is None else args.time_budget_s
+    index = TextIndex(settings.elastic_url, settings.elastic_index or project.name, timeout_s=300)
+    log.info("indeks słów: Elasticsearch %s, indeks %s", index.url, index.index)
+    # Własna blokada jak wektory: tylko czyta orzeczenia, pobierz/przetworz mogą iść obok.
+    with _logged_run(project, settings, "indeksuj", lock=f"{project.name}:indeksuj") as (
+        store,
+        run,
+    ):
+        job = project.index_job(
+            store.conn,
+            index,
+            limit=args.limit,
+            time_budget_s=budget,
+            from_start=args.from_start,
+        )
+        result = job.run()
+        run.counts.update(records=result.indexed)
+        run.status = _status_of(result)
+    end = "wszystko w indeksie" if result.finished else f"przerwano ({result.stopped_by})"
+    log.info(
+        "Gotowe: zapisano %d, bez zmian %d, usunięto %d; w indeksie %d dokumentów; %s.",
+        result.indexed,
+        result.unchanged,
+        result.removed,
+        index.count(),
         end,
     )
     return 0

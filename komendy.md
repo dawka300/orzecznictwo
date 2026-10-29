@@ -39,6 +39,12 @@ docker compose run --rm --no-deps www python -m etpc wektory                    
 docker compose run --rm --no-deps www python -m etpc wektory --budzet 3600       # najwyżej godzinę
 docker compose run --rm --no-deps www python -m etpc wektory --limit 50          # próba
 
+# indeks słów w Elasticsearch (wyszukiwanie po słowach; bez niego słowa z FULLTEXT MariaDB)
+docker compose up -d --no-deps elastic                                           # raz: Elasticsearch na 9200
+docker compose run --rm --no-deps www python -m etpc indeksuj                    # nowe i zmienione teksty
+docker compose run --rm --no-deps www python -m nsa indeksuj --budzet 3600       # najwyżej godzinę
+docker compose run --rm --no-deps www python -m etpc indeksuj --od-poczatku      # od nowa (zmiana mapowania)
+
 # wektory podzielone na paczki (liczone na innym komputerze z kartą NVIDIA)
 docker compose run --rm --no-deps www python -m nsa paczki                                 # 1 paczka 200000 fragmentów
 docker compose run --rm --no-deps www python -m nsa paczki --ile 3 --fragmentow 100000     # 3 mniejsze paczki
@@ -119,6 +125,7 @@ orz etpc stan
 | `docker compose restart www` | portal widzi zmiany w kodzie (przerywa zadania z `exec` w `www-1`) |
 | `docker compose up -d www` | portal z nowym obrazem / nowymi zmiennymi z compose |
 | `docker compose build www` | przebuduj obraz po zmianie `docker/www.Dockerfile` albo `requirements.txt` |
+| `docker compose up -d --no-deps elastic` | Elasticsearch (indeks słów, 9200); obraz z `docker/elastic.Dockerfile` (wtyczki Morfologik i Stempel), `docker compose build elastic` po jego zmianie |
 | `docker compose logs -f www` | log portalu (też `logs/www/`) |
 
 ## Docker: profile pamięci (użytkownik 32 GB / deweloper 64 GB)
@@ -215,6 +222,18 @@ Liczenie paczki u kolegi z kartą NVIDIA: `docker/licz/README.md`, wynajęte GPU
 
 Stan indeksu kolekcji (Git Bash): `curl -s localhost:6333/collections/nsa_text-embedding-bge-m3 | grep -o '"status":"[a-z]*"\|"indexed_vectors_count":[0-9]*'` (`yellow` = Qdrant buduje indeks; `green` + `indexed_vectors_count` ~ liczba punktów = gotowe); postęp segmentów: `curl -s localhost:6333/collections/nsa_text-embedding-bge-m3/optimizations | grep -o '"queued_[a-z]*":[0-9]*'`. Przy masowym imporcie paczek indeksowanie można wyłączyć (`PATCH .../collections/<kolekcja>` z `{"optimizers_config":{"indexing_threshold":0}}`, import ~10x szybszy) i po imporcie włączyć z powrotem (`10000`); pusty `{"optimizers_config":{}}` budzi optymalizator.
 
+## Indeks słów (`indeksuj`, Elasticsearch)
+Słowa z wyszukiwarki, fragmentów RAG i MCP idą do Elasticsearch, gdy ustawiony jest `<PREFIKS>_ELASTIC_URL` (w compose dla `www`: `http://elastic:9200`) i indeks jest zbudowany; inaczej, albo gdy Elastic nie działa, do FULLTEXT MariaDB (z uwagą nad wynikami). Polski przez lematy Morfologika (kasacyjnej = kasacyjny, bez obcinania słów), ETPC: angielski i francuski z rdzeniami, reszta języków bez. Teksty nie są w indeksie przechowywane, tylko przeszukiwane: wynik to identyfikatory, treść z MariaDB. Filtry, których indeks nie ma (sędzia, organ, artykuł, cytowania ...), działają w SQL na 1000 najlepszych.
+
+| Polecenie / opcja | Co robi | Kiedy |
+|---|---|---|
+| `indeksuj` | zapisuje do indeksu nowe i zmienione orzeczenia (wersja = sha tekstu + metadane), usuwa z indeksu usunięte z bazy | po `przetworz`; pierwszy raz buduje całość (NSA 2,25 mln orzeczeń: godziny) |
+| `indeksuj --budzet 3600` | najwyżej godzinę, następny przebieg idzie dalej | długie budowanie po kawałku |
+| `indeksuj --limit N` | koniec po N zapisanych dokumentach | próba |
+| `indeksuj --od-poczatku` | usuwa indeks i buduje od nowa | po zmianie mapowania albo analizatora (`<projekt>/textindex.py`) |
+
+Stan: `curl -s localhost:9200/_cat/indices?v` (liczba dokumentów i rozmiar). Indeks ma nazwę projektu (`<PREFIKS>_ELASTIC_INDEX` zmienia).
+
 ## Szukanie i RAG
 | Polecenie / opcja | Co daje | Kiedy / przykład |
 |---|---|---|
@@ -289,7 +308,7 @@ Dokumenty do nauki wzorców (jak zaczyna się i kończy skarga do WSA, odpowied�
 ## Typowe sekwencje (`orz` = skrót z góry)
 ```
 # nowe orzeczenia od źródła aż do wyszukiwarki
-orz etpc pobierz;  orz etpc przetworz;  orz etpc wektory
+orz etpc pobierz;  orz etpc przetworz;  orz etpc indeksuj;  orz etpc wektory
 
 # zmiana parsera
 orz nsa kopia;  orz nsa przetworz --od-poczatku --limit 200   # próba, obejrzeć na stronie

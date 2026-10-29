@@ -14,6 +14,7 @@ from judgments_core.semantic import SemanticUnavailable
 from nsa import search
 from nsa.rag import CBOSA_URL, FINAL, NsaRetriever
 from nsa.semantic import NsaSemantic
+from nsa.textindex import NsaWords
 
 INSTRUCTIONS = """\
 Orzeczenia polskich sądów administracyjnych (NSA i wszystkie WSA) z bazy CBOSA,
@@ -30,6 +31,7 @@ class NsaMcp(McpServer):
     instructions = INSTRUCTIONS
     semantic_class = NsaSemantic
     retriever_class = NsaRetriever
+    words_class = NsaWords
 
     def register(self, server):
         server.add_tool(self.szukaj, name="szukaj", description=self.szukaj.__doc__)
@@ -85,7 +87,7 @@ class NsaMcp(McpServer):
         )
         with self.connect() as conn, conn.cursor() as cur:
             try:
-                result = search.search(cur, q, self.semantic)
+                result = search.search(cur, q, self.semantic, self.words)
             except search.QueryError as e:
                 return f"Błąd zapytania: {e}"
         head = f"Znaleziono {result.total} (tryb {result.mode}), strona {max(strona, 1)}."

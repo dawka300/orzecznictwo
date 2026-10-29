@@ -12,6 +12,7 @@ from etpc import labels, search
 from etpc.labels import label
 from etpc.rag import HUDOC_URL, EtpcRetriever
 from etpc.semantic import EtpcSemantic
+from etpc.textindex import EtpcWords
 from etpc.weights import TIERS
 from judgments_core.mcp import McpServer, cut, lines
 from judgments_core.rag import render
@@ -35,6 +36,7 @@ class EtpcMcp(McpServer):
     instructions = INSTRUCTIONS
     semantic_class = EtpcSemantic
     retriever_class = EtpcRetriever
+    words_class = EtpcWords
 
     def register(self, server):
         server.add_tool(self.szukaj, name="szukaj", description=self.szukaj.__doc__)
@@ -91,7 +93,7 @@ class EtpcMcp(McpServer):
         )
         with self.connect() as conn, conn.cursor() as cur:
             try:
-                result = search.search(cur, q, self.semantic)
+                result = search.search(cur, q, self.semantic, self.words)
             except search.QueryError as e:
                 return f"Błąd zapytania: {e}"
         head = f"Znaleziono {result.total} (tryb {result.mode}), strona {max(strona, 1)}."

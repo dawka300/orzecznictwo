@@ -21,6 +21,7 @@ from dataclasses import fields, replace
 from etpc import labels, search
 from etpc.labels import label
 from etpc.semantic import EtpcSemantic
+from etpc.textindex import EtpcWords
 from etpc.weights import TIERS
 from judgments_core.rag import Ranking, Retriever
 
@@ -42,6 +43,7 @@ class EtpcRetriever(Retriever):
     mode = ""  # hybrydowe; wymaga bufora InnoDB z całym ETPC (wyżej)
     last_parts = ("opinia",)  # zdania odrębne/zbieżne sędziów
     semantic_class = EtpcSemantic
+    words_class = EtpcWords
     # Orzeczenia cytowane przez >= 3 z 20 najlepszych wyników dołączają (ruling_links):
     # Salduz, Soering, Opuz wychodzą, choć ich tekst brzmi mniej jak pytanie
     # (pytania-panstwa.json: MRR 0,527 -> 0,725; sędzia na 12 pytaniach: nDCG 0,867 -> 0,898).
@@ -56,7 +58,7 @@ class EtpcRetriever(Retriever):
     def ranking(self, cur, query):
         # Dwie strony: po zwinięciu etapów jednej skargi zostaje dość kandydatów.
         query = replace(query, page_size=2 * search.PAGE_SIZE)
-        result = search.search(cur, query, self.semantic)
+        result = search.search(cur, query, self.semantic, self.words)
         pattern = search.highlight_pattern(result.terms.highlight) if result.terms else None
         return Ranking(result.hits, pattern, result.mode, result.notice)
 

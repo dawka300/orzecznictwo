@@ -108,13 +108,17 @@ def test_derive_tables(conn):
 # --- chunker, wektory, wyszukiwanie, strony --------------------------------
 
 from test_etpc_embed import FakeEmbedder, FakeVectors
+from test_textindex import MemoryIndex
 
 from judgments_core.semantic import Passage, SemanticUnavailable
 from judgments_core.settings import Settings
+from judgments_core.textindex import TextIndexUnavailable
 from nsa import search
 from nsa.chunker import NsaChunker
 from nsa.embed import NsaEmbedJob
 from nsa.parser import judgment_body
+from nsa.stats import NSA_COURT
+from nsa.textindex import NsaIndexJob
 from nsa.web import NsaWebApp
 
 
@@ -185,9 +189,9 @@ def test_embed_job_with_summaries(nsa_db):
     assert wsa and all(len(p) == 1 and p[0].part for p in wsa)  # postanowienie WSA: skrót
 
 
-def run_search(conn, semantic=None, **kwargs):
+def run_search(conn, semantic=None, words=None, **kwargs):
     with conn.cursor() as cur:
-        return search.search(cur, search.SearchQuery(**kwargs), semantic)
+        return search.search(cur, search.SearchQuery(**kwargs), semantic, words)
 
 
 class Down:
@@ -225,6 +229,50 @@ def test_search_fulltext_filters_and_hybrid(nsa_db):
     )  # filtr SQL
     down = run_search(nsa_db, Down(), text=word)
     assert down.notice == "niedostępne" and down.total >= 1
+
+
+class Words:
+    """WordSearch with a fixed ranking (or Elasticsearch down)."""
+
+    def __init__(self, ids, down=False):
+        self.ids, self.down, self.calls = ids, down, []
+
+    def ranked(self, boolean, q, size, sort=""):
+        if self.down:
+            raise TextIndexUnavailable("nie odpowiada")
+        self.calls.append((boolean, sort))
+        return self.ids, 100
+
+
+def test_search_words_from_the_index(nsa_db):
+    with nsa_db.cursor() as cur:
+        cur.execute("SELECT id FROM judgments WHERE court <> %s ORDER BY id", (NSA_COURT,))
+        wsa = [r[0] for r in cur.fetchall()]
+    ids = [nsa_db.target, *wsa]
+    words = Words(ids)
+    result = run_search(nsa_db, text="skargi kasacyjnej", mode="pelnotekstowe", words=words)
+    assert words.calls == [("+skargi +kasacyjnej", "")]  # całe słowa, bez obcinania
+    assert result.total == 100 and result.hits[0].id == nsa_db.target
+    # filtr spoza indeksu (organ) przez SQL: z kandydatów zostają pasujące
+    filtered = run_search(nsa_db, text="skarga", mode="pelnotekstowe", words=words, authority="zzz")
+    assert filtered.total == 0
+    run_search(nsa_db, text="skarga", mode="pelnotekstowe", words=words, sort="data")
+    assert words.calls[-1][1] == "desc"
+    hybrid = run_search(nsa_db, Up(nsa_db.target), text="skarga", words=Words(wsa[:1]))
+    assert hybrid.mode == "hybrydowe" and hybrid.total == 2
+    reasons = parse_judgment(row("B51A16D504")).reasons
+    word = next(w for w in reasons.split() if w.isalpha() and len(w) >= 9)
+    down = run_search(nsa_db, text=word, mode="pelnotekstowe", words=Words([], down=True))
+    assert down.total >= 1 and "słowa z MariaDB" in down.notice
+
+
+def test_index_job_documents(nsa_db):
+    store = MemoryIndex()
+    result = NsaIndexJob(nsa_db, store).run()
+    assert result.finished and result.indexed == len(store.docs) == len(ROWS) - 1
+    doc = store.docs[nsa_db.target]
+    assert doc["is_nsa"] is True and doc["symbols"] and doc["reasons"] and len(doc["sha"]) == 64
+    assert NsaIndexJob(nsa_db, store).run().indexed == 0
 
 
 def test_judgments_with_reasons_come_first(nsa_db):

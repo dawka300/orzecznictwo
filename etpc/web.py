@@ -19,6 +19,7 @@ from etpc.pipeline import EtpcRag
 from etpc.rag import EtpcRetriever
 from etpc.semantic import EtpcSemantic
 from etpc.stats import read_stats
+from etpc.textindex import EtpcWords
 from etpc.weights import TIERS
 from judgments_core.db import read_topics
 from judgments_core.documents import DocumentPages
@@ -87,10 +88,11 @@ class EtpcWebApp(WebApp):
             )
             semantic.prepare_in_background()
         self.semantic = semantic
+        self.words = EtpcWords.from_settings(settings, "etpc")
         # Zakładki dokumentów (analiza, porównanie, sprawa, teczka, badanie): wspólne z rdzenia
         self.documents = DocumentPages(
             settings,
-            EtpcRetriever(semantic),
+            EtpcRetriever(semantic, words=self.words),
             EtpcChunker(),
             self.connect,
             getattr(semantic, "embedder", None),
@@ -112,7 +114,7 @@ class EtpcWebApp(WebApp):
                 return _ruling(cur, request, int(match.group(1)), self.semantic)
             if request.path == "/statystyki":
                 return _stats(cur)
-            return _search(cur, request, self.semantic)
+            return _search(cur, request, self.semantic, self.words)
 
     def error_page(self):
         return Response(
@@ -196,12 +198,12 @@ def _params(q, **changes):
     return params
 
 
-def _search(cur, request, semantic=None):
+def _search(cur, request, semantic=None, words=None):
     q = _query(request)
     stats = read_stats(cur)
     error, result = "", None
     try:
-        result = search.search(cur, q, semantic)
+        result = search.search(cur, q, semantic, words)
     except search.QueryError as err:
         error = str(err)
     form = _search_form(q, stats)

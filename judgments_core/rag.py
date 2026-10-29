@@ -114,6 +114,7 @@ class Retriever(ABC):
     # zapytanie z własnym trybem (filtr mode) wygrywa.
     mode = ""
     semantic_class = None  # SemanticSearch projektu (from_settings)
+    words_class = None  # WordSearch projektu (judgments_core/textindex.py); None = FULLTEXT
     # Części orzeczenia, których fragmenty idą na koniec kolejki w orzeczeniu (np. zdania
     # odrębne: nie mogą wypierać uzasadnienia sądu); zostają, gdy innych nie ma.
     last_parts = ()
@@ -126,9 +127,10 @@ class Retriever(ABC):
     # 1 = najlepszy fragment według wektorów: ~3x mniej par, czyli ~3x szybciej na CPU.
     rerank_passages = 1
 
-    def __init__(self, semantic=None, reranker=None):
+    def __init__(self, semantic=None, reranker=None, words=None):
         self.semantic = semantic
         self.reranker = reranker
+        self.words = words
 
     @classmethod
     def from_settings(cls, settings, project, semantic=None):
@@ -139,7 +141,10 @@ class Retriever(ABC):
         reranker = make_reranker(settings)
         if reranker is not None:
             reranker.prepare_in_background()
-        return cls(semantic, reranker)
+        words = (
+            None if cls.words_class is None else cls.words_class.from_settings(settings, project)
+        )
+        return cls(semantic, reranker, words)
 
     @abstractmethod
     def ranking(self, cur, query):

@@ -53,6 +53,32 @@ services:
           create_host_path: true
     environment:
       QDRANT__TELEMETRY_DISABLED: "true"
+      # pliki robocze snapshotu też na dysk snapshotów (domyślnie w wolumenie na C:)
+      QDRANT__STORAGE__TEMP_PATH: /qdrant/snapshots/tmp
+
+  # Indeks słów (wyszukiwanie po słowach zamiast FULLTEXT MariaDB; tylko lokalnie,
+  # na hostingu go nie ma): python -m <projekt> indeksuj, REST na 9200. Bez niego
+  # strony szukają słów w MariaDB. Pamięć: sterta Javy + pamięć podręczna plików systemu.
+  elastic:
+    build:
+      # mały kontekst: repozytorium ma dziesiątki GB danych
+      context: ./docker
+      dockerfile: elastic.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9200:9200"
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      # dysk prawie pełny nie blokuje zapisu (jeden węzeł, dane pochodne)
+      cluster.routing.allocation.disk.threshold_enabled: "false"
+      ES_JAVA_OPTS: "-Xms3g -Xmx3g"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
 
   # Wszystkie wyszukiwarki na http://127.0.0.1:8080 (python -m portal w kontenerze):
   # /etpc/ i /nsa/ - każda z własną wyszukiwarką i statystykami, / - lista.
@@ -73,11 +99,13 @@ services:
     environment:
       ETPC_DB_DSN: mysql://szkielet:szkielet@db:3306/etpc
       ETPC_QDRANT_URL: http://qdrant:6333
+      ETPC_ELASTIC_URL: http://elastic:9200
       ETPC_EMBED_URL: http://host.docker.internal:1234/v1/embeddings
       ETPC_CHAT_URL: http://host.docker.internal:1234/v1/chat/completions
       ETPC_LOG_DIR: logs/www
       NSA_DB_DSN: mysql://szkielet:szkielet@db:3306/nsa
       NSA_QDRANT_URL: http://qdrant:6333
+      NSA_ELASTIC_URL: http://elastic:9200
       NSA_EMBED_URL: http://host.docker.internal:1234/v1/embeddings
       NSA_CHAT_URL: http://host.docker.internal:1234/v1/chat/completions
       NSA_LOG_DIR: logs/www
@@ -107,4 +135,5 @@ services:
 volumes:
   dbdata:
   qdrantdata:
+  esdata:
   hfcache:

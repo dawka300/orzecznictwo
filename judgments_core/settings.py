@@ -85,6 +85,10 @@ class Settings:
     local_model: str = "BAAI/bge-m3"
     qdrant_url: str = "http://127.0.0.1:6333"
     qdrant_collection: str = ""
+    # Indeks słów w Elasticsearch (judgments_core/textindex.py, polecenie indeksuj): puste
+    # = słowa przez FULLTEXT MariaDB (hosting); indeks pusty = nazwa projektu.
+    elastic_url: str = ""
+    elastic_index: str = ""
     # Reranker fragmentów RAG (judgments_core/rerank.py): puste = brak (hosting),
     # local = cross-encoder sentence-transformers w tym procesie (CPU).
     reranker: str = ""

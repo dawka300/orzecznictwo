@@ -40,6 +40,7 @@ from nsa.pipeline import NsaRag
 from nsa.rag import NsaRetriever
 from nsa.semantic import NsaSemantic
 from nsa.stats import NSA_COURT, read_stats, symbol_names
+from nsa.textindex import NsaWords
 
 log = logging.getLogger(__name__)
 
@@ -86,10 +87,11 @@ class NsaWebApp(WebApp):
             )
             semantic.prepare_in_background()
         self.semantic = semantic
+        self.words = NsaWords.from_settings(settings, "nsa")
         # Zakładki dokumentów (analiza, porównanie, sprawa, teczka, badanie): wspólne z rdzenia
         self.documents = DocumentPages(
             settings,
-            NsaRetriever(semantic),
+            NsaRetriever(semantic, words=self.words),
             NsaChunker(),
             self.connect,
             getattr(semantic, "embedder", None),
@@ -111,7 +113,7 @@ class NsaWebApp(WebApp):
                 return _judgment(cur, request, int(match.group(1)), self.semantic)
             if request.path == "/statystyki":
                 return _stats(cur)
-            return _search(cur, request, self.semantic)
+            return _search(cur, request, self.semantic, self.words)
 
     def error_page(self):
         return Response(
@@ -171,12 +173,12 @@ def _params(q, **changes):
     return params
 
 
-def _search(cur, request, semantic):
+def _search(cur, request, semantic, words=None):
     q = _query(request)
     stats = read_stats(cur)
     error, result = "", None
     try:
-        result = search.search(cur, q, semantic)
+        result = search.search(cur, q, semantic, words)
     except search.QueryError as err:
         error = str(err)
     body = f"<p class=error>{e(error)}</p>" if error else _results(q, result)

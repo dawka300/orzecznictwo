@@ -10,6 +10,7 @@ from nsa.mcp import NsaMcp
 from nsa.pipeline import NsaRag
 from nsa.rag import NsaRetriever
 from nsa.source import CbosaSource
+from nsa.textindex import NsaIndexJob
 from nsa.topics import NsaTopics
 from nsa.web import NsaWebApp
 
@@ -23,6 +24,7 @@ PROJECT = Project(
     source=CbosaSource,
     importer=NsaImporter,
     deriver=NsaDeriver,
+    index_job=NsaIndexJob,
     embed_job=NsaEmbedJob,
     web=NsaWebApp,
     mcp=NsaMcp,

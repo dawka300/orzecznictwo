@@ -12,6 +12,7 @@ from judgments_core.rag import Ranking, Retriever
 from nsa import search
 from nsa.parser import judgment_body
 from nsa.semantic import NsaSemantic
+from nsa.textindex import NsaWords
 
 CBOSA_URL = "https://orzeczenia.nsa.gov.pl/doc/{}"
 FINAL = {1: "prawomocne", 0: "nieprawomocne"}
@@ -37,9 +38,10 @@ LOST = ("oddalono", "odrzucono", "odmówiono", "pozostawiono bez rozpoznania")
 class NsaRetriever(Retriever):
     query_class = search.SearchQuery
     semantic_class = NsaSemantic
+    words_class = NsaWords
 
     def ranking(self, cur, query):
-        result = search.search(cur, query, self.semantic)
+        result = search.search(cur, query, self.semantic, self.words)
         pattern = search.highlight_pattern(result.terms.highlight) if result.terms else None
         return Ranking(result.hits, pattern, result.mode, result.notice)
 

@@ -21,6 +21,10 @@ services:
       - "--innodb-io-capacity-max=4000"
       - "--innodb-ft-cache-size=80000000"
 
+  elastic:
+    environment:
+      ES_JAVA_OPTS: "-Xms6g -Xmx6g"
+
   www:
     environment:
       ETPC_READ_CONNECTIONS: "4"

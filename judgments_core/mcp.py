@@ -35,6 +35,7 @@ class McpServer(ABC):
     instructions = ""  # dla Claude'a: co jest w bazie i jak szukać
     semantic_class = None  # klasa potomna SemanticSearch; None = bez wyszukiwania znaczeniowego
     retriever_class = None  # klasa potomna Retriever (narzędzie fragmenty); None = brak
+    words_class = None  # klasa potomna WordSearch (słowa w Elasticsearch); None = FULLTEXT
 
     def __init__(self, settings, semantic=None):
         self.settings = settings
@@ -43,6 +44,11 @@ class McpServer(ABC):
                 settings, self.project, timeout_s=SEMANTIC_TIMEOUT_S
             )
         self.semantic = semantic
+        self.words = (
+            None
+            if self.words_class is None
+            else self.words_class.from_settings(settings, self.project)
+        )
         self.retriever = (
             None
             if self.retriever_class is None

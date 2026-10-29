@@ -3,13 +3,17 @@
 A query is typed as words and "phrases"; every word must occur, -word
 excludes, word* matches a prefix. MariaDB FULLTEXT has no Polish stemming,
 so with `inflect` (default) longer words are searched by their stem
-(kasacyjna -> kasacyj*). Hybrid mode (default when vectors are available,
+(kasacyjna -> kasacyj*). With the word index (Elasticsearch, nsa/textindex.py)
+words go there instead, whole (Morfologik lemmas match the inflected forms);
+filters it doesn't have are applied by SQL to its best WORD_CANDIDATES.
+Hybrid mode (default when vectors are available,
 nsa/semantic.py): the best judgments by words and by meaning merged by RRF
 (judgments_core.semantic.rrf); filters Qdrant doesn't know are applied by SQL.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -17,11 +21,16 @@ from dataclasses import dataclass, field
 import pymysql
 
 from judgments_core.semantic import SemanticUnavailable, rrf
+from judgments_core.textindex import TextIndexError
 from nsa.parser import judgment_body
 from nsa.stats import NSA_COURT
 
+log = logging.getLogger(__name__)
+
 PAGE_SIZE = 20
 CANDIDATES = 200
+# Wyszukiwanie po samych słowach z indeksu: tyle najlepszych (filtry spoza indeksu w SQL).
+WORD_CANDIDATES = 1000
 MAX_STATEMENT_S = 20
 HYBRID_STATEMENT_S = 10
 MAX_STATEMENT_TIME_ERROR = 1969
@@ -165,21 +174,30 @@ class SearchResult:
     notice: str = ""
 
 
-def search(cur, q, semantic=None):
-    """Run the query; raises QueryError for unsearchable or too slow queries."""
+def search(cur, q, semantic=None, words=None):
+    """Run the query; raises QueryError for unsearchable or too slow queries.
+
+    words (nsa.textindex.NsaWords): words through Elasticsearch; None, or the index
+    down, = MariaDB FULLTEXT."""
     if semantic is not None and q.text.strip() and q.mode != "pelnotekstowe":
         try:
-            return _hybrid(cur, q, semantic)
+            return _hybrid(cur, q, semantic, words)
         except SemanticUnavailable as e:
-            result = _fulltext(cur, q)
-            result.notice = str(e)
+            result = _fulltext(cur, q, words)
+            result.notice = " ".join(filter(None, (str(e), result.notice)))
             return result
-    return _fulltext(cur, q)
+    return _fulltext(cur, q, words)
 
 
-def _fulltext(cur, q):
+def _fulltext(cur, q, words=None):
     started = time.monotonic()
     terms = parse_query(q.text, q.inflect) if q.text.strip() else None
+    notice = ""
+    if terms is not None and words is not None:
+        try:
+            return _from_index(cur, q, terms, words, started)
+        except TextIndexError as e:
+            notice = _fallback(e)
     ranked = _run(cur, *_ids_query(q, terms))
     cur.execute("SELECT FOUND_ROWS()")
     total = cur.fetchone()[0]
@@ -188,19 +206,52 @@ def _fulltext(cur, q):
         hit.score = float(score or 0)
     if terms is not None:
         _add_snippets(cur, hits, terms)
+    return SearchResult(total, hits, time.monotonic() - started, terms, notice=notice)
+
+
+def _from_index(cur, q, terms, words, started):
+    """Words through the index: its ranking (or date order), judgments with reasons first."""
+    sort = {"data": "desc", "najstarsze": "asc"}.get(q.sort, "")
+    ids, total = _word_ids(cur, q, words, WORD_CANDIDATES, sort)
+    if not sort and ids:
+        ids = _reasons_first(cur, ids)
+    page = max(q.page, 1)
+    hits = _hits(cur, ids[(page - 1) * PAGE_SIZE : page * PAGE_SIZE])
+    _add_snippets(cur, hits, terms)
     return SearchResult(total, hits, time.monotonic() - started, terms)
 
 
-def _hybrid(cur, q, semantic):
+def _word_ids(cur, q, words, top, sort=""):
+    """([id] best first, total) from the word index; filters it lacks are applied by SQL."""
+    boolean = parse_query(q.text, inflect=False).boolean  # całe słowa: lematy w indeksie
+    ids, total = words.ranked(boolean, q, top, sort)
+    if not ids:
+        return [], 0
+    allowed = {row[0] for row in _run(cur, *_ids_query(q, None, only_ids=ids, top=len(ids)))}
+    kept = [i for i in ids if i in allowed]
+    return kept, total if len(kept) == len(ids) else len(kept)
+
+
+def _fallback(error):
+    log.warning("indeks słów: %s", error)
+    return f"Indeks słów niedostępny ({error}) - słowa z MariaDB."
+
+
+def _hybrid(cur, q, semantic, words=None):
     started = time.monotonic()
     passages = {p.judgment_id: p for p in semantic.judgments(q.text, q, k=CANDIDATES)}
-    terms, by_words, notice = None, [], ""
+    terms, by_words, notice, fallback = None, [], "", ""
     if q.mode != "znaczeniowe":
         try:
             terms = parse_query(q.text, q.inflect)
         except QueryError:
             terms = None
-        if terms is not None:
+        if terms is not None and words is not None:
+            try:
+                by_words = _word_ids(cur, q, words, CANDIDATES)[0]
+            except TextIndexError as e:
+                fallback, words = _fallback(e), None
+        if terms is not None and words is None:
             try:
                 by_words = [
                     row[0]
@@ -233,6 +284,7 @@ def _hybrid(cur, q, semantic):
     if terms is not None:
         _add_snippets(cur, [h for h in hits if h.id not in found_by_meaning], terms)
     mode = "znaczeniowe" if q.mode == "znaczeniowe" or terms is None or notice else "hybrydowe"
+    notice = " ".join(filter(None, (fallback, notice)))
     return SearchResult(len(ids), hits, time.monotonic() - started, terms, mode, notice)
 
 
