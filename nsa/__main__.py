@@ -10,6 +10,7 @@ from nsa.mcp import NsaMcp
 from nsa.pipeline import NsaRag
 from nsa.rag import NsaRetriever
 from nsa.source import CbosaSource
+from nsa.topics import NsaTopics
 from nsa.web import NsaWebApp
 
 PROJECT = Project(
@@ -28,6 +29,7 @@ PROJECT = Project(
     retriever=NsaRetriever,
     rag=NsaRag,
     formulas=NsaFormulas,
+    topics=NsaTopics,
     migrations=Path(__file__).parent / "migrations",
 )
 

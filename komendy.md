@@ -52,12 +52,14 @@ docker compose run -d --rm --no-deps --name nsa-wektory www python -m nsa wektor
 docker logs -f nsa-wektory        # podgląd
 docker stop nsa-wektory           # zatrzymaj (wznawialne: to samo polecenie idzie dalej)
 
-# tematy (BERTopic na wektorach; tylko ETPC; nazwy od modelu czatu w LM Studio)
+# tematy (BERTopic na wektorach; ETPC i NSA; nazwy od modelu czatu w LM Studio)
 docker compose run --rm --no-deps www python -m etpc tematy                      # A (orzeczenia) i B (fragmenty THE LAW) + nazwy
 docker compose run --rm --no-deps www python -m etpc tematy --poziom A --bez-nazw   # tylko poziom A, bez modelu czatu
 docker compose run --rm --no-deps www python -m etpc tematy --tylko-nazwy        # nazwij zapisane tematy (po wczytaniu modelu czatu)
 docker compose run --rm --no-deps www python -m etpc tematy --tylko-nazwy --claude claude-sonnet-5-5 --max-usd 3   # nazwy od Claude (API, ~$2)
 docker compose run --rm --no-deps www python -m etpc tematy --lista              # przejrzeć tematy: nazwa, słowa, artykuły, przykładowe sprawy
+docker compose run --rm --no-deps www python -m nsa tematy --poziom A --bez-nazw    # NSA: pierwszy przebieg (odczyt 23,7 mln wektorów ~3 h, potem z pamięci podręcznej)
+docker compose run --rm --no-deps www python -m nsa tematy --poziom A --lista > logs/nsa-tematy-A.txt   # NSA: ocena (czy nie dzielą się po sądzie)
 
 # formułki: zdania powtarzane w wielu orzeczeniach (pomijane we wszystkich zakładkach dokumentów)
 docker compose run --rm --no-deps www python -m nsa formulki                     # próbka 50 000, próg 50 -> nsa/formulki.txt (~6 min)
@@ -233,7 +235,7 @@ Stan indeksu kolekcji (Git Bash): `curl -s localhost:6333/collections/nsa_text-e
 | `mcp` | serwer MCP po stdio: narzędzia `szukaj`, `fragmenty`, `orzeczenie`, `podobne` | ręcznie niepotrzebne: Claude Code / LM Studio uruchamia go sam z `.mcp.json` |
 
 ## Tematy (`tematy`, BERTopic: UMAP + HDBSCAN + słowa c-TF-IDF)
-Na razie tylko ETPC. Liczy lokalnie na CPU (minuty do kilkudziesięciu minut). Wektory czyta z Qdranta raz i trzyma w `<projekt>/database/tematy/<kolekcja>/` (~5 GB, poza gitem). Czyta je od nowa, gdy w Qdrancie zmieni się liczba punktów. Każde przeliczenie poziomu zastępuje jego tematy i numery (tabele `topics`, `ruling_topics`, `chunk_topics`).
+ETPC i NSA. Liczy lokalnie na CPU (minuty do kilkudziesięciu minut; NSA pierwszy odczyt wektorów ~3 h). **NSA** (`nsa/topics.py`): poziom A = 2,25 mln orzeczeń (średnia fragmentów bez sentencji i zdania odrębnego), wektory w float16 w pliku mapowanym w pamięć w katalogu tymczasowym kontenera (`on_disk`: RAM zajmuje Qdrant, jądro trzyma tylko używane strony), dopasowanie na próbce 300 tys., reszta do najbliższego środka; poziom B tylko wycinek: postanowienia NSA od 2019 (~210 tys. fragmentów uzasadnień); tabele `topics`, `judgment_topics`, `chunk_topics`. Wektory czyta z Qdranta raz i trzyma w `<projekt>/database/tematy/<kolekcja>/` (~5 GB, poza gitem). Czyta je od nowa, gdy w Qdrancie zmieni się liczba punktów. Każde przeliczenie poziomu zastępuje jego tematy i numery (tabele `topics`, `ruling_topics`, `chunk_topics`).
 
 | Polecenie / opcja | Co daje | Kiedy / przykład |
 |---|---|---|

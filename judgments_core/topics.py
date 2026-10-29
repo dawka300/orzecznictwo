@@ -21,7 +21,12 @@ packages, local only (requirements-dev.txt, the www image), not the hosting.
 
 A project's child gives the parts, the stop words, the texts
 (judgment_texts), case titles for the listing, the naming context and the
-assignment tables.
+assignment tables. For a big base (NSA: 23.7M chunks, 2.25M judgments) it can keep
+the judgment vectors in float16 (vector_dtype: half the size) and on disk (on_disk:
+files mapped into memory in work_dir, a Linux directory - the kernel keeps in RAM
+only the pages in use and drops them under pressure, so a big level never takes the
+memory of Qdrant or MariaDB), and group only a slice of the chunks on level B
+(chunk_filter); the judgment vectors are summed in blocks and centred in place.
 """
 
 from __future__ import annotations
@@ -30,6 +35,8 @@ import json
 import logging
 import random
 import re
+import shutil
+import tempfile
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -57,6 +64,10 @@ VOCABULARY_MIN_DF = 5
 CACHE_VERSION = 1
 # Grupa (np. państwo) mniejsza niż tyle: bez odejmowania średniej (byłaby to ona sama).
 CENTER_MIN_GROUP = 30
+# Wektory orzeczeń sumowane w blokach po tyle wierszy (bez kopii całości przy końcu).
+SCAN_BLOCK = 65536
+# Ile fragmentów orzeczenia pamiętamy do tekstu słów (A); więcej = przycięcie do limitu znaków.
+SPANS_KEPT = 32
 
 
 @dataclass
@@ -101,6 +112,13 @@ class TopicModel:
     # Pola payloadu, których średnią grupy odejmujemy od wektorów przed
     # dopasowaniem (np. państwo, język): bez tego tematy dzielą się po nich.
     center_by: ClassVar[tuple] = ()
+    # Poziom B tylko z fragmentów o tych polach payloadu: {pole: wartość albo (od, do)};
+    # pusty = wszystkie fragmenty części chunk_parts (duża baza: wycinek, bo B jest w RAM).
+    chunk_filter: ClassVar[dict] = {}
+    # Typ wektorów orzeczeń: float16 = połowa miejsca (duża baza), float32 dokładniej.
+    vector_dtype = "float32"
+    # Wektory orzeczeń (A) w plikach mapowanych w pamięć w work_dir zamiast w RAM.
+    on_disk = False
     stop_words: ClassVar[frozenset] = frozenset()
     # Czym są teksty (dla modelu nazywającego), np. "orzeczenia ETPC (EN/FR)".
     corpus = ""
@@ -112,13 +130,16 @@ class TopicModel:
     sample_size: ClassVar[dict] = {"A": 0, "B": 150000}  # 0 = wszystkie
     text_chars: ClassVar[dict] = {"A": 6000, "B": 2500}
 
-    def __init__(self, conn, vectors, cache_dir, model_name, *, refresh=False):
+    def __init__(self, conn, vectors, cache_dir, model_name, *, refresh=False, work_dir=None):
+        """work_dir: where on_disk keeps its files (default: the system temp directory,
+        in the container a Linux disk; cache_dir may be a Windows mount, slow to map)."""
         self.conn = conn
         self.store = MariaDbStore(conn)
         self.vectors = vectors
         self.cache_dir = Path(cache_dir)
         self.model_name = model_name
         self.refresh = refresh
+        self.work_dir = Path(work_dir or tempfile.gettempdir()) / "tematy" / self.cache_dir.name
         self._levels = None
 
     # --- dla klasy potomnej -------------------------------------------------
@@ -147,8 +168,10 @@ class TopicModel:
         result.sample = len(chosen)
         log.info("poziom %s: %d elementów, dopasowanie na %d", level, len(items), len(chosen))
         texts = self.texts(items, chosen, self.text_chars[level])
-        vectors = centered(items, self.center_by)
-        fitted = vectors[chosen]
+        # Centrowanie w miejscu (bez drugiej kopii); następna budowa czyta wektory od nowa.
+        vectors = centered(items, self.center_by, inplace=True)
+        self._levels = None
+        fitted = vectors[chosen].astype(np.float32)
         labels, keywords = self.fit(
             texts,
             fitted,
@@ -285,14 +308,18 @@ class TopicModel:
         """Both levels from one scroll over the store (A: mean per judgment, B: chunks)."""
         import numpy as np
 
-        extra = [*self.fact_fields, *(f for f in self.center_by if f not in self.fact_fields)]
+        facts_fields = self._facts_fields()
+        extra = [*facts_fields, *(f for f in self.chunk_filter if f not in facts_fields)]
         fields = ["judgment_id", "number", "part", "start", "length", *extra]
         exclude = (
             {"part": list(self.judgment_skipped_parts)} if self.judgment_skipped_parts else None
         )
-        sums, chunks, facts = {}, {}, {}
+        dtype = np.dtype(self.vector_dtype)
+        # Orzeczenie -> wiersz w blokach sum (kolejność pierwszego wystąpienia).
+        rows, blocks, chunks, facts = {}, [], [], []
         b_vectors = []
         b = Items("B", [], [], [], [])
+        cap = self.text_chars["A"]
         # Liczba wszystkich punktów (też pominiętych części) = klucz pamięci podręcznej.
         points = self.vectors.count()
         started = last = time.monotonic()
@@ -300,39 +327,61 @@ class TopicModel:
         for payload, vector in self.vectors.scroll(fields, exclude=exclude):
             judgment = int(payload["judgment_id"])
             v = np.asarray(vector, dtype=np.float32)
-            if judgment in sums:
-                sums[judgment] += v
-            else:
-                sums[judgment] = v.copy()
-                facts[judgment] = {f: payload.get(f) for f in extra}
+            row = rows.get(judgment)
+            if row is None:
+                row = rows[judgment] = len(rows)
+                if row % SCAN_BLOCK == 0:
+                    blocks.append(self._array(f"suma-{len(blocks)}", (SCAN_BLOCK, len(v)), dtype))
+                chunks.append([])
+                facts.append({f: payload.get(f) for f in facts_fields})
+            block = blocks[row // SCAN_BLOCK]
+            np.add(block[row % SCAN_BLOCK], v, out=block[row % SCAN_BLOCK], casting="unsafe")
             text_part = payload.get("part") in self.chunk_parts
             span = (int(payload["start"]), int(payload["length"]))
-            chunks.setdefault(judgment, []).append((not text_part, payload["number"], span))
-            if text_part:
+            spans = chunks[row]
+            spans.append((not text_part, payload["number"], span))
+            if len(spans) > SPANS_KEPT:
+                chunks[row] = _kept_spans(spans, cap)
+            if text_part and _matches(payload, self.chunk_filter):
                 b.judgments.append(judgment)
                 b.numbers.append(int(payload["number"]))
                 b.spans.append([span])
-                b.facts.append(facts[judgment])
+                b.facts.append(facts[row])
                 b_vectors.append(v)
             seen += 1
             if time.monotonic() - last >= PROGRESS_EVERY_S:
                 last = time.monotonic()
                 log.info("wektory z Qdranta: %d (%.0f/s)", seen, seen / (last - started))
-        log.info("wektory z Qdranta: %d punktów, %d orzeczeń", seen, len(sums))
-        judgments = sorted(sums)
+        log.info("wektory z Qdranta: %d punktów, %d orzeczeń", seen, len(rows))
+        judgments = list(rows)
+        del rows
         a = Items(
             "A",
             judgments,
             [None] * len(judgments),
-            [_text_spans(chunks[j], self.text_chars["A"]) for j in judgments],
-            [facts[j] for j in judgments],
+            [_text_spans(c, cap) for c in chunks],
+            facts,
         )
-        a.vectors = np.stack([_unit(sums[j]) for j in judgments]).astype(np.float32)
-        del sums
-        b.vectors = _units(np.stack(b_vectors)) if b_vectors else np.zeros((0, a.vectors.shape[1]))
+        del chunks
+        dimension = blocks[0].shape[1] if blocks else 0
+        a.vectors = self._array("A", (len(judgments), dimension), dtype)
+        for n in range(len(blocks)):  # blok po bloku: zwolniony od razu po skopiowaniu
+            start = n * SCAN_BLOCK
+            size = min(SCAN_BLOCK, len(judgments) - start)
+            a.vectors[start : start + size] = blocks[n][:size]
+            blocks[n] = None
+            self._drop(f"suma-{n}")
+        _normalize(a.vectors)
+        b.vectors = (
+            _units(np.stack(b_vectors)) if b_vectors else np.zeros((0, dimension), np.float32)
+        )
         levels = {"A": a, "B": b}
         self._save_cache(levels, points)
         return levels
+
+    def _facts_fields(self):
+        """Payload fields kept per item: the facts and the fields to centre by."""
+        return [*self.fact_fields, *(f for f in self.center_by if f not in self.fact_fields)]
 
     def _cache_key(self):
         return {
@@ -340,7 +389,11 @@ class TopicModel:
             "collection": getattr(self.vectors, "collection", ""),
             "skipped": list(self.judgment_skipped_parts),
             "chunk_parts": list(self.chunk_parts),
-            "facts": [*self.fact_fields, *self.center_by],
+            "facts": self._facts_fields(),
+            "chunk_filter": {
+                f: list(v) if isinstance(v, tuple) else v for f, v in self.chunk_filter.items()
+            },
+            "dtype": self.vector_dtype,
         }
 
     def _cached(self):
@@ -362,10 +415,31 @@ class TopicModel:
         for level in LEVELS:
             m = meta[level]
             items = Items(level, m["judgments"], m["numbers"], m["spans"], m["facts"])
-            items.vectors = np.load(self.cache_dir / f"{level}.npy")
+            path = self.cache_dir / f"{level}.npy"
+            if self.on_disk and level == "A":  # kopia do work_dir, tam mapowana (r+: centrowanie)
+                self.work_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, self.work_dir / "A.npy")
+                items.vectors = np.load(self.work_dir / "A.npy", mmap_mode="r+")
+            else:
+                items.vectors = np.load(path)
             levels[level] = items
         log.info("wektory z pamięci podręcznej %s (%d punktów)", self.cache_dir, points)
         return levels
+
+    def _array(self, name, shape, dtype):
+        """A zeroed array: in RAM, or with on_disk a file mapped into memory in work_dir."""
+        import numpy as np
+
+        if not self.on_disk:
+            return np.zeros(shape, dtype=dtype)
+        self.work_dir.mkdir(parents=True, exist_ok=True)
+        return np.lib.format.open_memmap(
+            self.work_dir / f"{name}.npy", mode="w+", dtype=dtype, shape=shape
+        )
+
+    def _drop(self, name):
+        if self.on_disk:
+            (self.work_dir / f"{name}.npy").unlink(missing_ok=True)
 
     def _save_cache(self, levels, points):
         import numpy as np
@@ -494,14 +568,15 @@ class TopicModel:
         return lines
 
 
-def centered(items, fields, min_group=CENTER_MIN_GROUP):
+def centered(items, fields, min_group=CENTER_MIN_GROUP, inplace=False):
     """Vectors minus the mean of their group, field after field (the first value of a
-    list), again of length 1; groups smaller than min_group stay as they are."""
+    list), again of length 1; groups smaller than min_group stay as they are. inplace:
+    in items.vectors itself (no second copy of a big level), in their dtype."""
     import numpy as np
 
     if not fields:
         return items.vectors
-    vectors = items.vectors.copy()
+    vectors = items.vectors if inplace else items.vectors.astype(np.float32)
     for f in fields:
         codes, keys = np.empty(len(items), dtype=np.int64), {}
         for i, facts in enumerate(items.facts):
@@ -511,14 +586,17 @@ def centered(items, fields, min_group=CENTER_MIN_GROUP):
             codes[i] = keys.setdefault(value, len(keys))
         counts = np.bincount(codes, minlength=len(keys))
         sums = np.zeros((len(keys), vectors.shape[1]), dtype=np.float64)
-        np.add.at(sums, codes, vectors)
+        for start in range(0, len(vectors), ASSIGN_BLOCK):
+            block = slice(start, start + ASSIGN_BLOCK)
+            np.add.at(sums, codes[block], vectors[block].astype(np.float64))
         means = (sums / np.maximum(counts, 1)[:, None]).astype(np.float32)
         means[counts < min_group] = 0
         for start in range(0, len(vectors), ASSIGN_BLOCK):
             block = slice(start, start + ASSIGN_BLOCK)
-            vectors[block] -= means[codes[block]]
+            vectors[block] = vectors[block].astype(np.float32) - means[codes[block]]
         log.info("odjęta średnia grup %s: %d grup", f, int((counts >= min_group).sum()))
-    return _units(vectors)
+    _normalize(vectors)
+    return vectors
 
 
 def assign(vectors, centres, block=ASSIGN_BLOCK):
@@ -527,8 +605,9 @@ def assign(vectors, centres, block=ASSIGN_BLOCK):
 
     best = np.empty(len(vectors), dtype=np.int64)
     score = np.empty(len(vectors), dtype=np.float32)
+    centres = centres.astype(np.float32)
     for start in range(0, len(vectors), block):
-        sims = vectors[start : start + block] @ centres.T
+        sims = vectors[start : start + block].astype(np.float32) @ centres.T
         best[start : start + block] = sims.argmax(axis=1)
         score[start : start + block] = sims.max(axis=1)
     return best, score
@@ -591,6 +670,35 @@ def _facts_text(facts, labels, top=FACTS_TOP):
     return "; ".join(parts)
 
 
+def _matches(payload, conditions):
+    """A payload meets {field: value or (from, to)}; a list field: any of its values."""
+    for f, wanted in conditions.items():
+        value = payload.get(f)
+        values = value if isinstance(value, (list, tuple)) else [value]
+        if isinstance(wanted, tuple):
+            low, high = wanted
+            if not any(
+                v is not None and (low is None or v >= low) and (high is None or v <= high)
+                for v in values
+            ):
+                return False
+        elif wanted not in values:
+            return False
+    return True
+
+
+def _kept_spans(chunks, cap):
+    """The chunks _text_spans would use (text parts first, until cap characters): a
+    judgment with hundreds of chunks keeps only these in memory."""
+    kept, total = [], 0
+    for chunk in sorted(chunks):
+        if total >= cap:
+            break
+        kept.append(chunk)
+        total += chunk[2][1]
+    return kept
+
+
 def _text_spans(chunks, cap):
     """Spans for a judgment's text: chunks of the text parts first (in order), then
     the rest, until cap characters."""
@@ -633,3 +741,14 @@ def _units(m):
     norms = np.linalg.norm(m, axis=1, keepdims=True)
     norms[norms == 0] = 1
     return (m / norms).astype(np.float32)
+
+
+def _normalize(m, block=ASSIGN_BLOCK):
+    """Rows of m to length 1 in place, block by block (computed in float32)."""
+    import numpy as np
+
+    for start in range(0, len(m), block):
+        part = m[start : start + block].astype(np.float32)
+        norms = np.linalg.norm(part, axis=1, keepdims=True)
+        norms[norms == 0] = 1
+        m[start : start + block] = part / norms
