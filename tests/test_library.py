@@ -78,7 +78,7 @@ def test_import_stores_the_text_once_and_skips_the_same_file(conn):
         assert store.text(first.id).startswith("1) Zarzucam") and first.size > 0
         assert store.original(first.id) == COMPLAINT.encode()
     again = finish(pages, pages.handle(post("/teczka/dodaj", files=files[:1]), page))
-    assert not again.added and "już jest w teczce" in again.skipped[0][1]
+    assert not again.added and "już jest w bazie" in again.skipped[0][1]
     listing = pages.handle(get("/teczka"), page).body.decode()
     assert "skarga do WSA" in listing and "Analizuj zaznaczone" in listing
 

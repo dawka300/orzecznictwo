@@ -8,7 +8,7 @@ import pytest
 import requests
 
 from etpc.rag import EtpcRetriever
-from judgments_core import analysis
+from judgments_core import analysis, embeddings
 from judgments_core.rag import Fragment, Reference, Retrieval
 from judgments_core.settings import Settings
 from judgments_core.web import Request
@@ -129,7 +129,7 @@ def test_lm_studio_off_uses_the_process_model(monkeypatch):
     def down(*args, **kwargs):
         raise requests.ConnectionError("odmowa")
 
-    monkeypatch.setattr(analysis.requests, "get", down)
+    monkeypatch.setattr(embeddings.requests, "get", down)
     own = object()
     embedder, how = analysis.choose_embedder(Settings(), own)
     assert embedder is own and "Python" in how

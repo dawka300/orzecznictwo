@@ -1,6 +1,6 @@
 """The document tabs of a project's pages, the same in every project: Analiza dokumentu
 (/analiza), Porównanie dokumentów (/porownanie), Analiza sprawy (/sprawa), Teczka sprawy
-(/teczka) and Badanie (/badanie).
+(/teczka), Badanie (/badanie) and, only with APP_ENV=dev, Trening modeli (/trening).
 
 A project gives what is its own - the retriever and the chunker of its base, its
 formulas (a child of boilerplate.FormulaCorpus: list and patterns in its languages) -
@@ -15,17 +15,19 @@ from judgments_core.comparison import DocumentComparison
 from judgments_core.folder import CaseFolder
 from judgments_core.library import Library
 from judgments_core.research import Research
+from judgments_core.training import TrainingLibrary
 
 
 class DocumentPages:
     """The document tabs of one project. Children may swap a tab's class (analysis_class,
-    comparison_class, folder_class, research_class, library_class)."""
+    comparison_class, folder_class, research_class, library_class, training_class)."""
 
     analysis_class = DocumentAnalysis
     comparison_class = DocumentComparison
     folder_class = CaseFolder
     research_class = Research
     library_class = Library
+    training_class = TrainingLibrary
 
     def __init__(self, settings, retriever, chunker, connect, embedder, formulas=None):
         """embedder: the query model already in the process (None = only LM Studio);
@@ -36,6 +38,8 @@ class DocumentPages:
         self.research = self.research_class(settings, embedder)
         # Teczka sprawy: dokumenty zapisane raz (OCR), do wyboru w pozostałych zakładkach
         self.library = self.library_class(settings, self.folder, chunker, embedder)
+        # Trening modeli: dokumenty do nauki wzorców (OCR i wektory do bazy trening), tylko dev
+        self.training = self.training_class(settings, self.folder, chunker, embedder)
         self.formulas = formulas
         for pages in self.tabs():
             pages.library = self.library
@@ -54,6 +58,7 @@ class DocumentPages:
             "/sprawa": self.folder,
             "/teczka": self.library,
             "/badanie": self.research,
+            "/trening": self.training,
         }
         for address, tab in pages.items():
             if request.path == address or request.path.startswith(address + "/"):

@@ -10,3 +10,6 @@ GRANT ALL PRIVILEGES ON szkielet_test.* TO 'szkielet'@'%';
 -- projektów, tylko lokalnie; poza kopią na dysk (narzedzia/kopia-na-dysk.sh).
 CREATE DATABASE IF NOT EXISTS teczki CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 GRANT ALL PRIVILEGES ON teczki.* TO 'szkielet'@'%';
+-- Trening modeli: dokumenty do uczenia naszych modeli (skargi, orzeczenia ...), tylko dev.
+CREATE DATABASE IF NOT EXISTS trening CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+GRANT ALL PRIVILEGES ON trening.* TO 'szkielet'@'%';

@@ -66,10 +66,11 @@ class Settings:
     embed_model: str = "text-embedding-bge-m3"
     embed_batch: int = 32
     embed_timeout_s: float = 600.0
-    # Wektor zapytania (strony www, MCP): local = sentence-transformers w tym
-    # procesie (bez LM Studio), http = embed_url; po przecinku = łańcuch.
+    # Wektory wszędzie poza poleceniem wektory (tam tylko LM Studio): auto =
+    # LM Studio, gdy odpowiada i ma wczytany embed_model (bge-m3), inaczej CPU w procesie
+    # (sentence-transformers, local_model); local / http = tylko jedno, po przecinku = łańcuch.
     # local_model musi być tym samym modelem co embed_model w LM Studio.
-    query_embedders: str = "local,http"
+    query_embedders: str = "auto"
     local_model: str = "BAAI/bge-m3"
     qdrant_url: str = "http://127.0.0.1:6333"
     qdrant_collection: str = ""
@@ -101,6 +102,9 @@ class Settings:
     # Teczka sprawy (judgments_core/library.py): baza z dokumentami użytkownika, wspólna
     # dla projektów; puste = baza "teczki" na tym samym serwerze co db_dsn.
     library_dsn: str = ""
+    # Trening modeli (judgments_core/training.py, tylko APP_ENV=dev): dokumenty do uczenia
+    # modeli (skargi, orzeczenia ...); puste = baza "trening" na tym samym serwerze co db_dsn.
+    training_dsn: str = ""
     # Środowisko: APP_ENV (bez prefiksu, wspólne dla projektów) = dev albo prod. dev =
     # komputer dewelopera (docker-compose.dev.yml, 64 GB) i funkcje widoczne tylko tam.
     app_env: str = "prod"
@@ -136,10 +140,13 @@ class Settings:
             changes["db_dsn"] = LOCAL_DSN.format(name=prefix.lower())
         if not changes.get("library_dsn"):
             changes["library_dsn"] = with_database(changes["db_dsn"], LIBRARY_DATABASE)
+        if not changes.get("training_dsn"):
+            changes["training_dsn"] = with_database(changes["db_dsn"], TRAINING_DATABASE)
         return replace(settings, **changes)
 
 
 LIBRARY_DATABASE = "teczki"
+TRAINING_DATABASE = "trening"
 APP_ENVS = ("dev", "prod")
 
 

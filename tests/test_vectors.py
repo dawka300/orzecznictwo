@@ -4,6 +4,7 @@ import pytest
 import requests
 
 from judgments_core.embeddings import (
+    AutoEmbedder,
     EmbeddingError,
     FallbackEmbedder,
     HttpEmbedder,
@@ -203,9 +204,60 @@ def test_fallback_embedder_moves_to_next_and_raises_the_last_error():
         FallbackEmbedder([("local", Broken)]).embed(["a"])
 
 
+class Cpu(Works):
+    name = "local"
+    model = "BAAI/bge-m3"
+    loaded = False
+
+    def prepare(self):
+        self.loaded = True
+
+    def embed(self, texts):
+        return [[2.0] for _ in texts]
+
+
+class Down(Works):
+    def embed(self, texts):
+        raise EmbeddingError("LM Studio wyłączone")
+
+
+def test_auto_embedder_uses_lm_studio_with_the_model_else_the_cpu():
+    answers, now = [True], [0.0]
+
+    def check():
+        answers.append(answers[-1])
+        return answers[-2]
+
+    auto = AutoEmbedder(Works(), Cpu(), check, check_s=60, clock=lambda: now[0])
+    auto.prepare()
+    assert not auto.local.loaded  # z LM Studio model na CPU się nie wczytuje
+    assert auto.embed(["a"]) == [[1.0]] and auto.describe() == "LM Studio (lm)"
+    answers[-1] = False  # LM Studio wyłączone: pamiętana odpowiedź do następnego sprawdzenia
+    assert auto.embed(["a"]) == [[1.0]]
+    now[0] = 61
+    assert auto.embed(["a"]) == [[2.0]] and "CPU" in auto.describe()
+    auto.prepare()
+    assert auto.local.loaded
+    now[0], answers[-1] = 122, True  # włączone z powrotem
+    assert auto.embed(["a"]) == [[1.0]]
+
+
+def test_auto_embedder_falls_to_the_cpu_when_lm_studio_fails_midway():
+    auto = AutoEmbedder(Down(), Cpu(), lambda: True, clock=lambda: 0.0)
+    assert auto.embed(["a", "b"]) == [[2.0], [2.0]]
+    assert not auto.lm_studio()  # do następnego sprawdzenia liczy CPU
+
+
 def test_make_embedder_from_settings():
     settings = Settings(embed_url="http://lm/v1", embed_model="bge", local_model="BAAI/bge-m3")
-    chain = make_embedder(settings)
+    auto = make_embedder(settings)
+    assert isinstance(auto, AutoEmbedder)
+    assert (auto.http.url, auto.http.model, auto.local.model) == (
+        "http://lm/v1",
+        "bge",
+        "BAAI/bge-m3",
+    )
+    chain = make_embedder(settings, "local,http")
     assert isinstance(chain, FallbackEmbedder)
     assert [name for name, _ in chain.factories] == ["local", "http"]
     assert isinstance(chain.current, LocalEmbedder)

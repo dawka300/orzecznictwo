@@ -473,15 +473,20 @@ def _migrate(project, settings):
     with db.connect(settings.db_dsn) as conn:
         applied = db.migrate(conn, ("core", db.CORE_MIGRATIONS), (project.name, project.migrations))
     log.info("Zastosowano migracje: %s", ", ".join(applied) if applied else "brak nowych")
-    # Teczka sprawy: osobna baza wspólna dla projektów (strony tworzą tabele też same).
-    if not settings.library_dsn:
-        return 0
-    try:
-        with db.connect(settings.library_dsn, connect_timeout=3) as conn:
-            applied = db.LibraryStore(conn).migrate()
-        log.info("Teczka sprawy: %s", ", ".join(applied) if applied else "brak nowych migracji")
-    except pymysql.Error as e:
-        log.warning("Teczka sprawy: baza niedostępna (%s) - komendy.md, „Teczka sprawy”", e)
+    # Teczka sprawy: osobna baza wspólna dla projektów (strony tworzą tabele też same);
+    # Trening modeli: te same tabele w bazie trening, tylko przy APP_ENV=dev.
+    stores = [("Teczka sprawy", settings.library_dsn)]
+    if settings.dev:
+        stores.append(("Trening modeli", settings.training_dsn))
+    for name, dsn in stores:
+        if not dsn:
+            continue
+        try:
+            with db.connect(dsn, connect_timeout=3) as conn:
+                applied = db.LibraryStore(conn).migrate()
+            log.info("%s: %s", name, ", ".join(applied) if applied else "brak nowych migracji")
+        except pymysql.Error as e:
+            log.warning("%s: baza niedostępna (%s) - komendy.md, „%s”", name, e, name)
     return 0
 
 
@@ -680,7 +685,8 @@ def _embed(project, settings, args):
     if project.embed_job is None:
         raise NotImplementedError(f"projekt {project.name} nie ma jeszcze wektorów")
     budget = settings.time_budget_s if args.time_budget_s is None else args.time_budget_s
-    # Hurtem liczy LM Studio na karcie graficznej (CPU byłby kilka razy wolniejszy).
+    # Hurt tylko na karcie graficznej: LM Studio (albo paczki liczone na CUDA, np. Vast),
+    # nigdy na CPU - bez LM Studio przebieg kończy się błędem zamiast liczyć godzinami.
     embedder = make_embedder(settings, "http")
     collection = settings.qdrant_collection or collection_name(project.name, settings.embed_model)
     vectors = QdrantStore(settings.qdrant_url, collection, settings.embed_model)
@@ -1018,7 +1024,7 @@ def _packages(project, settings, args):
             log.info("Paczka %s porzucona: jej orzeczenia policzy wektory.", args.release)
             return 0
         job = _package_job(project, settings, conn)
-        # Wektory kontrolne liczy tutaj model zapytań (bez LM Studio, na CPU).
+        # Wektory kontrolne: jak wszędzie (LM Studio z modelem, inaczej CPU).
         controls = make_embedder(settings)
         with store.lock(f"{project.name}:paczki"):
             # Kolejka raz na całe polecenie: w dużym projekcie to pełny przegląd tabeli.

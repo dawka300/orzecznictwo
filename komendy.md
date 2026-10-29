@@ -34,7 +34,7 @@ docker compose run --rm --no-deps www python -m etpc przetworz                  
 docker compose run --rm --no-deps www python -m etpc przetworz --od-poczatku     # wszystko od nowa (po zmianie parsera)
 docker compose run --rm --no-deps www python -m etpc przetworz --tylko-pochodne  # tylko statystyki/rankingi
 
-# wektory (LM Studio z bge-m3 musi działać)
+# wektory (tylko LM Studio z bge-m3; zwykle zamiast tego paczki z Vast)
 docker compose run --rm --no-deps www python -m etpc wektory                     # brakujące i zmienione
 docker compose run --rm --no-deps www python -m etpc wektory --budzet 3600       # najwyżej godzinę
 docker compose run --rm --no-deps www python -m etpc wektory --limit 50          # próba
@@ -193,7 +193,7 @@ Bez opcji bierze tylko rekordy nowe i zmienione od ostatniego przetworzenia. Nic
 | `--budzet S` | koniec po S sekundach (wznawialne) | cron: `przetworz --budzet 240` |
 
 ## Wektory (Qdrant, kolekcje `etpc_<model>`, `nsa_<model>`)
-`wektory` bez opcji liczy embeddingi orzeczeń, które jeszcze ich nie mają albo zmieniły się od ostatniego liczenia. Potrzebne LM Studio z bge-m3 na komputerze. Ma osobną blokadę, więc może iść równolegle z `przetworz`.
+`wektory` bez opcji liczy embeddingi orzeczeń, które jeszcze ich nie mają albo zmieniły się od ostatniego liczenia. `wektory` liczy **tylko** LM Studio z bge-m3 (karta graficzna), nigdy CPU; zwykle hurt liczy się na CUDA gdzie indziej (Vast, `paczki`). Pozostałe wektory (wyszukiwanie, MCP, zakładki dokumentów, teczka, trening) liczą się tak samo: jeśli LM Studio działa i ma wczytany bge-m3 (`<PREFIKS>_EMBED_MODEL`), liczy LM Studio, inaczej bge-m3 na CPU w procesie; sprawdzane co minutę (`<PREFIKS>_QUERY_EMBEDDERS=auto`, `local` / `http` = tylko jedno). Ma osobną blokadę, więc może iść równolegle z `przetworz`.
 
 NSA ma dwa poziomy (`nsa/embed.py` `full_chunks`): **pełne fragmenty** tylko dla uchwał, orzeczeń z tezą lub publikacją i wyroków NSA (~270 tys. orzeczeń, ~3,7 mln wektorów); **reszta (postanowienia, wyroki WSA, ~2 mln) po jednym wektorze skrótu**: teza + koniec sentencji (rozstrzygnięcie) + początek „zważył, co następuje” (~2000 znaków). Razem ~5,7 mln wektorów zamiast ~18 mln; liczone w paczkach na wynajętych kartach (`docker/licz/VAST.md`).
 
@@ -275,6 +275,14 @@ Dokumenty użytkownika zapisane raz: tekst odczytany przy imporcie (Word, PDF, s
 | `docker exec orzecznictwo-szkielet-db-1 mariadb -uroot -proot -e "CREATE DATABASE IF NOT EXISTS teczki CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON teczki.* TO 'szkielet'@'%';"` | raz, na bazie utworzonej przed 2026-10-28 (nowe wolumeny dostają ją z `docker/mariadb-init.sql`) |
 | `docker compose run --rm --no-deps www python -m etpc migracje` | tworzy też tabele teczki (strona robi to sama przy pierwszym wejściu) |
 | `docker exec orzecznictwo-szkielet-db-1 mariadb-dump -uroot -proot teczki \| gzip > teczki.sql.gz` | ręczna kopia teczki (trzymać zaszyfrowaną: dokumenty klientów) |
+
+## Trening modeli (`/etpc/trening`, `/nsa/trening`: ta sama baza, tylko `APP_ENV=dev`)
+Dokumenty do nauki wzorców (jak zaczyna się i kończy skarga do WSA, odpowiedź SKO, wyrok ...), żeby porównanie wiedziało, co odsiać: skargi, orzeczenia, odpowiedzi na skargę, pisma organu i stron, w osobnej bazie MariaDB `trening` (`<PREFIKS>_TRAINING_DSN`, puste = `trening` na serwerze z `DB_DSN`). Zakładka „Trening” pojawia się obok „Statystyk” tylko przy `APP_ENV=dev`; przy `prod` jej adresy dają 404. Działa jak Teczka sprawy (import Word/PDF/skanu przez OCR, katalogi, oryginał pliku), ale zamiast „kto pisze” jest **rodzaj** dokumentu i bez analizy sprawy. Przy imporcie od razu: OCR, tekst i oryginał do bazy oraz **wektory fragmentów do bazy** (`document_vectors` w bazie `trening`; „Policz wektory” na stronie dokumentu = brakujące). **Eksport JSONL** (link na stronie; `/trening/eksport.jsonl`, `?k=<katalog>` = katalog z podkatalogami): jeden dokument na wiersz, pola `id, katalog, tytul, rodzaj, rodzaj_opis, data, plik, uwaga, tekst`.
+
+| Polecenie | Co robi |
+|---|---|
+| `docker exec orzecznictwo-szkielet-db-1 mariadb -uroot -proot -e "CREATE DATABASE IF NOT EXISTS trening CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON trening.* TO 'szkielet'@'%';"` | raz, na bazie utworzonej przed 2026-10-29 (nowe wolumeny dostają ją z `docker/mariadb-init.sql`) |
+| `docker compose run --rm --no-deps www python -m etpc migracje` | przy `APP_ENV=dev` tworzy też tabele bazy `trening` (strona robi to sama przy pierwszym wejściu) |
 
 ## Typowe sekwencje (`orz` = skrót z góry)
 ```

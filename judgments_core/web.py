@@ -81,6 +81,8 @@ class WebApp(ABC):
 
     # opis projektu na stronie głównej portalu
     description = ""
+    # zakładki tylko na komputerze dewelopera (APP_ENV=dev), na końcu paska stron
+    dev_nav = (("/trening", "Trening"),)
 
     def __init__(self, settings):
         self.settings = settings
@@ -94,6 +96,11 @@ class WebApp(ABC):
         except Exception:
             log.exception("www: błąd strony %s", request.path)
             response = self.error_page()
+        if getattr(self.settings, "dev", False) and response.content_type.startswith("text/html"):
+            links = "".join(f'<a href="{e(href)}">{e(text)}</a>' for href, text in self.dev_nav)
+            response.body = response.body.replace(
+                b"</nav></header>", links.encode("utf-8") + b"</nav></header>", 1
+            )
         # Pod prefiksem (Portal: /etpc, /nsa; hosting w podkatalogu) linki stron
         # pisane od korzenia ("/orzeczenie/1") dostają ten prefiks.
         root = environ.get("SCRIPT_NAME", "").rstrip("/")

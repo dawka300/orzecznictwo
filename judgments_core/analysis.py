@@ -39,12 +39,10 @@ from email.policy import HTTP
 from urllib.parse import parse_qs
 from xml.etree import ElementTree
 
-import requests
-
 from judgments_core import claude_report, ocr
 from judgments_core import markers as text_markers
 from judgments_core.boilerplate import checkbox_html, dropped_html
-from judgments_core.embeddings import make_embedder
+from judgments_core.embeddings import lm_studio_has_model, make_embedder
 from judgments_core.web import Response, e, file_field, number, shorten
 
 log = logging.getLogger(__name__)
@@ -253,21 +251,9 @@ def form_document(fields, file_field, text_field, what, library=None, pasted_nam
 # --- model wektorów ------------------------------------------------------------
 
 
-def lm_studio_has_model(settings, timeout_s=3):
-    """True when LM Studio answers and lists the embedding model (/v1/models)."""
-    models_url = settings.embed_url.rsplit("/", 1)[0] + "/models"
-    try:
-        response = requests.get(models_url, timeout=timeout_s)
-        response.raise_for_status()
-        ids = {m.get("id") for m in response.json().get("data", [])}
-    except (requests.RequestException, ValueError):
-        return False
-    return settings.embed_model in ids
-
-
 def choose_embedder(settings, fallback):
     """(embedder, description): LM Studio with the model loaded, else fallback (the query
-    model of this process); LM Studio failing in the middle falls back too."""
+    model of this process); the same rule as embeddings.AutoEmbedder, checked now."""
     if lm_studio_has_model(settings):
         return make_embedder(settings, "http", timeout_s=120, retries=1), "LM Studio"
     return fallback, "model w tym procesie (Python, CPU) - LM Studio niedostępne albo bez modelu"

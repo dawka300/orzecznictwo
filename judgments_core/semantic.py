@@ -4,8 +4,8 @@ The common part: the query goes to the model as typed (bge-m3 is
 multilingual), search operators (quotes, -word, word*) are dropped; the
 best passage of each closest judgment comes back; "similar judgments" = the
 mean vector of a judgment's chunks (of similar_parts if it has them).
-The query vector comes from the settings' query_embedders (by default the
-model in this process, then LM Studio - judgments_core/embeddings.py). No
+The query vector comes from the settings' query_embedders (by default auto: LM
+Studio with the model, else the CPU - judgments_core/embeddings.py). No
 embedder or Qdrant raises SemanticUnavailable, so a page can fall back to
 FULLTEXT.
 

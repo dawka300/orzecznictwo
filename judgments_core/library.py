@@ -54,9 +54,9 @@ ROLES = (
     ("sad", "sąd"),
 )
 ROLE_NAMES = dict(ROLES)
-_DOCUMENT = re.compile(r"^/teczka/dokument/(\d+)(/plik)?$")
-_CATALOG = re.compile(r"^/teczka/katalog/(\d+)/(nazwa|usun)$")
-_IMPORT = re.compile(r"^/teczka/import/([0-9a-f]{12})$")
+_DOCUMENT = re.compile(r"^/dokument/(\d+)(/plik)?$")
+_CATALOG = re.compile(r"^/katalog/(\d+)/(nazwa|usun)$")
+_IMPORT = re.compile(r"^/import/([0-9a-f]{12})$")
 
 
 class LibraryUnavailable(RuntimeError):
@@ -117,10 +117,18 @@ class ImportJob:
 
 
 class Library:
-    """The pages under /teczka and the "albo z teczki" choice for the other tabs."""
+    """The pages under /teczka and the "albo z teczki" choice for the other tabs.
+
+    Children (training.TrainingLibrary) keep the same tables in another database: they
+    change base, title, roles, dsn(), intro(), tools() and vectors."""
 
     base = "/teczka"
     title = "Teczka sprawy"
+    short = "Teczka"  # początek ścieżki katalogów
+    roles = ROLES
+    role_label = "kto pisze"
+    vectors = True  # wektory fragmentów przy imporcie i przycisk „Policz wektory”
+    analyse_button = True  # „Analizuj zaznaczone” (Analiza sprawy)
 
     def __init__(self, settings, case_folder=None, chunker=None, semantic_embedder=None):
         self.settings = settings
@@ -134,17 +142,20 @@ class Library:
 
     # --- baza ---
 
+    def dsn(self):
+        return self.settings.library_dsn
+
     @contextlib.contextmanager
     def store(self):
         """A LibraryStore on a fresh connection; the tables are created on first use."""
-        if not self.settings.library_dsn:
-            raise LibraryUnavailable("brak ustawienia library_dsn")
+        if not self.dsn():
+            raise LibraryUnavailable(f"brak adresu bazy ({self.title})")
         try:
-            conn = db.connect(self.settings.library_dsn, connect_timeout=3)
+            conn = db.connect(self.dsn(), connect_timeout=3)
         except pymysql.Error as error:
             raise LibraryUnavailable(
-                f"baza teczki niedostępna ({error.args[-1] if error.args else error});"
-                " utwórz ją: komendy.md, sekcja „Teczka sprawy”"
+                f"baza niedostępna ({error.args[-1] if error.args else error});"
+                f" utwórz ją: komendy.md, sekcja „{self.title}”"
             ) from error
         try:
             store = db.LibraryStore(conn)
@@ -236,7 +247,7 @@ class Library:
         with self.store() as store:
             existing = store.find_sha(sha)
         if existing:
-            job.skipped.append((name, f"już jest w teczce (dokument {existing})"))
+            job.skipped.append((name, f"już jest w bazie (dokument {existing})"))
             return
         try:
             text, note = read_document(name, data)
@@ -250,6 +261,8 @@ class Library:
         with self.store() as store:
             new_id = store.add_document(job.catalog_id, title, name, "inny", note, sha, text, data)
         job.added.append((new_id, title, note))
+        if not self.vectors:
+            return
         try:
             self.precompute(new_id, text, lambda done, total: _vector_step(job, name, done, total))
         except Exception as error:  # noqa: BLE001 - dokument zostaje, wektory policzy analiza
@@ -338,13 +351,14 @@ class Library:
 
     def _handle(self, request, layout):
         path = request.path
+        rest = path[len(self.base) :]  # adres pod /teczka (dzieci: pod swoim base)
         if path == self.base or path == self.base + "/":
             page = self.catalog_page(request.get_int("k"), request.get("uwaga"))
             return Response(layout(self.title, page))
-        match = _IMPORT.match(path)
+        match = _IMPORT.match(rest)
         if match:
             return self.import_page(match.group(1), layout)
-        match = _DOCUMENT.match(path)
+        match = _DOCUMENT.match(rest)
         if match:
             return self.document(int(match.group(1)), bool(match.group(2)), request, layout)
         if request.method != "POST":
@@ -359,7 +373,7 @@ class Library:
                 return self._back(parent)
             with self.store() as store:
                 return self._back(store.add_catalog(name, parent))
-        match = _CATALOG.match(path)
+        match = _CATALOG.match(rest)
         if match:
             return self.catalog_action(int(match.group(1)), match.group(2), request, layout)
         if path == f"{self.base}/zaznaczone":
@@ -404,7 +418,7 @@ class Library:
             total = job.total
             percent = 100 * job.done / total if total else 0
             body = f"""<meta http-equiv=refresh content=2>
-<h1>Import do teczki</h1>
+<h1>Import: {e(self.title)}</h1>
 <div class=progress><div style="width:{percent:.1f}%"></div></div>
 <p class=progress-line>Plik {job.done + 1} z {total}: {e(job.step)}. Strona odświeża się sama.</p>"""
             return Response(layout(self.title, body))
@@ -414,7 +428,7 @@ class Library:
             for i, t, n in job.added
         )
         skipped = "".join(f"<li>{e(n)}: {e(why)}</li>" for n, why in job.skipped)
-        body = f"""<h1>Import do teczki</h1>
+        body = f"""<h1>Import: {e(self.title)}</h1>
 <p>Dodano {len(job.added)}{f", pominięto {len(job.skipped)}" if job.skipped else ""}.</p>
 {f"<ul>{added}</ul>" if added else ""}
 {f"<p class=error>Pominięte:</p><ul>{skipped}</ul>" if skipped else ""}
@@ -496,7 +510,7 @@ class Library:
                 if fields.get("akcja") == "usun":
                     store.delete_documents([document_id])
                     return self._back(stored.catalog_id)
-                if fields.get("akcja") == "wektory":
+                if fields.get("akcja") == "wektory" and self.vectors:
                     self.start_vectors(document_id, store.text(document_id))
                     return Response(
                         "",
@@ -506,7 +520,7 @@ class Library:
                 store.update_document(
                     document_id,
                     (fields.get("tytul") or "").strip()[:250] or stored.title,
-                    fields.get("rola") if fields.get("rola") in ROLE_NAMES else stored.role,
+                    fields.get("rola") if fields.get("rola") in dict(self.roles) else stored.role,
                     _date(fields.get("data")),
                     _int(fields.get("katalog")),
                 )
@@ -531,8 +545,9 @@ class Library:
                 catalog_id = None
             documents = store.documents(catalog_id)
         paths = catalog_paths(catalogs)
+        role_names = dict(self.roles)
         children = [c for c in catalogs if c[1] == catalog_id]
-        crumbs = [f'<a href="{self.base}">Teczka</a>']
+        crumbs = [f'<a href="{self.base}">{e(self.short)}</a>']
         for c_id in ancestry(catalogs, catalog_id):
             name = {c[0]: c[2] for c in catalogs}[c_id]
             crumbs.append(f'<a href="{self.base}?k={c_id}">{e(name)}</a>')
@@ -546,7 +561,7 @@ class Library:
             f"<tr><td><input type=checkbox name=d value={d.id} form=zaznaczone></td>"
             f'<td><a href="{self.base}/dokument/{d.id}">{e(d.title)}</a>'
             f"{f'<br><span class=hint>{e(d.note)}</span>' if d.note else ''}</td>"
-            f"<td>{e(ROLE_NAMES.get(d.role, d.role))}</td><td>{e(d.doc_date or '')}</td>"
+            f"<td>{e(role_names.get(d.role, d.role))}</td><td>{e(d.doc_date or '')}</td>"
             f"<td class=num>{number(d.chars)}</td></tr>"
             for d in documents
         )
@@ -554,16 +569,22 @@ class Library:
             f"<option value={c_id}>{e(paths[c_id])}</option>"
             for c_id in sorted(paths, key=lambda c: paths[c])
         )
-        here = paths.get(catalog_id, "teczka (bez katalogu)")
+        top = f"{self.short.lower()} (bez katalogu)"
+        here = paths.get(catalog_id, top)
+        analyse = (
+            '<button name=akcja value=analizuj form=zaznaczone title="Analiza sprawy: kto komu'
+            ' odpowiedział, osie, zmiany; kolejność według dat">Analizuj zaznaczone</button>\n'
+            if self.analyse_button
+            else ""
+        )
         table = (
             f"""<form id=zaznaczone method=post action="{self.base}/zaznaczone"></form>
 <input type=hidden name=k value="{k}" form=zaznaczone>
-<table class=library><tr><th></th><th>dokument</th><th>kto pisze</th><th>data</th><th>znaków</th></tr>{rows}</table>
+<table class=library><tr><th></th><th>dokument</th><th>{e(self.role_label)}</th><th>data</th><th>znaków</th></tr>{rows}</table>
 <p class=library-actions>
-<button name=akcja value=analizuj form=zaznaczone title="Analiza sprawy: kto komu odpowiedział, osie, zmiany; kolejność według dat">Analizuj zaznaczone</button>
-<button name=akcja value=przenies form=zaznaczone class=secondary>Przenieś do</button>
-<select name=cel form=zaznaczone><option value="">teczka (bez katalogu)</option>{targets}</select>
-<button name=akcja value=usun form=zaznaczone class=danger onclick="return confirm('Usunąć zaznaczone dokumenty z teczki?')">Usuń</button></p>"""
+{analyse}<button name=akcja value=przenies form=zaznaczone class=secondary>Przenieś do</button>
+<select name=cel form=zaznaczone><option value="">{e(top)}</option>{targets}</select>
+<button name=akcja value=usun form=zaznaczone class=danger onclick="return confirm('Usunąć zaznaczone dokumenty?')">Usuń</button></p>"""
             if documents
             else "<p class=hint>Brak dokumentów w tym miejscu.</p>"
         )
@@ -580,10 +601,7 @@ class Library:
         }
         message = f"<p class=error>{e(notes[note])}</p>" if note in notes else ""
         return f"""<h1>{e(self.title)}</h1>
-<p class=hint>Dokumenty sprawy zapisane na tym komputerze (baza MariaDB <code>teczki</code>, poza gitem
-i poza kopią na dysk). Każdy plik czytany jest raz (także OCR skanu); w Analizie dokumentu,
-Porównaniu, Analizie sprawy i Badaniu wybierzesz go z listy „albo z teczki”. Zaznaczone dokumenty
-przeanalizujesz razem przyciskiem „Analizuj zaznaczone” (w kolejności dat).</p>
+{self.intro()}
 {message}
 <p class=crumbs>{" / ".join(crumbs)}</p>
 {f"<ul class=catalogs>{sub}</ul>" if sub else ""}
@@ -594,17 +612,31 @@ przeanalizujesz razem przyciskiem „Analizuj zaznaczone” (w kolejności dat).
 <details><summary>albo wklej tekst</summary>
 <p><label>Tytuł <input name=tytul placeholder="np. notatka ze spotkania"></label></p>
 <p><textarea name=tekst rows=6></textarea></p></details>
-<p><button type=submit>Dodaj do teczki</button></p></fieldset></form>
+<p><button type=submit>Dodaj</button></p></fieldset></form>
 {table}
 <form class=library-new method=post action="{self.base}/katalog"><input type=hidden name=k value="{k}">
 <input name=nazwa placeholder="nazwa nowego katalogu"> <button class=secondary>Utwórz katalog</button></form>
 {manage}"""
 
+    def intro(self):
+        """The paragraph under the title of the catalog page."""
+        return """<p class=hint>Dokumenty sprawy zapisane na tym komputerze (baza MariaDB <code>teczki</code>, poza gitem
+i poza kopią na dysk). Każdy plik czytany jest raz (także OCR skanu); w Analizie dokumentu,
+Porównaniu, Analizie sprawy i Badaniu wybierzesz go z listy „albo z teczki”. Zaznaczone dokumenty
+przeanalizujesz razem przyciskiem „Analizuj zaznaczone” (w kolejności dat).</p>"""
+
+    def tools(self, stored):
+        """Buttons of the document page after „Oryginał”: the tabs that take it."""
+        return (
+            f'<a class=button href="/badanie?teczka={stored.id}">Badanie</a>\n'
+            f'<a class=button href="/analiza?teczka={stored.id}">Analiza dokumentu</a>'
+        )
+
     def document_page(self, stored, text, catalogs, vectors=0):
         paths = catalog_paths(catalogs)
         roles = "".join(
             f"<option value={key}{' selected' if key == stored.role else ''}>{e(name)}</option>"
-            for key, name in ROLES
+            for key, name in self.roles
         )
         targets = "".join(
             f"<option value={c_id}{' selected' if c_id == stored.catalog_id else ''}>"
@@ -619,23 +651,28 @@ przeanalizujesz razem przyciskiem „Analizuj zaznaczone” (w kolejności dat).
             else ""
         )
         refresh = "<meta http-equiv=refresh content=3>" if stored.id in self.computing else ""
+        vector_button = vector_note = ""
+        if self.vectors:
+            vector_button = (
+                '<button name=akcja value=wektory class=secondary title="Wektory fragmentów do'
+                ' analiz (liczone raz, potem brane z bazy)">Policz wektory</button>\n'
+            )
+            vector_note = f" · wektory: {self.vectors_note(stored.id, vectors)}"
         return f"""{refresh}<h1>{e(stored.title)}</h1>
-<p class=crumbs><a href="{back}">← {e(paths.get(stored.catalog_id, "Teczka"))}</a></p>
+<p class=crumbs><a href="{back}">← {e(paths.get(stored.catalog_id, self.short))}</a></p>
 <p class=doc-tools translate=no>{original}
-<a class=button href="/badanie?teczka={stored.id}">Badanie</a>
-<a class=button href="/analiza?teczka={stored.id}">Analiza dokumentu</a></p>
+{self.tools(stored)}</p>
 <form class=analysis method=post action="{self.base}/dokument/{stored.id}">
 <fieldset><legend>Opis</legend>
 <p><label>Tytuł <input name=tytul value="{e(stored.title)}"></label></p>
-<p><label>Kto pisze <select name=rola>{roles}</select></label>
+<p><label>{e(self.role_label.capitalize())} <select name=rola>{roles}</select></label>
 <label>Data dokumentu <input type=date name=data value="{e(stored.doc_date or "")}"></label>
-<label>Katalog <select name=katalog><option value="">teczka (bez katalogu)</option>{targets}</select></label></p>
+<label>Katalog <select name=katalog><option value="">{e(self.short.lower())} (bez katalogu)</option>{targets}</select></label></p>
 <p><button type=submit>Zapisz</button>
-<button name=akcja value=wektory class=secondary title="Wektory fragmentów do analiz (liczone raz, potem brane z bazy)">Policz wektory</button>
-<button name=akcja value=usun class=danger onclick="return confirm('Usunąć dokument z teczki?')">Usuń dokument</button></p>
+{vector_button}<button name=akcja value=usun class=danger onclick="return confirm('Usunąć dokument?')">Usuń dokument</button></p>
 </fieldset></form>
 <p class=hint>Plik: {e(stored.filename or "tekst wklejony")}{f" · {e(stored.note)}" if stored.note else ""}
-· {number(stored.chars)} znaków · wektory: {self.vectors_note(stored.id, vectors)}
+· {number(stored.chars)} znaków{vector_note}
 · dodano {e(stored.created_at)} UTC. Tekst poniżej to to, co
 analizują pozostałe zakładki (sprawdź OCR: sygnatury, daty, kwoty).</p>
 <div class="text library-text">{e(text)}</div>"""

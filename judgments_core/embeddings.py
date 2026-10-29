@@ -7,7 +7,10 @@
   the CPU); slow for the bulk, but a query is one sentence, so search pages
   and the MCP server don't need LM Studio running;
 - FallbackEmbedder - a chain of the above: the next one takes over when the
-  current fails (sentence-transformers not installed, LM Studio off).
+  current fails (sentence-transformers not installed, LM Studio off);
+- AutoEmbedder ("auto", the default everywhere) - the one rule: LM Studio when it
+  answers and has the model loaded (bge-m3), otherwise the CPU in this process;
+  checked again every AUTO_CHECK_S, so it moves back to LM Studio once it is started.
 
 Both must be the same model (bge-m3 in LM Studio = BAAI/bge-m3): query
 vectors are compared with the vectors already in Qdrant. Runs where the
@@ -220,14 +223,86 @@ class FallbackEmbedder(Embedder):
                     self.model = self.current.model
 
 
+def lm_studio_has_model(settings, timeout_s=3):
+    """True when LM Studio answers and lists the embedding model (/v1/models)."""
+    models_url = settings.embed_url.rsplit("/", 1)[0] + "/models"
+    try:
+        response = requests.get(models_url, timeout=timeout_s)
+        response.raise_for_status()
+        ids = {m.get("id") for m in response.json().get("data", [])}
+    except (requests.RequestException, ValueError):
+        return False
+    return settings.embed_model in ids
+
+
+AUTO_CHECK_S = 60.0  # co ile sekund auto sprawdza ponownie, czy LM Studio ma model
+
+
+class AutoEmbedder(Embedder):
+    """LM Studio (http) when it has the embedding model loaded, else the CPU (local).
+
+    The check (lm_studio_has_model) is remembered for AUTO_CHECK_S; LM Studio failing
+    in the middle sends that batch to the CPU and marks it absent until the next check.
+    The CPU model loads only when it is needed (prepare: only without LM Studio).
+    """
+
+    name = "auto"
+
+    def __init__(self, http, local, check, *, check_s=AUTO_CHECK_S, clock=time.monotonic):
+        """check: () -> bool, LM Studio has the model."""
+        super().__init__(local.model)
+        self.http = http
+        self.local = local
+        self.check = check
+        self.check_s = check_s
+        self.clock = clock
+        self._checked = None  # (kiedy, wynik)
+        self._lock = threading.Lock()
+
+    def lm_studio(self):
+        """LM Studio has the model (the remembered answer while it is fresh)."""
+        with self._lock:
+            now = self.clock()
+            if self._checked is None or now - self._checked[0] >= self.check_s:
+                available = self.check()
+                if self._checked is None or self._checked[1] != available:
+                    log.info("embeddingi: %s", self._where(available))
+                self._checked = (now, available)
+            return self._checked[1]
+
+    def prepare(self):
+        if not self.lm_studio():
+            self.local.prepare()
+
+    def embed(self, texts):
+        if not texts:
+            return []
+        if self.lm_studio():
+            try:
+                return self.http.embed(texts)
+            except EmbeddingError as e:
+                log.warning("embeddingi: LM Studio nie działa (%s) - liczę na CPU", e)
+                with self._lock:
+                    self._checked = (self.clock(), False)
+        return self.local.embed(texts)
+
+    def describe(self):
+        return self._where(self.lm_studio())
+
+    def _where(self, lm_studio):
+        if lm_studio:
+            return f"LM Studio ({self.http.model})"
+        return f"model w tym procesie (Python, CPU, {self.local.model})"
+
+
 # Strategie po nazwie (ustawienie <PREFIKS>_QUERY_EMBEDDERS).
-EMBEDDERS = ("local", "http")
+EMBEDDERS = ("auto", "local", "http")
 
 
 def make_embedder(settings, names=None, *, timeout_s=None, retries=3):
     """One embedder by name, or a FallbackEmbedder for several names in order.
 
-    names: default settings.query_embedders ("local,http"); the bulk job asks for "http".
+    names: default settings.query_embedders ("auto": LM Studio with the model, else CPU).
     """
     names = [n.strip() for n in (names or settings.query_embedders).split(",") if n.strip()]
     unknown = [n for n in names if n not in EMBEDDERS]
@@ -237,12 +312,19 @@ def make_embedder(settings, names=None, *, timeout_s=None, retries=3):
         )
     timeout_s = settings.embed_timeout_s if timeout_s is None else timeout_s
 
-    def factory(name):
-        if name == "local":
-            return lambda: LocalEmbedder(settings.local_model)
-        return lambda: HttpEmbedder(
+    def http():
+        return HttpEmbedder(
             settings.embed_url, settings.embed_model, timeout_s=timeout_s, retries=retries
         )
+
+    def factory(name):
+        if name == "auto":
+            return lambda: AutoEmbedder(
+                http(), LocalEmbedder(settings.local_model), lambda: lm_studio_has_model(settings)
+            )
+        if name == "local":
+            return lambda: LocalEmbedder(settings.local_model)
+        return http
 
     if len(names) == 1:
         return factory(names[0])()
