@@ -68,3 +68,38 @@ def test_training_tab_in_the_bar_only_in_dev():
 def test_settings_default_to_the_trening_database():
     settings = Settings.from_env("etpc", environ={}, dotenv_path="/nie-ma")
     assert settings.training_dsn.endswith("/trening")
+
+
+def test_kind_and_remarks_when_adding_and_on_the_document_page(conn):
+    pages = make(embedder=CountingEmbedder())
+    form = pages.handle(get("/trening"), page).body.decode()
+    assert "name=uwagi" in form and "name=rola" in form
+    assert "requestSubmit" not in form  # z uwagami: dodawanie przyciskiem, nie od razu
+    remarks = "skarga do SKO; przy porównaniu i badaniu pominąć pierwszą część"
+    files = [("pliki", "skarga.txt", COMPLAINT.encode())]
+    fields = [("rola", "skarga"), ("uwagi", f"  {remarks}  ")]
+    job = finish(pages, pages.handle(post("/trening/dodaj", fields, files), page))
+    ((doc_id, _, _),) = job.added
+    with pages.store() as store:
+        stored = store.document(doc_id)
+    assert stored.role == "skarga" and stored.remarks == remarks
+    assert remarks in pages.handle(get("/trening"), page).body.decode()  # na liście
+    pages.handle(
+        post(
+            f"/trening/dokument/{doc_id}",
+            [("tytul", "skarga"), ("rola", "skarga"), ("uwagi", "inna")],
+        ),
+        page,
+    )
+    document = pages.handle(get(f"/trening/dokument/{doc_id}"), page).body.decode()
+    assert ">inna</textarea>" in document
+    (line,) = pages.handle(get("/trening/eksport.jsonl"), page).body.decode().splitlines()
+    assert json.loads(line)["uwagi"] == "inna"
+
+
+def test_case_folder_keeps_adding_at_once_without_remarks(conn):
+    from judgments_core.library import Library
+
+    teczka = Library(Settings(library_dsn=TEST_DSN))
+    form = teczka.handle(get("/teczka"), page).body.decode()
+    assert "name=uwagi" not in form and "requestSubmit" in form

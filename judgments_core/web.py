@@ -65,6 +65,19 @@ class Response:
         return [self.body]
 
 
+class StreamResponse(Response):
+    """A body sent in pieces as they come (an iterable of bytes, no Content-Length): e.g.
+    a model's answer. Not HTML, so the pages' rewriting leaves it alone."""
+
+    def __init__(self, pieces, status="200 OK", content_type="text/plain; charset=utf-8"):
+        super().__init__(b"", status, content_type, [("Cache-Control", "no-cache")])
+        self.pieces = pieces
+
+    def __call__(self, start_response):
+        start_response(self.status, [("Content-Type", self.content_type)] + self.headers)
+        return self.pieces
+
+
 def url(path, **params):
     """path?params without empty values."""
     query = urlencode({k: v for k, v in params.items() if v not in ("", None, 0)})
@@ -210,10 +223,14 @@ class Portal:
         def capture(status, headers, exc_info=None):
             answer.update(status=status, headers=headers)
 
-        body = b"".join(app(environ, capture))
+        pieces = app(environ, capture)
         headers = answer["headers"]
         kind = next((v for k, v in headers if k.lower() == "content-type"), "")
-        if kind.startswith("text/html") and b"<body>" in body:
+        if not kind.startswith("text/html"):  # np. strumień odpowiedzi modelu: bez czekania
+            start_response(answer["status"], headers)
+            return pieces
+        body = b"".join(pieces)
+        if b"<body>" in body:
             bar = self.tabs(root, name).encode("utf-8")
             body = body.replace(b"<body>", b"<body>" + bar, 1)
             headers = [(k, v) for k, v in headers if k.lower() != "content-length"]
@@ -527,6 +544,7 @@ def layout(
         ("/sprawa", "Analiza sprawy"),
         ("/badanie", "Badanie"),
         ("/teczka", "Teczka sprawy"),
+        ("/zapytaj", "Zapytaj model"),
         ("/statystyki", "Statystyki"),
     ),
     header=True,
@@ -671,6 +689,7 @@ button.danger{background:none;color:#b42318;border:1px solid #b42318}
 .catalogs li a{display:inline-block;padding:7px 12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;text-decoration:none}
 .library-add{margin:0 0 16px}.library-add details{margin:6px 0}
 table.library{width:100%}table.library th{text-align:left}table.library td:first-child{width:28px}
+.remarks{color:var(--decision-t);font-size:13px}.remarks-field{display:block}.remarks-field textarea{display:block;width:100%;margin-top:4px;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text)}
 .library-actions,.library-new,.library-manage{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0}
 .library-actions select,.library-new input,.library-manage input{width:auto;min-width:220px}
 .library-manage form{display:flex;gap:8px;align-items:center}
@@ -690,6 +709,26 @@ svg.axis-chart{width:100%;height:auto;background:var(--panel);border:1px solid v
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:currentColor;margin-left:8px}
 .dot.r-skarzacy{color:var(--accent)}.dot.r-organ{color:var(--decision-t)}.dot.r-sad{color:var(--judgment-t)}.dot.r-inny{color:var(--muted)}
 .analysis select,.analysis input:not([type]){font:inherit;margin-right:12px}
+/* zapytaj model: rozmowa */
+.conversation{max-width:900px}.model-line select{width:auto;margin:0 6px}
+.messages{display:flex;flex-direction:column;gap:10px;margin:12px 0}
+.msg{white-space:pre-wrap;overflow-wrap:anywhere;padding:10px 14px;border-radius:10px;border:1px solid var(--line);max-width:85%}
+.msg.user{align-self:flex-end;background:var(--accent-soft)}.msg.assistant{align-self:flex-start;background:var(--panel)}
+.msg.pending:empty::after{content:"…";color:var(--muted)}.msg.failed{border-color:var(--key-t)}
+.talk-layout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:24px;align-items:start}
+.talk-list{position:sticky;top:12px}.talk-list h2{margin-top:6px}.talk-list #new{width:100%}
+.talks{list-style:none;padding:0;margin:0}.talks li{padding:6px 8px;border-radius:7px}
+.talks li.on{background:var(--accent-soft)}.talks li a{display:block;overflow-wrap:anywhere}
+.talks .hint{display:block;margin:0}.talk-tools{display:flex;gap:10px;font-size:12px}
+.talk-tools form{display:inline}button.link{background:none;border:0;padding:0;color:var(--key-t);font-weight:400;font-size:12px}
+@media (max-width:900px){.talk-layout{grid-template-columns:1fr}.talk-list{position:static;max-height:none}}
+.check.legal{align-items:flex-start}.check.legal input{margin-top:4px}
+.modes{border:1px solid var(--line);border-radius:8px;padding:4px 12px 2px;margin:8px 0 0}.modes legend{color:var(--muted);font-size:13px}
+.modes label.mode{display:block;margin:2px 0}.modes input{width:auto}.modes .hint{margin:0}
+.composer{position:sticky;bottom:0;background:var(--bg);padding:8px 0 10px;border-top:1px solid var(--line)}
+.composer .actions{margin-top:8px}
+.conversation textarea{width:100%;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text)}
+button[hidden]{display:none}
 /* tabele statystyk: dwa słupki, każda tabela pod poprzednią (bez dziur obok długich) */
 .tables{column-count:2;column-gap:16px}
 .card-table{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:4px 16px 12px;overflow:auto;break-inside:avoid;display:inline-block;width:100%;box-sizing:border-box;margin:0 0 16px}

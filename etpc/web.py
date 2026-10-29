@@ -15,6 +15,7 @@ from etpc.chunker import EtpcChunker
 from etpc.embed import PROGRESS_KEY
 from etpc.formulas import EtpcFormulas
 from etpc.labels import label
+from etpc.pipeline import EtpcRag
 from etpc.rag import EtpcRetriever
 from etpc.semantic import EtpcSemantic
 from etpc.stats import read_stats
@@ -92,6 +93,7 @@ class EtpcWebApp(WebApp):
             self.connect,
             getattr(semantic, "embedder", None),
             EtpcFormulas.load(),
+            rag=EtpcRag,
         )
 
     def route(self, request):

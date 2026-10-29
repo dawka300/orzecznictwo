@@ -67,10 +67,12 @@ services:
       ETPC_DB_DSN: mysql://szkielet:szkielet@db:3306/etpc
       ETPC_QDRANT_URL: http://qdrant:6333
       ETPC_EMBED_URL: http://host.docker.internal:1234/v1/embeddings
+      ETPC_CHAT_URL: http://host.docker.internal:1234/v1/chat/completions
       ETPC_LOG_DIR: logs/www
       NSA_DB_DSN: mysql://szkielet:szkielet@db:3306/nsa
       NSA_QDRANT_URL: http://qdrant:6333
       NSA_EMBED_URL: http://host.docker.internal:1234/v1/embeddings
+      NSA_CHAT_URL: http://host.docker.internal:1234/v1/chat/completions
       NSA_LOG_DIR: logs/www
       # dev / prod (z .env; wybiera też plik docker-compose.<APP_ENV>.yml przez COMPOSE_FILE)
       APP_ENV: ${APP_ENV:-prod}

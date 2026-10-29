@@ -632,9 +632,13 @@ class StoredDocument(NamedTuple):
     chars: int
     size: int
     created_at: datetime
+    remarks: str = ""  # uwagi użytkownika (note = adnotacja z odczytu pliku)
 
 
-DOCUMENT_COLUMNS = "id, catalog_id, title, filename, role, doc_date, note, chars, size, created_at"
+DOCUMENT_COLUMNS = (
+    "id, catalog_id, title, filename, role, doc_date, note, chars, size, created_at,"
+    " COALESCE(remarks, '')"
+)
 
 
 class LibraryStore:
@@ -714,18 +718,20 @@ class LibraryStore:
             row = cur.fetchone()
         return row[0] if row else None
 
-    def add_document(self, catalog_id, title, filename, role, note, sha256, text, data):
+    def add_document(self, catalog_id, title, filename, role, note, sha256, text, data, remarks=""):
         """A new document with its text and (when there is one) the original file."""
         with self.conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO documents (catalog_id, title, filename, role, note, sha256,"
-                " chars, size, text, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                "INSERT INTO documents (catalog_id, title, filename, role, note, remarks, sha256,"
+                " chars, size, text, created_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (
                     catalog_id,
                     title,
                     filename,
                     role,
                     note,
+                    remarks,
                     sha256,
                     len(text),
                     len(data),
@@ -764,6 +770,11 @@ class LibraryStore:
                 " WHERE id = %s",
                 (title, role, doc_date, catalog_id, document_id),
             )
+        self.conn.commit()
+
+    def set_remarks(self, document_id, remarks):
+        with self.conn.cursor() as cur:
+            cur.execute("UPDATE documents SET remarks = %s WHERE id = %s", (remarks, document_id))
         self.conn.commit()
 
     def move_documents(self, document_ids, catalog_id):

@@ -38,6 +38,11 @@ class TrainingLibrary(Library):
     roles = KINDS
     role_label = "rodzaj"
     analyse_button = False
+    remarks = True
+    remarks_hint = (
+        "np. skarga do SKO; przy porównaniu i badaniu pominąć pierwszą część (nagłówek,"
+        " petitum) - uwagi dotyczą wszystkich dodawanych teraz plików"
+    )
 
     def dsn(self):
         return self.settings.training_dsn
@@ -70,7 +75,8 @@ class TrainingLibrary(Library):
                         "rodzaj_opis": kinds.get(d.role, d.role),
                         "data": d.doc_date.isoformat() if d.doc_date else None,
                         "plik": d.filename,
-                        "uwaga": d.note,
+                        "uwaga": d.note,  # adnotacja z odczytu pliku (OCR ...)
+                        "uwagi": d.remarks,  # uwagi użytkownika
                         "tekst": store.text(d.id),
                     },
                     ensure_ascii=False,
@@ -89,7 +95,8 @@ class TrainingLibrary(Library):
 odpowiedź SKO, wyrok ...), żeby porównanie wiedziało, co odsiać. Osobna baza MariaDB
 <code>trening</code>, tylko na komputerze dewelopera (<code>APP_ENV=dev</code>). Przy imporcie
 plik jest czytany raz (także OCR skanu), a tekst i wektory fragmentów zapisują się w bazie;
-rodzaj ustawisz na stronie dokumentu. <a href="{self.base}{EXPORT}">Eksport JSONL (wszystko)</a>.</p>"""
+rodzaj i uwagi (np. czego nie brać pod uwagę przy porównaniu i badaniu) wpiszesz przy dodawaniu albo potem
+na stronie dokumentu; uwagi idą do eksportu. <a href="{self.base}{EXPORT}">Eksport JSONL (wszystko)</a>.</p>"""
 
     def catalog_page(self, catalog_id, note=""):
         page = super().catalog_page(catalog_id, note)

@@ -369,7 +369,8 @@ class CitingRetriever(FakeRetriever):
     cited_min = 2
 
     def bodies(self, cur, wanted):
-        return {i: (f"001-{i}", "ENG", BODY_A) for i in wanted}
+        # każde orzeczenie z własnym tekstem (ten sam fragment w kilku = powtórzenie)
+        return {i: (f"001-{i}", "ENG", BODY_A.replace("ruling A", f"ruling {i}")) for i in wanted}
 
     def cited_by(self, cur, ids):
         return [(7, 2), (8, 1)]
@@ -424,3 +425,32 @@ def test_cases_cited_everywhere_are_weakened():
     retriever.cited_idf, retriever.cited_min_lift = False, 10.0
     # lift: 10 -> 0,3 / 0,05 = 6 (odpada), 11 -> 0,2 / 0,005 = 40, 12 -> 0,15 / 0,00025 = 600
     assert retriever.cited_by(_LinksCursor(), ids) == [(11, 4), (12, 3)]
+
+
+def test_passage_copied_into_another_judgment_goes_once():
+    reasoning = "The Court reiterates that the reasonableness of the length of proceedings " * 5
+    twin = f"Facts of the second case.\n{reasoning}\nOther things."
+
+    class Twins(FakeRetriever):
+        def ranking(self, cur, query):
+            hits = [Hit(1, "A v. Poland"), Hit(2, "B v. Poland"), Hit(3, "C v. Poland")]
+            return Ranking(hits, None)
+
+        def bodies(self, cur, wanted):
+            return {
+                1: ("001-1", "ENG", f"{reasoning}\nEnd of A."),
+                2: ("001-2", "ENG", twin),
+                3: ("001-3", "ENG", BODY_A),
+            }
+
+    at = twin.index("The Court")
+    semantic = FakeSemantic(
+        {
+            1: [passage(1, 0, len(reasoning))],
+            2: [passage(2, at, len(reasoning))],
+            3: [passage(3, 0, 120)],
+        }
+    )
+    result = Twins(semantic).retrieve(None, Query("length"), budget_chars=5_000)
+    assert [s.judgment_id for s in result.sources] == [1, 3]  # B = ten sam fragment co A
+    assert [s.number for s in result.sources] == [1, 2] and result.ranked == [1, 2, 3]

@@ -34,6 +34,7 @@ from nsa import search
 from nsa.chunker import NsaChunker
 from nsa.embed import PROGRESS_KEY
 from nsa.formulas import NsaFormulas
+from nsa.pipeline import NsaRag
 from nsa.rag import NsaRetriever
 from nsa.semantic import NsaSemantic
 from nsa.stats import NSA_COURT, read_stats, symbol_names
@@ -91,6 +92,7 @@ class NsaWebApp(WebApp):
             self.connect,
             getattr(semantic, "embedder", None),
             NsaFormulas.load(),
+            rag=NsaRag,
         )
 
     def route(self, request):

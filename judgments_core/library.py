@@ -114,6 +114,8 @@ class ImportJob:
     done: int = 0
     added: list = field(default_factory=list)  # (id, tytuł, uwaga)
     skipped: list = field(default_factory=list)  # (nazwa, powód)
+    role: str = "inny"  # rola / rodzaj wszystkich plików tego importu
+    remarks: str = ""  # uwagi do wszystkich plików tego importu
 
 
 class Library:
@@ -129,6 +131,9 @@ class Library:
     role_label = "kto pisze"
     vectors = True  # wektory fragmentów przy imporcie i przycisk „Policz wektory”
     analyse_button = True  # „Analizuj zaznaczone” (Analiza sprawy)
+    # pole „Uwagi” (przy dodawaniu, na stronie dokumentu, na liście); dodawanie wtedy
+    # przyciskiem, nie od razu po wybraniu plików (żeby zdążyć wpisać uwagi i rodzaj)
+    remarks = False
 
     def __init__(self, settings, case_folder=None, chunker=None, semantic_embedder=None):
         self.settings = settings
@@ -216,8 +221,10 @@ class Library:
 
     # --- import w tle ---
 
-    def start_import(self, catalog_id, files):
-        job = ImportJob(uuid.uuid4().hex[:12], catalog_id, files, total=len(files))
+    def start_import(self, catalog_id, files, role="inny", remarks=""):
+        job = ImportJob(
+            uuid.uuid4().hex[:12], catalog_id, files, total=len(files), role=role, remarks=remarks
+        )
         with self.lock:
             self.jobs[job.id] = job
             while len(self.jobs) > MAX_JOBS:
@@ -259,7 +266,9 @@ class Library:
             return
         title = title_of(name)
         with self.store() as store:
-            new_id = store.add_document(job.catalog_id, title, name, "inny", note, sha, text, data)
+            new_id = store.add_document(
+                job.catalog_id, title, name, job.role, note, sha, text, data, job.remarks
+            )
         job.added.append((new_id, title, note))
         if not self.vectors:
             return
@@ -402,7 +411,11 @@ class Library:
             files.append((title + ".txt", pasted.encode("utf-8")))
         if not files:
             return self._back(catalog_id)
-        job = self.start_import(catalog_id, files)
+        role, remarks = "inny", ""
+        if self.remarks:
+            role = fields.get("rola") if fields.get("rola") in dict(self.roles) else "inny"
+            remarks = _remarks(fields.get("uwagi"))
+        job = self.start_import(catalog_id, files, role, remarks)
         return Response("", "303 See Other", headers=[("Location", f"{self.base}/import/{job.id}")])
 
     def import_page(self, job_id, layout):
@@ -524,6 +537,8 @@ class Library:
                     _date(fields.get("data")),
                     _int(fields.get("katalog")),
                 )
+                if self.remarks:
+                    store.set_remarks(document_id, _remarks(fields.get("uwagi")))
                 return Response(
                     "",
                     "303 See Other",
@@ -560,7 +575,8 @@ class Library:
         rows = "".join(
             f"<tr><td><input type=checkbox name=d value={d.id} form=zaznaczone></td>"
             f'<td><a href="{self.base}/dokument/{d.id}">{e(d.title)}</a>'
-            f"{f'<br><span class=hint>{e(d.note)}</span>' if d.note else ''}</td>"
+            f"{f'<br><span class=hint>{e(d.note)}</span>' if d.note else ''}"
+            f"{f'<br><span class=remarks>{e(shorten(d.remarks, 160))}</span>' if d.remarks else ''}</td>"
             f"<td>{e(role_names.get(d.role, d.role))}</td><td>{e(d.doc_date or '')}</td>"
             f"<td class=num>{number(d.chars)}</td></tr>"
             for d in documents
@@ -608,7 +624,8 @@ class Library:
 <form class="analysis library-add" method=post action="{self.base}/dodaj" enctype="multipart/form-data">
 <input type=hidden name=k value="{k}">
 <fieldset><legend>Dodaj do: {e(here)}</legend>
-{file_field("pliki", FILE_TYPES, multiple=True, auto=True)}
+{file_field("pliki", FILE_TYPES, multiple=True, auto=not self.remarks)}
+{self.remarks_fields() if self.remarks else ""}
 <details><summary>albo wklej tekst</summary>
 <p><label>Tytuł <input name=tytul placeholder="np. notatka ze spotkania"></label></p>
 <p><textarea name=tekst rows=6></textarea></p></details>
@@ -617,6 +634,17 @@ class Library:
 <form class=library-new method=post action="{self.base}/katalog"><input type=hidden name=k value="{k}">
 <input name=nazwa placeholder="nazwa nowego katalogu"> <button class=secondary>Utwórz katalog</button></form>
 {manage}"""
+
+    remarks_hint = "uwagi o dokumencie"
+
+    def remarks_fields(self, role="inny", remarks=""):
+        """The role select and the remarks box (adding: for all files at once)."""
+        roles = "".join(
+            f"<option value={key}{' selected' if key == role else ''}>{e(name)}</option>"
+            for key, name in self.roles
+        )
+        return f"""<p><label>{e(self.role_label.capitalize())} <select name=rola>{roles}</select></label></p>
+<p><label class=remarks-field>Uwagi <textarea name=uwagi rows=3 placeholder="{e(self.remarks_hint)}">{e(remarks)}</textarea></label></p>"""
 
     def intro(self):
         """The paragraph under the title of the catalog page."""
@@ -651,6 +679,12 @@ przeanalizujesz razem przyciskiem „Analizuj zaznaczone” (w kolejności dat).
             else ""
         )
         refresh = "<meta http-equiv=refresh content=3>" if stored.id in self.computing else ""
+        remarks = (
+            f'<p><label class=remarks-field>Uwagi <textarea name=uwagi rows=3 placeholder="'
+            f'{e(self.remarks_hint)}">{e(stored.remarks)}</textarea></label></p>\n'
+            if self.remarks
+            else ""
+        )
         vector_button = vector_note = ""
         if self.vectors:
             vector_button = (
@@ -668,7 +702,7 @@ przeanalizujesz razem przyciskiem „Analizuj zaznaczone” (w kolejności dat).
 <p><label>{e(self.role_label.capitalize())} <select name=rola>{roles}</select></label>
 <label>Data dokumentu <input type=date name=data value="{e(stored.doc_date or "")}"></label>
 <label>Katalog <select name=katalog><option value="">{e(self.short.lower())} (bez katalogu)</option>{targets}</select></label></p>
-<p><button type=submit>Zapisz</button>
+{remarks}<p><button type=submit>Zapisz</button>
 {vector_button}<button name=akcja value=usun class=danger onclick="return confirm('Usunąć dokument?')">Usuń dokument</button></p>
 </fieldset></form>
 <p class=hint>Plik: {e(stored.filename or "tekst wklejony")}{f" · {e(stored.note)}" if stored.note else ""}
@@ -686,6 +720,14 @@ def label(stored):
     when = f" ({stored.doc_date})" if stored.doc_date else ""
     note = f" [{stored.note}]" if stored.note else ""
     return f"{stored.title}{when}{note}"
+
+
+MAX_REMARKS = 5000
+
+
+def _remarks(value):
+    """The remarks from a form, trimmed to MAX_REMARKS characters."""
+    return (value or "").strip()[:MAX_REMARKS]
 
 
 def title_of(filename):

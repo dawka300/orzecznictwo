@@ -264,6 +264,7 @@ class Retriever(ABC):
                 ranked = order + [i for i in ranked if i not in found]
             except RerankError as e:
                 notice = notice or f"Reranker niedostępny: {e}"
+        order = drop_repeated(order, found, candidates)
         chosen = pack([(i, [c.end - c.start for c in candidates[i]]) for i in order], budget)
         sources = []
         for judgment_id, picks in chosen:
@@ -427,6 +428,33 @@ class Retriever(ABC):
         start = max(at - TEXT_WINDOW // 3, 0)
         start, end = widen(body, start, start + TEXT_WINDOW, 0)
         return [_Candidate(start, end, heading="", core=(start, end))]
+
+
+REPEATED_MIN_CHARS = 200  # krótszych fragmentów nie porównujemy (np. sam nagłówek)
+
+
+def drop_repeated(order, found, candidates):
+    """The judgments in order without passages already in a better judgment (the same
+    reasoning copied into several rulings of one court): such passages are dropped, a
+    judgment left with none leaves the context, so the limit goes to the next ones.
+    candidates are changed in place; found = {id: (hit, document, language, body)}."""
+    seen, kept = set(), []
+    for i in order:
+        body = found[i][3]
+        keys = [_passage_key(body, c) for c in candidates[i]]
+        fresh = [c for c, key in zip(candidates[i], keys) if key is None or key not in seen]
+        seen.update(key for key in keys if key is not None)
+        candidates[i] = fresh
+        if fresh:
+            kept.append(i)
+    return kept
+
+
+def _passage_key(body, candidate):
+    """The passage's own text (not the widened one) without case and spacing; None = too
+    short to tell."""
+    text = " ".join(body[candidate.core[0] : candidate.core[1]].split()).lower()
+    return text if len(text) >= REPEATED_MIN_CHARS else None
 
 
 def widen(body, start, end, by):
