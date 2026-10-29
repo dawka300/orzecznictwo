@@ -40,6 +40,7 @@ from judgments_core.comparison import (
     PARTLY,
     REASONING_MARKERS,
     STATUSES,
+    dropped_html,
     status_of,
     units,
 )
@@ -75,6 +76,7 @@ class Document:
     label: str
     text: str
     stored_id: int = 0  # numer w teczce (library.py): wektory z bazy; 0 = plik albo tekst
+    dropped: list = field(default_factory=list)  # pominięte formułki [boilerplate.Dropped]
     units: list = field(default_factory=list)
     own: list = field(default_factory=list)  # numery akapitów do odpowiedzi (sąd: rozważania)
     vectors: list = field(default_factory=list)
@@ -128,14 +130,16 @@ class Folder:
     sections: tuple = tuple(SECTIONS)
 
 
-def court_units(text):
+def court_units(text, clean=None):
     """(paragraphs, indexes of the court's own reasoning): from "zważył, co następuje" /
-    "THE LAW"; without the marker the whole text counts as reasoning."""
+    "THE LAW"; without the marker the whole text counts as reasoning. clean(text) -> text
+    (e.g. without formulas) runs after the marker is found: the marker is a formula too."""
+    clean = clean or (lambda part: part)
     match = REASONING_MARKERS.search(text)
     if not match:
-        parts = units(text)
+        parts = units(clean(text))
         return parts, list(range(len(parts)))
-    before, own = units(text[: match.start()]), units(text[match.end() :])
+    before, own = units(clean(text[: match.start()])), units(clean(text[match.end() :]))
     return before + own, list(range(len(before), len(before) + len(own)))
 
 
@@ -162,6 +166,9 @@ class CaseFolder:
     noun = "analiza sprawy"
     button = "Analizuj sprawę"
     library = None  # library.Library: dokumenty z teczki (ustawia strona projektu)
+    # boilerplate.Formulas projektu (ustawia strona projektu): pomijane w analizie prawnej,
+    # nie w Badaniu (formułki też coś mówią o stylu tekstu); None = bez filtra
+    formulas = None
     # Analiza sprawy jest prawna: tylko "kto komu odpowiedział". Miary psychologiczne (emocje,
     # zniekształcenia, osie, styl, znaczniki, zmiany na osiach) liczy tylko Badanie (research.py).
     psychology = False
@@ -208,10 +215,11 @@ zapisywane."""
             embedder, how = choose_embedder(self.settings, self.semantic_embedder)
             job.embedder = how
             for doc in job.documents:
+                clean = self.cleaner(doc, embedder)
                 if doc.role == "sad":
-                    doc.units, doc.own = court_units(doc.text)
+                    doc.units, doc.own = court_units(doc.text, clean)
                 else:
-                    doc.units = units(doc.text)
+                    doc.units = units(clean(doc.text))
                     doc.own = list(range(len(doc.units)))
                 if not doc.units:
                     raise DocumentError(f"za mało tekstu: {doc.title}")
@@ -245,6 +253,20 @@ zapisywane."""
         finally:
             job.seconds = time.monotonic() - started
             job.step = ""
+
+    def cleaner(self, doc, embedder=None):
+        """text -> text without formulas (a court's or a party's, by the role), remembered
+        in doc.dropped (the legal analysis); the text as it is in the research."""
+        if self.psychology or not self.formulas:
+            return lambda text: text
+        kind = "court" if doc.role == "sad" else "brief"
+
+        def clean(text):
+            text, dropped = self.formulas.strip(text, kind, embedder)
+            doc.dropped += dropped
+            return text
+
+        return clean
 
     def _psychology(self, job, embedder, how, vectors):
         """The research measures: semantic axes, emotions and cognitive distortions."""
@@ -390,6 +412,16 @@ zapisywane."""
             "znaczniki": lambda: _markers_html(job),
         }
         html += [renderers[key]() for key in SECTIONS if key in job.sections]
+        if not self.psychology and self.formulas:
+            dropped = "".join(
+                dropped_html(d.title, d.dropped, self.formulas.sample, pdf) for d in job.documents
+            )
+            html.append(
+                "<h2>Pominięte formułki</h2><p class=hint>Sąd: zdania powtarzane w wielu"
+                " orzeczeniach bazy, typowe formuły i zdania do nich podobne; strony i organ:"
+                " nagłówki, wnioski, podpis, załączniki, pouczenie. Nie liczą się ani jako"
+                " argument, ani jako odpowiedź.</p>" + (dropped or "<p class=empty>Brak.</p>")
+            )
         return "\n".join(html)
 
     def pdf_bytes(self, job, layout, base_url):

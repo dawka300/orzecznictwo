@@ -4,6 +4,7 @@ from pathlib import Path
 from judgments_core.cli import Project, main
 from nsa.deriver import NsaDeriver
 from nsa.embed import NsaEmbedJob
+from nsa.formulas import NsaFormulas
 from nsa.importer import NsaImporter
 from nsa.mcp import NsaMcp
 from nsa.pipeline import NsaRag
@@ -26,6 +27,7 @@ PROJECT = Project(
     mcp=NsaMcp,
     retriever=NsaRetriever,
     rag=NsaRag,
+    formulas=NsaFormulas,
     migrations=Path(__file__).parent / "migrations",
 )
 

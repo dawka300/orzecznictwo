@@ -39,7 +39,7 @@ from pathlib import Path
 
 import pymysql
 
-from judgments_core import db
+from judgments_core import boilerplate, db
 from judgments_core.backup import dump_database
 from judgments_core.embeddings import make_embedder
 from judgments_core.http import PoliteClient
@@ -48,7 +48,7 @@ from judgments_core.qdrant import QdrantStore, collection_name
 from judgments_core.rag import render
 from judgments_core.settings import DOTENV_PATH, Settings
 from judgments_core.transport import make_transport
-from judgments_core.web import serve
+from judgments_core.web import serve, shorten
 
 log = logging.getLogger(__name__)
 
@@ -82,6 +82,8 @@ class Project:
     rag: type | None = None
     # klasa potomna judgments_core.topics.TopicModel: polecenie tematy; None = brak
     topics: type | None = None
+    # klasa potomna judgments_core.boilerplate.FormulaCorpus: polecenie formulki; None = brak
+    formulas: type | None = None
 
 
 def build_parser(project):
@@ -369,6 +371,27 @@ def build_parser(project):
     topics.add_argument(
         "--lista", dest="listing", action="store_true", help="wypisz zapisane tematy"
     )
+    formulas = commands.add_parser(
+        "formulki",
+        help="zdania powtarzane w wielu orzeczeniach (pomijane w porównaniu dokumentów)",
+    )
+    formulas.add_argument(
+        "--probka",
+        dest="sample",
+        type=int,
+        default=boilerplate.SAMPLE,
+        help=f"ile losowych orzeczeń przeczytać (domyślnie {boilerplate.SAMPLE})",
+    )
+    formulas.add_argument(
+        "--min",
+        dest="min_docs",
+        type=int,
+        default=boilerplate.MIN_DOCS,
+        help=f"formułka = zdanie w co najmniej tylu orzeczeniach próbki (domyślnie {boilerplate.MIN_DOCS})",
+    )
+    formulas.add_argument(
+        "--ziarno", dest="seed", type=int, default=1, help="losowanie próbki (domyślnie 1)"
+    )
     return parser
 
 
@@ -432,6 +455,8 @@ def main(project, argv=None, settings=None):
             return _backup(project, settings, required=True)
         if args.command == "tematy":
             return _topics(project, settings, args)
+        if args.command == "formulki":
+            return _formulas(project, settings, args)
         return _status(project, settings, args)
     except db.LockedError as e:
         log.info("%s Kończę.", e)  # zwykła sytuacja przy cronie, nie błąd
@@ -871,6 +896,19 @@ def _check_answers(project, settings, args):
     )
     answer_eval.save(checks, out, model, note)
     log.info("Odpowiedzi zapisane: %s", out)
+    return 0
+
+
+def _formulas(project, settings, args):
+    if project.formulas is None:
+        raise NotImplementedError(f"projekt {project.name} nie ma jeszcze listy formułek")
+    with db.connect(settings.db_dsn) as conn:
+        corpus = project.formulas(conn)
+        log.info("Formułki: próbka %d orzeczeń, próg %d", args.sample, args.min_docs)
+        found, done = corpus.build(args.sample, args.min_docs, args.seed)
+    log.info("Formułki: %d zdań z %d orzeczeń -> %s", len(found), done, corpus.file)
+    for count, sentence in found[:20]:
+        print(f"{count:>6}  {shorten(sentence, 140)}")
     return 0
 
 

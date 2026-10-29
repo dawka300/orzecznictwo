@@ -59,6 +59,9 @@ docker compose run --rm --no-deps www python -m etpc tematy --tylko-nazwy       
 docker compose run --rm --no-deps www python -m etpc tematy --tylko-nazwy --claude claude-sonnet-5-5 --max-usd 3   # nazwy od Claude (API, ~$2)
 docker compose run --rm --no-deps www python -m etpc tematy --lista              # przejrzeć tematy: nazwa, słowa, artykuły, przykładowe sprawy
 
+# formułki: zdania powtarzane w wielu orzeczeniach (pomijane w Porównaniu i Analizie sprawy)
+docker compose run --rm --no-deps www python -m nsa formulki                     # próbka 50 000, próg 50 -> nsa/formulki.txt (~6 min)
+
 # szukanie / RAG
 docker compose run --rm --no-deps www python -m etpc fragmenty "odpowiedzialność portalu za komentarze"
 docker compose run --rm --no-deps www python -m nsa zapytaj "czy wiata to budowla?" --limit-znakow 8000
@@ -249,6 +252,16 @@ Na razie tylko ETPC. Liczy lokalnie na CPU (minuty do kilkudziesięciu minut). W
 |---|---|
 | http://127.0.0.1:8080 | portal (usługa `www`, działa sama): `/etpc/`, `/nsa/`, statystyki `/etpc/statystyki`, `/nsa/statystyki` |
 | `www --host 0.0.0.0 --port 8081` | jeden projekt sam; z kontenera trzeba wystawić port: `docker compose run --rm --no-deps -p 127.0.0.1:8081:8081 www python -m etpc www --host 0.0.0.0 --port 8081` (8080 zajmuje `www`) |
+
+## Formułki (`formulki`: zdania pomijane w Porównaniu dokumentów i Analizie sprawy)
+Formułka nie jest ani argumentem, ani odpowiedzią na argument. Porównanie dokumentów i Analiza sprawy (`/sprawa`, nie Badanie) pomijają je i wypisują w raporcie z powodem („pominięte jako formułka”); w formularzu Porównania pole „pomiń formułki” (domyślnie zaznaczone). Trzy sposoby: (1) **lista** - zdanie powtarzane dosłownie w wielu orzeczeniach bazy (`nsa/formulki.txt`, niżej); (2) **wzorce** całych zdań/wierszy w `nsa/formulas.py`: osobno dla sądu (`COURT_PATTERNS`: ocena środka, „zważył”, art. 1 p.u.s.a./3, 134, 174, 183 p.p.s.a., koszty, zakończenie) i dla pisma strony / decyzji organu (`BRIEF_PATTERNS`: nagłówki, wstęp, petitum, podpis, załączniki, pouczenie) - wzorzec musi objąć całe zdanie, więc „Skarga nie zasługuje na uwzględnienie, bo …” zostaje; (3) **podobne** (tylko tekst sądu): zdanie z wektorem bge-m3 bliskim zdaniu listy (cosinus >= 0,88, `boilerplate.NEAR`); wektory listy liczone w tle przy starcie portalu (~1 min CPU). Porównanie po normalizacji: małe litery, bez nawiasów (publikator, sygnatury), liczby jako 0, jednakowe cudzysłowy i myślniki. Lista: `nsa/formulki.txt` (w repo, `<w ilu orzeczeniach próbki>	<zdanie>`); usunięty wiersz = zdanie przestaje być pomijane. Po zmianie listy: `docker compose restart www`. Tylko NSA (ETPC bez listy = bez filtra).
+
+| Polecenie | Co robi |
+|---|---|
+| `formulki` | losowa próbka uzasadnień (po kluczu, bez skanowania tabeli), zapis listy; na koniec 20 najczęstszych |
+| `--probka N` | ile orzeczeń przeczytać (domyślnie 50 000) |
+| `--min N` | formułka = zdanie w co najmniej N orzeczeniach próbki (domyślnie 50 = 0,1%; niżej wchodzą zdania merytoryczne serii spraw) |
+| `--ziarno N` | inne losowanie próbki (domyślnie 1) |
 
 ## Teczka sprawy (`/etpc/teczka`, `/nsa/teczka`: ta sama baza)
 Dokumenty użytkownika zapisane raz: tekst odczytany przy imporcie (Word, PDF, skan i zdjęcie przez OCR, tekst), oryginał pliku i **wektory fragmentów** (akapity, rozważania sądu, fragmenty jak w bazie projektu; tabela `document_vectors`, klucz = skrót tekstu fragmentu), w zagnieżdżonych katalogach. Analizy dokumentów z teczki biorą gotowe wektory (brakujące liczą i dopisują); dokumenty wrzucone wprost do analizy liczą się na bieżąco i nic nie zostawiają. Na stronie dokumentu „Policz wektory” = brakujące (np. dla dokumentów sprzed 2026-10-29). W Analizie dokumentu, Porównaniu, Analizie sprawy (`/sprawa`, kilka dokumentów bez zapisu) i Badaniu wybierasz je z listy „albo z teczki” - bez ponownego OCR. „Analizuj zaznaczone” = Analiza sprawy zaznaczonych dokumentów w kolejności dat (rola i data ustawiane na stronie dokumentu). Baza MariaDB `teczki` (`<PREFIKS>_LIBRARY_DSN`, puste = `teczki` na serwerze z `DB_DSN`), tylko lokalnie, poza gitem i poza `narzedzia/kopia-na-dysk.sh`.

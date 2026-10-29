@@ -1,0 +1,390 @@
+# Formułki: zdania powtarzane dosłownie (po normalizacji: małe litery, liczby jako 0)
+# w wielu orzeczeniach - uzasadnienia orzeczeń NSA i WSA (CBOSA), losowa próbka; próbka: 50000 orzeczeń.
+# Format: <w ilu orzeczeniach próbki>\t<zdanie>. Usunięty wiersz = zdanie nie jest
+# już pomijane w Porównaniu dokumentów i Analizie sprawy. Od nowa: python -m <projekt> formulki
+10037	Wojewódzki Sąd Administracyjny zważył, co następuje:
+8548	Naczelny Sąd Administracyjny zważył, co następuje:
+6541	Wojewódzki Sąd Administracyjny w Warszawie zważył, co następuje:
+1403	Wojewódzki Sąd Administracyjny zważył co następuje;
+1288	Skarga nie zasługuje na uwzględnienie.
+1165	Wojewódzki Sąd Administracyjny w Krakowie zważył, co następuje.
+1043	Wojewódzki Sąd Administracyjny w Gdańsku zważył, co następuje:
+1010	Wojewódzki Sąd Administracyjny we Wrocławiu zważył, co następuje
+1006	Wojewódzki Sąd Administracyjny w Gliwicach zważył, co następuje:
+912	Wojewódzki Sąd Administracyjny w Poznaniu zważył, co następuje.
+911	skarga zasługuje na uwzględnienie.
+819	W odpowiedzi na skargę organ wniósł o jej oddalenie.
+788	Skarga nie jest zasadna.
+760	Zażalenie nie zasługuje na uwzględnienie.
+756	Skarga kasacyjna nie zasługuje na uwzględnienie.
+744	Skarga jest zasadna.
+734	Naczelny Sąd Administracyjny zważył co następuje:
+701	Wojewódzki Sąd Administracyjny w Lublinie zważył, co następuje:
+606	Cofnięcie skargi wiąże sąd.
+605	Wojewódzki Sąd Administracyjny w Warszawie zważył co następuje:
+579	Wojewódzki Sąd Administracyjny w Łodzi zważył, co następuje:
+559	Wojewódzki Sąd Administracyjny w Olsztynie zważył, co następuje:
+538	Jednakże sąd uzna cofnięcie skargi za niedopuszczalne, jeżeli zmierza ono do obejścia prawa lub spowodowałoby utrzymanie w mocy aktu lub czynności dotkniętych wadą nieważności.
+516	7) akty nadzoru nad działalnością organów jednostek samorządu terytorialnego;
+500	6) akty organów jednostek samorządu terytorialnego i ich związków, inne niż określone w pkt 5, podejmowane w sprawach z zakresu administracji publicznej;
+493	Wojewódzki Sąd Administracyjny w Rzeszowie zważył, co następuje:
+491	Skarga podlega odrzuceniu.
+486	Wojewódzki Sąd Administracyjny w Białymstoku zważył, co następuje.
+482	2) postanowienia wydane w postępowaniu administracyjnym, na które służy zażalenie albo kończące postępowanie, a także na postanowienia rozstrzygające sprawę co do istoty;
+477	5) akty prawa miejscowego organów jednostek samorządu terytorialnego i terenowych organów administracji rządowej;
+451	2) naruszeniu przepisów postępowania, jeżeli uchybienie to mogło mieć istotny wpływ na wynik sprawy.
+403	1) naruszeniu prawa materialnego przez błędną jego wykładnię lub niewłaściwe zastosowanie;
+402	Kontrola ta sprawowana jest pod względem zgodności z prawem, jeżeli ustawy nie stanowią inaczej ( art.1 § 2 tej ustawy).
+389	Wojewódzki Sąd Administracyjny w Szczecinie zważył, co następuje.
+363	Skarga jest niezasadna.
+330	Skargę należało odrzucić.
+311	Prawo pomocy w zakresie całkowitym obejmuje zwolnienie od kosztów sądowych oraz ustanowienie adwokata, radcy prawnego, doradcy podatkowego lub rzecznika patentowego ( § 2).
+291	Prawo o postępowaniu przed sądami administracyjnymi.
+289	Skarga okazała się zasadna.
+286	Wojewódzki Sąd Administracyjny w Kielcach zważył, co następuje:
+281	Skarga jest uzasadniona.
+259	Skarga nie zasługiwała na uwzględnienie.
+259	Wniosek nie zasługuje na uwzględnienie.
+256	8) bezczynność lub przewlekłe prowadzenie postępowania w przypadkach określonych w pkt 1-4 lub przewlekłe prowadzenie postępowania w przypadku określonym w pkt 4a;
+255	Skarga kasacyjna nie ma usprawiedliwionych podstaw.
+252	Skarga zasługiwała na uwzględnienie.
+250	Wojewódzki Sąd Administracyjny w Warszawie, zważył co następuje:
+249	3) postanowienia wydane w postępowaniu egzekucyjnym i zabezpieczającym, na które służy zażalenie;
+243	Skarga kasacyjna nie zawiera usprawiedliwionych podstaw.
+238	4) inne niż określone w pkt 1-3 akty lub czynności z zakresu administracji publicznej dotyczące uprawnień lub obowiązków wynikających z przepisów prawa;
+229	W razie bezskutecznego upływu tego terminu przewodniczący wydaje zarządzenie o pozostawieniu pisma bez rozpoznania.
+219	Na posiedzeniu niejawnym w tych sprawach sąd orzeka w składzie trzech sędziów.
+218	Wojewódzki Sąd Administracyjny w Bydgoszczy zważył, co następuje:
+217	Wojewódzki Sąd Administracyjny w Krakowie zważył co następuje:
+213	Wojewódzki Sąd Administracyjny w Szczecinie z w a ż y ł, co następuje:
+212	Odrzucenie skargi może nastąpić na posiedzeniu niejawnym.
+211	W tym przypadku, z zastrzeżeniem § 2 i 3, przewodniczący wzywa wnoszącego pismo, aby pod rygorem pozostawienia pisma bez rozpoznania uiścił opłatę w terminie siedmiu dni od dnia doręczenia wezwania.
+210	4a) pisemne interpretacje przepisów prawa podatkowego wydawane w indywidualnych sprawach;
+207	Referendarz Sądowy zważył, co następuje:
+204	4a) pisemne interpretacje przepisów prawa podatkowego wydawane w indywidualnych sprawach, opinie zabezpieczające i odmowy wydania opinii zabezpieczających;
+200	Skarga kasacyjna zasługuje na uwzględnienie.
+197	Dotyczy to także aktów wydanych lub podjętych we wszystkich postępowaniach prowadzonych w granicach tej samej sprawy.
+196	Prawo pomocy w zakresie częściowym obejmuje zwolnienie tylko od opłat sądowych w całości lub w części albo tylko od wydatków albo od opłat sądowych i wydatków lub obejmuje tylko ustanowienie adwokata, radcy prawnego, doradcy podatkowego lub rzecznika patentowego.
+190	2) zobowiązuje organ do stwierdzenia albo uznania uprawnienia lub obowiązku wynikających z przepisów prawa;
+186	9) bezczynność lub przewlekłe prowadzenie postępowania w sprawach dotyczących innych niż określone w pkt 1-3 aktów lub czynności z zakresu administracji publicznej dotyczących uprawnień lub obowiązków wynikających z przepisów prawa podjętych w ramach postępowania administracyjnego określonego w ustawie z dnia 14 czerwca 1960 r. - Kodeks postępowania administracyjnego oraz postępowań określonych w działach IV, V i VI ustawy z dnia 29 sierpnia 1997 r. - Ordynacja podatkowa oraz postępowań, do których mają zastosowanie przepisy powołanych ustaw.
+186	Skarga kasacyjna nie zasługiwała na uwzględnienie.
+180	Skarga okazała się niezasadna.
+177	Wspomniane przekroczenie musi być znaczne i niezaprzeczalne.
+176	Sąd zważył, co następuje.
+172	3) postanowienia wydane w postępowaniu egzekucyjnym i zabezpieczającym, na które służy zażalenie, z wyłączeniem postanowień wierzyciela o niedopuszczalności zgłoszonego zarzutu oraz postanowień, przedmiotem których jest stanowisko wierzyciela w sprawie zgłoszonego zarzutu;
+168	3) stwierdza, że organ dopuścił się bezczynności lub przewlekłego prowadzenia postępowania.
+165	1) zobowiązuje organ do wydania w określonym terminie aktu, interpretacji albo do dokonania czynności;
+165	Wojewódzki Sąd Administracyjny w Opolu zważył, co następuje:
+165	Wojewódzki Sąd Administracyjny z w a ż y ł, co następuje:
+160	Mając na względzie powyższe zważono, co następuje:
+159	Zaskarżonemu wyrokowi zarzucono:
+158	UE Polskie wydanie specjalne, rozdz.
+157	W piśmie tym należy uprawdopodobnić okoliczności wskazujące na brak winy w uchybieniu terminu.
+154	Zażalenie zasługuje na uwzględnienie.
+152	Istotą tego postępowania jest bowiem weryfikacja zgodności z prawem orzeczenia wojewódzkiego sądu administracyjnego oraz postępowania, które doprowadziło do jego wydania.
+151	Zaskarżonej decyzji zarzuciła naruszenie:
+150	Rozpoznając wniosek zważyć należało, co następuje:
+150	W odpowiedzi na skargę organ odwoławczy wniósł o jej oddalenie.
+148	Wyrok sądu pierwszej instancji.
+145	Komentarz, pod red.
+140	Przekazując sprawę, organ ten powinien wskazać, jakie okoliczności należy wziąć pod uwagę przy ponownym rozpatrzeniu sprawy.
+140	Zaskarżonej decyzji zarzucił naruszenie:
+139	Kodeks postępowania administracyjnego.
+138	Uzasadnienie rozstrzygnięcia Sądu pierwszej instancji.
+137	Skarga nie jest uzasadniona.
+135	o postępowaniu przed sądami administracyjnymi.
+134	Ponadto, co wymaga podkreślenia, Sąd rozstrzyga w granicach danej sprawy nie będąc jednak związany zarzutami i wnioskami skargi oraz powołaną podstawą prawną (art. 134 § 1 ustawy – Prawo o postępowaniu przed sądami administracyjnymi).
+134	Sąd administracyjny jest związany zarzutami skargi oraz powołaną podstawą prawną.
+131	Sądowa kontrola legalności zaskarżonych orzeczeń administracyjnych sprawowana jest przy tym w granicach sprawy, a sąd nie jest związany zarzutami, wnioskami skargi, czy też powołaną w niej podstawą prawną ( art. 134 § 1 p.p.s.a.).
+130	Zaskarżonej decyzji zarzucono naruszenie:
+126	Skarga jest nieuzasadniona.
+125	Istota tej zasady sprowadza się do konstatacji, że organy administracji publicznej powinny działać w sprawie nie tylko wnikliwie ale i szybko, posługując się możliwie najprostszymi środkami prowadzącymi do jej załatwienia.
+125	Równocześnie z wnioskiem strona powinna dokonać czynności, której nie dokonała w terminie (art. 87 § 4 w/w ustawy).
+123	Wojewódzki Sąd Administracyjny w Gliwicach zważył co następuje :
+121	Skarga, skarga kasacyjna, zażalenie oraz skarga o wznowienie postępowania, od których pomimo wezwania nie został uiszczony należny wpis, podlegają odrzuceniu przez sąd (§ 3 cytowanego przepisu).
+120	Zaskarżonej decyzji zarzucił:
+119	4) inne niż określone w pkt 1-3 akty lub czynności z zakresu administracji publicznej dotyczące uprawnień lub obowiązków wynikających z przepisów prawa, z wyłączeniem aktów lub czynności podjętych w ramach postępowania administracyjnego określonego w ustawie z dnia 14 czerwca 1960 r. - Kodeks postępowania administracyjnego (Dz. U. z 2017 r. poz. 1257 oraz z 2018 r. poz. 149 i 650), postępowań określonych w działach IV, V i VI ustawy z dnia 29 sierpnia 1997 r. - Ordynacja podatkowa (Dz. U. z 2018 r. poz. 800, z późn. zm.), postępowań, o których mowa w dziale V w rozdziale 1 ustawy z dnia 16 listopada 2016 r. o Krajowej Administracji Skarbowej (Dz. U. z 2018 r. poz. 508, 650, 723, 1000 i 1039), oraz postępowań, do których mają zastosowanie przepisy powołanych ustaw;
+119	Przez wyczerpanie środków zaskarżenia należy rozumieć sytuację, w której stronie nie przysługuje żaden środek zaskarżenia, taki jak zażalenie, odwołanie lub wniosek o ponowne rozpatrzenie sprawy, przewidziany w ustawie.
+119	Skarga podlegała odrzuceniu.
+118	2) opiekunowi faktycznemu dziecka,
+118	Dopiero gdyby poczynione w ten sposób oszczędności okazały się niewystarczające - może zwrócić się o pomoc państwa.
+118	Skarga do Sądu pierwszej instancji.
+118	Zaskarżona decyzja została wydana w następującym stanie faktycznym:
+117	Jeżeli w wyniku uwzględnienia skargi sprawa ma być ponownie rozpatrzona przez organ administracji, uzasadnienie powinno ponadto zawierać wskazania co do dalszego postępowania.
+117	Odpowiedzi na skargę kasacyjną nie wniesiono.
+117	Zaskarżonemu wyrokowi zarzucił:
+116	Zgodnie z art. 18 § 1 ustawy z dnia 30 sierpnia 2002 r. Prawo o postępowaniu przed sądami administracyjnymi (tekst jedn.
+115	Mając na uwadze powyższe zważyć należało co następuje:
+113	Skarga jest bezzasadna.
+112	Sąd orzeka jako sąd drugiej instancji, stosując odpowiednio przepisy o zażaleniu.
+112	W orzecznictwie sądów administracyjnych akcentuje się, że rażącym naruszeniem prawa będzie stan, w którym – bez żadnej wątpliwości i wahań – można stwierdzić, że naruszono prawo w sposób oczywisty.
+111	Stan faktyczny sprawy przedstawia się następująco:
+111	Zgodnie z art. 61 § 3 ustawy z dnia 30 sierpnia 2002 r. Prawo
+110	Skarga kasacyjna jest niezasadna.
+110	Zaskarżonej decyzji zarzuciła:
+109	1) matce albo ojcu,
+109	Odmowa wstrzymania wykonania aktu lub czynności przez organ nie pozbawia skarżącego złożenia wniosku do sądu.
+109	Pismem takim jest między innymi skarga.
+109	W odpowiedzi na skargę Dyrektor Izby Skarbowej wniósł o jej oddalenie.
+109	Zgodnie z art. 174 p.p.s.a. skargę kasacyjną można oprzeć na następujących podstawach:
+109	a) naruszenie prawa materialnego, które miało wpływ na wynik sprawy,
+108	Wskazać należy, że art. 35 § 1-3 k.p.a. stanowi rozwinięcie w/w zasady, zobowiązując organy administracji publicznej do załatwienia sprawy bez zbędnej zwłoki.
+108	Zwłaszcza sprawy, które nie wymagają zbierania dowodów, informacji czy wyjaśnień, powinny być załatwione niezwłocznie.
+104	Sąd I instancji orzekał w następującym stanie sprawy:
+104	Zgodnie z art. 61 § 3 ustawy z dnia 30 sierpnia 2002 r. – Prawo
+102	Jednocześnie Sąd stwierdza, czy bezczynność lub przewlekłe prowadzenie postępowania miały miejsce z rażącym naruszeniem prawa.
+102	b) naruszenie prawa dające podstawę do wznowienia postępowania administracyjnego,
+101	J. Tarno, Prawo o postępowania przed sądami administracyjnymi – Komentarz, Wyd.
+101	Skarga podlega oddaleniu.
+100	2) teren ma dostęp do drogi publicznej;
+100	Zaskarżona decyzja została wydana w następującym stanie faktycznym i prawnym.
+100	Zaskarżonej decyzji zarzucono:
+99	5) decyzja jest zgodna z przepisami odrębnymi.
+98	Mając na uwadze powyższe zważono, co następuje:
+98	Postanowienie sądu może zapaść na posiedzeniu niejawnym.
+98	Stan sprawy przedstawia się następująco.
+98	Zachowanie organu nie zasługuje na aprobatę i w sposób oczywisty podważa zaufanie jednostki do organów administracji publicznej.
+98	c) inne naruszenie przepisów postępowania, jeżeli mogło ono mieć istotny wpływ na wynik sprawy.
+96	B. Dauter i inni, Prawo o postępowaniu przed sądami administracyjnymi – Komentarz, Wyd.
+96	Komentarz pod red.
+96	Wojewódzki Sąd Administracyjny zważył:
+96	Wywołane skargą kasacyjną postępowanie przed Naczelnym Sądem Administracyjnym podlega więc zasadzie dyspozycyjności i nie polega na ponownym rozpoznaniu sprawy w jej całokształcie, lecz ogranicza się do rozpatrzenia poszczególnych zarzutów przedstawionych w skardze kasacyjnej w ramach wskazanych podstaw kasacyjnych.
+95	3) osobie będącej rodziną zastępczą spokrewnioną w rozumieniu ustawy z dnia 9 czerwca 2011 r. o wspieraniu rodziny i systemie pieczy zastępczej,
+95	O kosztach postępowania kasacyjnego orzeczono na podstawie art. 204 pkt 2 p.p.s.a.
+95	Sąd odrzuca skargę postanowieniem.
+95	Zażalenie nie jest zasadne.
+94	W sprawie zważono, co następuje.
+93	1) w zakresie całkowitym - gdy osoba ta wykaże, że nie jest w stanie ponieść jakichkolwiek kosztów postępowania;
+92	Innymi słowy, wchodzi tutaj w grę kontrola aktów lub czynności z zakresu administracji publicznej dokonywana pod względem ich zgodności z prawem materialnym i przepisami procesowymi, nie zaś według kryteriów odnoszących się do słuszności rozstrzygnięcia.
+91	3) istniejące lub projektowane uzbrojenie terenu, z uwzględnieniem ust. 5, jest wystarczające dla zamierzenia budowlanego;
+91	Mając powyższe na uwadze, zważono, co następuje:
+91	Prawo pomocy obejmuje zwolnienie od kosztów sądowych oraz ustanowienie adwokata, radcy prawnego, doradcy podatkowego lub rzecznika patentowego.
+90	1) co najmniej jedna działka sąsiednia, dostępna z tej samej drogi publicznej, jest zabudowana w sposób pozwalający na określenie wymagań dotyczących nowej zabudowy w zakresie kontynuacji funkcji, parametrów, cech i wskaźników kształtowania zabudowy oraz zagospodarowania terenu, w tym gabarytów i formy architektonicznej obiektów budowlanych, linii zabudowy oraz intensywności wykorzystania terenu;
+90	2) w zakresie częściowym – gdy wykaże, że nie jest w stanie ponieść pełnych kosztów postępowania, bez uszczerbku utrzymania koniecznego dla siebie i rodziny.
+90	Oznacza to, że Sąd nie jest uprawniony do samodzielnego dokonywania konkretyzacji zarzutów skargi kasacyjnej, a upoważniony jest do oceny zaskarżonego orzeczenia wyłącznie w granicach przedstawionych we wniesionej skardze kasacyjnej.
+90	Skarga kasacyjna nie jest zasadna.
+90	Zaskarżonemu wyrokowi zarzucono naruszenie:
+90	Zgodnie z art. 183 § 1 ustawy z dnia 30 sierpnia 2002 r. – Prawo o postępowaniu przed sądami administracyjnymi (tekst jedn.
+90	o postępowaniu przed sądami administracyjnymi (tekst jedn.:
+89	Postępowanie przed Sądem pierwszej instancji.
+89	Z przepisu art. 134 § 1 p.p.s.a. wynika z kolei, że Sąd rozstrzyga w granicach danej sprawy nie będąc jednak związany zarzutami i wnioskami skargi oraz powołaną podstawą prawną.
+88	W odpowiedzi na skargę organ wniósł o jej oddalenie, podtrzymując dotychczasowe stanowisko w sprawie.
+88	Wniosek zasługuje na uwzględnienie.
+88	Wojewódzki Sąd Administracyjny w Olsztynie zważył co następuje:
+87	Komentarz, Lex, 2010, wyd.
+87	Skarga okazała się bezzasadna.
+87	Zaskarżonemu wyrokowi zarzuciła:
+86	Podkreśla się także, że dla uznania rażącego naruszenia prawa nie jest wystarczające samo przekroczenie przez organ ustawowych obowiązków, czyli także terminów załatwienia sprawy.
+86	Ten sam obowiązek ciąży na organie administracji publicznej również w przypadku zwłoki w załatwieniu sprawy z przyczyn niezależnych od organu (art. 36 § 2 kpa).
+86	W odpowiedzi na skargę Wojewoda wniósł o jej oddalenie.
+86	W tym stanie sprawy stwierdzono, co następuje:
+86	Zgodnie z art. 1 § 1 ustawy z dnia 25 lipca 2002 r. – Prawo o ustroju sądów administracyjnych (t.j. Dz. U. z 2018 roku, poz. 2107), sądy administracyjne sprawują wymiar sprawiedliwości przez kontrolę działalności administracji publicznej, przy czym w świetle paragrafu drugiego powołanego wyżej artykułu kontrola ta sprawowana jest pod względem zgodności z prawem, jeżeli ustawy nie stanowią inaczej.
+85	8) bezczynność lub przewlekłe prowadzenie postępowania w przypadkach określonych w pkt 1-4a.
+85	Mając powyższe na uwadze zważono, co następuje:
+85	Taki sposób obliczania wartości jednego dnia urlopu wynika z faktu, że urlop wypoczynkowy liczony jest wyłącznie w dniach roboczych.
+85	Z tego względu, przy rozpoznaniu sprawy, Naczelny Sąd Administracyjny związany był granicami skargi kasacyjnej.
+85	a/ naruszenie prawa materialnego, które miało wpływ na wynik sprawy,
+84	Wyrok zapadł w następującym stanie faktycznym i prawnym sprawy:
+84	Z kolei zgodnie z art. 245 § 1 P.p.s.a., prawo pomocy może zostać udzielone w zakresie częściowym lub całkowitym.
+84	Zgodnie z treścią art. 245 § 3 w zw. z art. 246 § 1 pkt 2 ustawy z dnia
+83	Kontrola, o której mowa w § 1, sprawowana jest pod względem zgodności z prawem, jeżeli ustawy nie stanowią inaczej (§ 2).
+83	Nie można zapominać, że jedną z naczelnych zasad postępowania administracyjnego, wyrażoną w art. 12 § 1 i 2 k.p.a., jest zasada jego szybkości.
+83	Przewlekłość postępowania zachodzi zatem, gdy jest ono długotrwałe, prowadzone rozwlekle i trwa ponad konieczność wyjaśnienia okoliczności faktycznych i prawnych niezbędnych do finalnego rozstrzygnięcia.
+82	Kontrola sprawowana jest pod względem zgodności z prawem, jeżeli ustawy nie stanowią inaczej.
+82	Ubiegający się o taką pomoc winien więc w każdym wypadku poczynić oszczędności we własnych wydatkach, do granic zabezpieczenia koniecznych kosztów utrzymania siebie i rodziny.
+81	Oznacza to, że bierze pod uwagę wszelkie naruszenia prawa, a także wszystkie przepisy, które powinny znaleźć zastosowanie w rozpoznawanej sprawie, niezależnie od żądań i wniosków podniesionych w skardze – w granicach sprawy, wyznaczonych przede wszystkim rodzajem i treścią zaskarżonego aktu.
+81	Wojewódzki Sąd Administracyjny, zważył co następuje:
+80	Postanowienie w tej sprawie jest ostateczne.
+80	Prawnicze LexisNexis, Warszawa 2004, s. 319).
+80	Wspomniana kontrola sprawowana jest pod względem zgodności z prawem, jeżeli ustawy nie stanowią inaczej.
+79	- jeżeli nie podejmują lub rezygnują z zatrudnienia lub innej pracy zarobkowej w celu sprawowania opieki nad osobą legitymującą się orzeczeniem o znacznym stopniu niepełnosprawności albo orzeczeniem o niepełnosprawności łącznie ze wskazaniami: konieczności stałej lub długotrwałej opieki lub pomocy innej osoby w związku ze znacznie ograniczoną możliwością samodzielnej egzystencji oraz konieczności stałego współudziału na co dzień opiekuna dziecka w procesie jego leczenia, rehabilitacji i edukacji.
+79	Chodzi więc o kontrolę aktów lub czynności z zakresu administracji publicznej dokonywaną pod względem ich zgodności z prawem materialnym i przepisami procesowymi, nie zaś według kryteriów słuszności.
+79	Kwalifikacja naruszenia, jako rażące, musi posiadać pewne dodatkowe cechy w stosunku do stanu określanego jako zwykłe naruszenie.
+78	Skarga okazała się uzasadniona.
+78	Wykazanie powyższych okoliczności powinno nastąpić poprzez złożenie stosownego oświadczenia obejmującego dokładne dane o stanie rodzinnym i majątkowym.
+78	b/ naruszenie prawa dające podstawę do wznowienia postępowania administracyjnego,
+77	2) nie wskazuje mienia spółki, z którego egzekucja umożliwi zaspokojenie zaległości podatkowych spółki w znacznej części (§ 1).
+77	Na postanowienie przysługuje zażalenie.
+77	Nie ulega więc wątpliwości, że zaskarżona decyzja lub postanowienie mogą ulec uchyleniu tylko wtedy, gdy organom administracji publicznej można postawić uzasadniony zarzut naruszenia prawa, czy to materialnego, czy to procesowego, jeżeli naruszenie to miało, bądź mogło mieć wpływ na wynik sprawy.
+77	Skarga okazała się nieuzasadniona.
+75	O kosztach orzeczono na podstawie art. 200 p.p.s.a.
+75	W tym zakresie mieści się ocena, czy zaskarżona decyzja odpowiada prawu i czy postępowanie prowadzące do jej wydania nie jest obciążone wadami uzasadniającymi uchylenie rozstrzygnięcia.
+75	Zaskarżonemu wyrokowi skarżąca zarzuciła:
+75	Załatwienie sprawy wymagającej postępowania wyjaśniającego powinno nastąpić nie później niż w ciągu miesiąca, a sprawy szczególnie skomplikowanej - nie później niż w ciągu dwóch miesięcy od dnia wszczęcia postępowania, zaś w postępowaniu odwoławczym - w ciągu miesiąca od dnia otrzymania odwołania (§ 3).
+75	Zgodnie z art. 125 § 1 pkt 1 ustawy z dnia 30 sierpnia 2002 r. Prawo
+75	Zgodnie z art. 183 § 1 p.p.s.a. Naczelny Sąd Administracyjny rozpoznaje sprawę w granicach skargi kasacyjnej, bierze jednak z urzędu pod rozwagę nieważność postępowania.
+74	30 sierpnia 2002 r. - Prawo o postępowaniu przed sądami administracyjnymi
+74	Ocena, czy postępowanie trwa dłużej niż to konieczne, dokonywana musi być przy tym jednak na podstawie zarówno analizy charakteru podejmowanych czynności, jak i stanu faktycznego sprawy.
+74	Właściwa organizacja zadań i zapewnienie odpowiedniej kadry należy bowiem do zadań publicznych, które nie mogą być realizowane ze szkodą dla jednostki.
+74	Zasady ustalania wartości celnej towarów zostały uregulowane w dziale III Kodeksu celnego, w tym głównie w art. 23.
+73	Interpretację taką wspiera także treść art. 121 ust. 1 ustawy o Policji, który ustala wysokość uposażenia przysługującego policjantowi w razie wykorzystania urlopu.
+73	W ramach swej kognicji sąd bada, czy przy wydaniu zaskarżonego aktu nie doszło do naruszenia prawa materialnego i przepisów postępowania.
+73	Zgodnie z przepisem art. 1 § 1 i 2 ustawy z dnia 25 lipca 2002 r. - Prawo o ustroju sądów administracyjnych (Dz.U. Nr 153, poz. 1269 ze zm.) sądy administracyjne sprawują wymiar sprawiedliwości przez kontrolę działalności administracji publicznej, przy czym kontrola ta sprawowana jest pod względem zgodności z prawem, jeżeli ustawy nie stanowią inaczej.
+73	c/ inne naruszenie przepisów postępowania, jeżeli mogło ono mieć istotny wpływ na wynik sprawy;
+72	Ponadto, rażące opóźnienie w podejmowanych przez organ czynnościach musi być w oczywisty sposób pozbawione jakiegokolwiek racjonalnego uzasadnienia.
+72	Postanowienie o przywróceniu terminu albo odmowie jego przywrócenia może być wydane na posiedzeniu niejawnym.
+72	Powyższe rozstrzygnięcie zapadło w następującym stanie faktycznym i prawnym:
+72	W niniejszej sprawie zważono, co następuje:
+71	4) teren nie wymaga uzyskania zgody na zmianę przeznaczenia gruntów rolnych i leśnych na cele nierolnicze i nieleśne albo jest objęty zgodą uzyskaną przy sporządzaniu miejscowych planów, które utraciły moc na podstawie art. 67 ustawy, o której mowa w art. 88 ust. 1,
+71	W odpowiedzi na skargę Samorządowe Kolegium Odwoławcze wniosło o jej oddalenie.
+71	Zgodnie z art. 183 § 1 p.p.s.a., Naczelny Sąd Administracyjny rozpoznaje sprawę w granicach skargi kasacyjnej, bierze jednak z urzędu pod rozwagę nieważność postępowania.
+70	3) postanowienia wydane w postępowaniu egzekucyjnym i zabezpieczającym, na które przysługuje zażalenie;
+70	Stosownie do art. 134 § 1 p.p.s.a. sąd rozstrzyga w granicach danej sprawy, nie będąc jednak związany zarzutami i wnioskami skargi oraz powołaną w niej podstawą prawną.
+70	Takich jednak przesłanek w niniejszej sprawie z urzędu nie odnotowano.
+70	W świetle art. 174 p.p.s.a. skargę kasacyjną można oprzeć na następujących podstawach:
+70	Zgodnie z art. 46 § 1 pkt 4 ustawy z dnia 30 sierpnia 2002 r. - Prawo
+69	Powyższe regulacje określają podstawową funkcję sądownictwa i toczącego się przed nim postępowania.
+69	Prawo o postępowaniu przed sądami administracyjnymi, Komentarz, Wyd.
+69	Rozwiązaniu temu towarzyszy równolegle uprawnienie strony postępowania do przytoczenia nowego uzasadnienia podstaw kasacyjnych sformułowanych w skardze.
+69	Skarga, od której pomimo wezwania nie został uiszczony należny wpis, podlega odrzuceniu przez sąd.
+69	W sprawach, o których mowa w § 1, wniesienie sprzeciwu od zarządzenia lub postanowienia referendarza sądowego wstrzymuje jego wykonalność.
+68	Przy czym ocena ta jest dokonywana według stanu i na podstawie akt sprawy istniejących w dniu wydania zaskarżonego aktu.
+68	Skarga kasacyjna jest zasadna.
+68	Skargę kasacyjną, w granicach której operuje Naczelny Sąd Administracyjny, zgodnie z art. 174 p.p.s.a., można oprzeć na podstawie naruszenia prawa materialnego przez błędną jego wykładnię lub niewłaściwe zastosowanie oraz na podstawie naruszenia przepisów postępowania, jeżeli uchybienie to mogło mieć istotny wpływ na wynik sprawy.
+68	W odpowiedzi na skargę organ wniósł o oddalenie skargi.
+68	Wymaga podkreślenia, że - zgodnie z powołanym przepisem - niezwłocznie winny być załatwione sprawy, które mogą być rozpatrzone w oparciu o dowody przedstawione przez stronę łącznie z żądaniem wszczęcia postępowania lub w oparciu o fakty i dowody powszechnie znane albo znane z urzędu organowi, przed którym toczy się postępowanie, bądź możliwe do ustalenia na podstawie danych, którymi rozporządza ten organ.
+68	Wyrok Sądu pierwszej instancji i przedstawiony przez ten Sąd tok postępowania przed organami podatkowymi.
+67	Ekwiwalent będący substytutem urlopu powinien więc odpowiadać wartości tego świadczenia w naturze.
+67	Jednocześnie z wniesieniem prośby należy dopełnić czynności, dla której określony był termin (§ 2).
+67	Kontrola ta sprowadza się do zbadania, czy w toku rozpoznania sprawy organy administracji publicznej nie naruszyły prawa materialnego i procesowego w stopniu istotnie wpływającym na wynik sprawy.
+67	Postępowanie przed organami podatkowymi.
+66	1) stoi na straży praworządności;
+66	2) jest obowiązany w sposób wyczerpujący rozpatrzyć cały materiał dowodowy;
+66	Natomiast załatwienie sprawy wymagającej postępowania wyjaśniającego winno nastąpić nie później niż w ciągu miesiąca, a sprawy szczególnie skomplikowanej nie później niż w ciągu dwóch miesięcy od dnia wszczęcia postępowania.
+66	Organ celny po zwolnieniu towarów może z urzędu lub na wniosek zgłaszającego dokonać kontroli zgłoszenia celnego i jeżeli z tej kontroli wynika, że przepisy regulujące procedurę celną zostały zastosowane w oparciu o nieprawdziwe, nieprawidłowe lub niekompletne dane lub dokumenty, organ podejmuje niezbędne działania w celu właściwego zastosowania przepisów prawa celnego, biorąc pod uwagę nowe dane (art. 83 § 1 - 3 Kodeksu celnego).
+66	Organy czuwają nad tym, aby strony i inne osoby uczestniczące w postępowaniu nie poniosły szkody z powodu nieznajomości prawa, i w tym celu udzielają im niezbędnych wyjaśnień i wskazówek.
+66	Uwzględniając skargę, organ stwierdza jednocześnie, czy działanie, bezczynność lub przewlekłe prowadzenie postępowania miały miejsce bez podstawy prawnej albo z rażącym naruszeniem prawa.
+66	W sprawie ustalono następujący stan faktyczny i prawny.
+66	Związanie podstawami skargi kasacyjnej polega na tym, że wskazanie przez stronę skarżącą naruszenia konkretnego przepisu prawa materialnego, czy też procesowego, określa zakres kontroli Naczelnego Sądu Administracyjnego.
+65	Wykładnia powołanego wyżej przepisu wskazuje, że Sąd ma prawo ale i obowiązek dokonania oceny zgodności z prawem zaskarżonego aktu administracyjnego, nawet wówczas, gdy dany zarzut nie został w skardze podniesiony.
+65	Wyrok został wydany w następującym stanie faktycznym i prawnym sprawy.
+64	I. Stan sprawy przedstawia się następująco:
+64	Jednocześnie sąd stwierdza, czy bezczynność organu lub przewlekłe prowadzenie postępowania przez organ miały miejsce z rażącym naruszeniem prawa.
+64	Mechanizm ten jest niezbędny w sytuacji, gdy po dniu przyjęcia zgłoszenia celnego wartość celna z tego dnia okazała się być inna od wartości transakcyjnej, to znaczy faktycznej ceny towaru.
+64	Można odstąpić od uzasadnienia prawnego, jeżeli stanowisko wnioskodawcy jest prawidłowe w pełnym zakresie.
+64	Oznacza to, że badaniu w postępowaniu sądowoadministracyjnym podlega prawidłowość zastosowania przepisów prawa w odniesieniu do istniejącego w sprawie stanu faktycznego oraz trafność wykładni tych przepisów.
+64	Powyższe rozstrzygnięcie zapadło w następującym stanie faktycznym.
+64	Prawo to obejmuje również uzyskiwanie informacji o działalności organów samorządu gospodarczego i zawodowego, a także innych osób oraz jednostek organizacyjnych w zakresie, w jakim wykonują one zadania władzy publicznej i gospodarują mieniem komunalnym lub majątkiem Skarbu Państwa.
+64	Taka sytuacja miała miejsce w niniejszej sprawie.
+64	W związku z tym uznać należało, że cofnięcie skargi jest dopuszczalne.
+64	sądy administracyjne sprawują kontrolę działalności administracji publicznej pod względem zgodności z prawem.
+63	Instytucja wstrzymania wykonania ma charakter wyjątkowy i jej zastosowanie może mieć miejsce wyłącznie w sytuacji stwierdzenia, że zachodzi niebezpieczeństwo wyrządzenia znacznej szkody lub spowodowania trudnych do odwrócenia skutków, gdyby akt lub czynność zostały wykonane.
+63	L z 1998 r. Nr 204, s. 37, ze zm.), którego projekt powinien być przekazany Komisji Europejskiej zgodnie z art. 8 ust. 1 akapit pierwszy tej dyrektywy i może stanowić podstawę wymierzenia kary pieniężnej za naruszenie przepisów ustawy o grach hazardowych, a dla rekonstrukcji znamion deliktu administracyjnego, o którym mowa w tym przepisie oraz jego stosowalności w sprawach o nałożenie kary pieniężnej, nie ma znaczenia brak notyfikacji oraz techniczny – w rozumieniu dyrektywy 98/34/WE – charakter art. 14 ust. 1 tej ustawy;
+63	O kosztach postępowania orzeczono na podstawie art. 203 pkt 1 p.p.s.a.
+63	Postanowienie o umorzeniu postępowania może zapaść na posiedzeniu niejawnym (art. 161 § 2).
+63	Prawo pomocy w zakresie częściowym obejmuje natomiast zwolnienie tylko od opłat sądowych w całości lub w części albo tylko od wydatków albo od opłat sądowych i wydatków lub obejmuje tylko ustanowienie adwokata, radcy prawnego, doradcy podatkowego lub rzecznika patentowego (§ 3).
+63	Skarga kasacyjna nie została oparta na usprawiedliwionych podstawach.
+63	Sąd rozstrzyga w granicach danej sprawy nie będąc jednak związany zarzutami i wnioskami skargi oraz powołaną podstawą prawną.
+62	B. Adamiak, J. Borkowski, Kodeks postępowania administracyjnego.
+62	Podobnie w trybie tym nie ujawniono podstaw do odrzucenia skargi ani umorzenia postępowania przed sądem pierwszej instancji, które obligowałyby Naczelny Sąd Administracyjny do wydania postanowienia przewidzianego w art. 189 p.p.s.a. (zob. uchwała NSA z dnia 8 grudnia 2009 r., sygn. akt II GPS 5/09, ONSAiWSA 2010, Nr 3, poz. 40).
+62	Regulacje postępowania sądowoadministracyjnego pozwalają skarżącym, nie posiadającym wystarczających środków finansowych koniecznych do ochrony ich interesu prawnego na ubieganie się o przyznanie tzw. prawa pomocy.
+62	Rozpoznając wniosek zważono, co następuje:
+61	Stosownie do treści art. 220 § 3 ustawy z dnia 30 sierpnia 2002 r. Prawo
+61	W rozpoznawanej sprawie nie zachodzi żadna z okoliczności skutkujących nieważnością postępowania, o jakich mowa w art. 183 § 2 p.p.s.a. i nie zachodzi żadna z przesłanek, o których mowa w art. 189 p.p.s.a., które Naczelny Sąd Administracyjny rozważa z urzędu dokonując kontroli zaskarżonego skargą kasacyjną wyroku.
+61	Zażalenie nie ma usprawiedliwionych podstaw.
+60	2) urządzający gry na automatach poza kasynem gry;
+60	2/ stwierdza nieważność decyzji lub postanowienia w całości lub w części, jeżeli zachodzą przyczyny określone w art. 156 Kodeksu postępowania administracyjnego lub w innych przepisach;
+60	4) innym osobom, na których zgodnie z przepisami ustawy z dnia 25 lutego 1964 r. - Kodeks rodzinny i opiekuńczy ciąży obowiązek alimentacyjny, z wyjątkiem osób o znacznym stopniu niepełnosprawności
+60	Jeżeli nie wystąpiły przesłanki nieważności postępowania wymienione w art. 183 § 2 p.p.s.a., a w rozpoznawanej sprawie nie wystąpiły, to Sąd związany jest granicami skargi kasacyjnej.
+60	W myśl art. 243 § 1 ustawy z dnia 30 sierpnia 2002 r. Prawo o postępowaniu przed sądami administracyjnymi (t.j. Dz. U. z 2012 r., poz. 270 ze zm. - dalej p.p.s.a.) prawo pomocy może być przyznane stronie na jej wniosek złożony przed wszczęciem postępowania lub w jego toku.
+60	W odpowiedzi na skargę wniesiono o jej oddalenie.
+60	W wyniku takiej kontroli decyzja może zostać uchylona w razie stwierdzenia, że naruszono przepisy prawa materialnego w stopniu mającym wpływ na wynik sprawy lub doszło do takiego naruszenia przepisów prawa procesowego, które mogłoby w istotny sposób wpłynąć na wynik sprawy, ewentualnie w razie wystąpienia okoliczności mogących być podstawą wznowienia postępowania (art. 145 § 1 pkt 1 lit. a), b) i c) p.p.s.a.).
+60	Wojewódzki Sąd Administracyjny w Białymstoku zważył co następuje.
+59	2) budynki lub ich części;
+59	3) uczestnik w grze hazardowej urządzanej bez koncesji lub zezwolenia.
+59	Prawo pomocy w zakresie całkowitym obejmuje zwolnienie od kosztów sądowych oraz ustanowienie adwokata, radcy prawnego, doradcy podatkowego lub rzecznika patentowego (§ 2), natomiast prawo pomocy w zakresie częściowym obejmuje zwolnienie tylko od opłat sądowych w całości lub w części albo tylko od wydatków albo od opłat sądowych i wydatków lub obejmuje tylko ustanowienie adwokata, radcy prawnego, doradcy podatkowego lub rzecznika patentowego (§ 3).
+59	Referendarz sądowy Wojewódzkiego Sądu Administracyjnego zważył, co następuje:
+58	8) bezczynność organów w przypadkach określonych w pkt 1-4.
+58	Referendarz sądowy stwierdził, że:
+58	Rozpoznając wniosek o przyznanie prawa pomocy zważono co następuje:
+58	Sąd pierwszej instancji orzekał w następującym stanie sprawy:
+58	W niniejszej sprawie nie występują przesłanki nieważności postępowania sądowoadministracyjnego enumeratywnie wyliczone w art. 183 § 2 p.p.s.a. Z tego względu Naczelny Sąd Administracyjny przy rozpoznaniu sprawy związany był granicami skargi kasacyjnej.
+58	Z tego względu przesłanki zastosowania tej instytucji winny być interpretowane w sposób ścisły.
+58	Zgodnie z art. 245 § 1 ustawy z dnia 30 sierpnia 2002 r. Prawo o postępowaniu przed sądami administracyjnymi prawo pomocy może być przyznane w zakresie całkowitym lub częściowym.
+58	Związanie NSA podstawami skargi kasacyjnej wymaga prawidłowego ich określenia w samej skardze.
+57	Jeżeli zatem nie wystąpiły przesłanki nieważności postępowania wymienione w art. 183 § 2 p.p.s.a. (a w rozpoznawanej sprawie przesłanek tych brak), to Sąd związany jest granicami skargi kasacyjnej.
+57	Mając powyższe na uwadze, postanowiono jak w sentencji, działając na podstawie art. 258 § 1 i § 2 pkt 7 P.p.s.a. w związku z art. 246 § 1 pkt 2 P.p.s.a.
+57	Na wstępie rozważań należy wskazać, że zgodnie z art. 1 § 1 i 2 ustawy z dnia 25 lipca 2002 r. – Prawo o ustroju sądów administracyjnych (Dz. U. Nr 153, poz. 1269 ze zm.) sądy administracyjne sprawują wymiar sprawiedliwości poprzez kontrolę działalności administracji publicznej, przy czym kontrola ta sprawowana jest pod względem zgodności z prawem.
+57	Podkreśla się także, że dla uznania rażącego naruszenia prawa nie jest wystarczające samo przekroczenie przez organ ustawowych obowiązków, czyli również terminów załatwienia sprawy.
+57	W związku z powyższym opisem zadano następujące pytanie:
+56	Organ w odpowiedzi na skargę wniósł o jej oddalenie.
+56	Podkreślić przy tym trzeba, że Naczelny Sąd Administracyjny jest związany podstawami skargi kasacyjnej, ponieważ w świetle art. 183 § 1 P.p.s.a. rozpoznaje sprawę w granicach skargi kasacyjnej, biorąc z urzędu pod rozwagę jedynie nieważność postępowania.
+56	W ten sposób wyraźnie został określony zakres, w jakim Naczelny Sąd Administracyjny uzasadnia z urzędu wydany wyrok, w przypadku gdy oddala skargę kasacyjną.
+56	Wojewódzki Sąd Administracyjny we Wrocławiu zważył co następuje:
+56	Wyrok został wydany w następujących okolicznościach sprawy:
+56	Zgodnie z jej treścią, sąd nie jest związany zarzutami i wnioskami oraz powołaną podstawą prawną.
+56	Zgodnie zaś z art. 245 § 1 - 3 powołanej ustawy prawo pomocy może być przyznane w zakresie całkowitym lub częściowym.
+55	Decyzja administracyjna jest zgodna z prawem, jeżeli jest zgodna z przepisami prawa materialnego i przepisami prawa procesowego.
+55	Kwalifikacja naruszenia, jako rażące, musi posiadać pewne dodatkowe cechy w stosunku do stanu określanego jako naruszenie zwykłe.
+55	Nie jest to więc sytuacja, która sama z siebie uzasadnia zastosowanie wyjątkowego rozwiązania prawnego, jakim jest ochrona tymczasowa w postępowaniu sądowoadministracyjnym.
+55	O przewlekłym prowadzeniu postępowania można mówić wówczas, gdy organowi będzie można skutecznie przedstawić zarzut niedochowania należytej staranności w takim zorganizowaniu postępowania administracyjnego, aby zakończyło się ono w rozsądnym terminie, względnie zarzut przeprowadzania czynności (w tym dowodowych) pozbawionych dla sprawy jakiegokolwiek znaczenia.
+55	W odpowiedzi na skargę organ odwoławczy wniósł o jej oddalenie, podtrzymując argumentację zawartą w uzasadnieniu zaskarżonej decyzji.
+55	W wyniku takiej kontroli decyzja może zostać uchylona w razie stwierdzenia, że naruszono przepisy prawa materialnego w stopniu mającym wpływ na wynik sprawy lub doszło do takiego naruszenia przepisów prawa procesowego, które mogłoby w istotny sposób wpłynąć na wynik sprawy, ewentualnie w razie wystąpienia okoliczności mogących być podstawą wznowienia postępowania (art. 145 § 1 pkt 1 lit. a, b i c p.p.s.a.).
+55	W związku z powyższym opisem zadano następujące pytania:
+54	J. Stelmasiaka, J. Niczyporuka, S. Fundowicza, Polski model sądownictwa administracyjnego, Oficyna Wydawnicza VERBA s. c., Lublin 2003, s. 120).
+54	Ocenie podlega zatem zachowanie terminów określonych w art. 35 k.p.a. i wymóg prowadzenia sprawy z poszanowaniem zasad postępowania administracyjnego.
+54	Prawo pomocy w zakresie całkowitym obejmuje zwolnienie od kosztów sądowych oraz ustanowienie profesjonalnego pełnomocnika w sytuacji, kiedy osoba fizyczna wykaże, że nie jest w stanie ponieść jakichkolwiek kosztów postępowania (art. 246 § 1 pkt 1 p.p.s.a.). Z kolei prawo pomocy w zakresie częściowym (art. 246 § 1 pkt 2 p.p.s.a.) polega na zwolnieniu tylko od opłat sądowych w całości lub w części albo tyko od wydatków albo od opłat sądowych i wydatków lub obejmuje ustanowienie adwokata, radcy prawnego, doradcy podatkowego lub rzecznika patentowego.
+54	Skoro w przepisach tych mowa jest o cenie jako płatności dokonanej "lub mającej zostać dokonaną", to równocześnie ustawodawca nie wiąże ustalenia tej ceny z określoną datą, a w szczególności z dniem zgłoszenia celnego.
+54	Wojewódzki Sad Administracyjny zważył, co następuje:
+54	Wojewódzki Sąd Administracyjny w Poznaniu zważył co następuje.
+54	Wyrok ten zapadł w następujących okolicznościach faktycznych i prawnych sprawy.
+54	Z tego względu, przy rozpoznaniu sprawy Naczelny Sąd Administracyjny związany był granicami skargi kasacyjnej.
+53	1) rodzice osoby wymagającej opieki nie żyją, zostali pozbawieni praw rodzicielskich, są małoletni lub legitymują się orzeczeniem o znacznym stopniu niepełnosprawności;
+53	3) budowle lub ich części związane z prowadzeniem działalności gospodarczej.
+53	B. Dauter, B. Gruszczyński, A. Kabat, M. Niezgódka-Medek, Prawo o postępowaniu przed sądami administracyjnymi.
+53	Błędna wykładnia oznacza nieprawidłowe zrekonstruowanie treści normy prawnej wynikającej z konkretnego przepisu, czyli mylne rozumienie określonej normy prawnej, natomiast niewłaściwe zastosowanie to dokonanie wadliwej subsumcji przepisu do ustalonego stanu faktycznego, czyli niezasadne uznanie, że stan faktyczny sprawy odpowiada hipotezie określonej normy prawnej.
+53	Niezwłocznie powinny być załatwiane sprawy, które mogą być rozpatrzone w oparciu o dowody przedstawione przez stronę łącznie z żądaniem wszczęcia postępowania lub w oparciu o fakty i dowody powszechnie znane albo znane z urzędu organowi, przed którym toczy się postępowanie, bądź możliwe do ustalenia na podstawie danych, którymi rozporządza ten organ (§ 2).
+53	O każdym przypadku niezałatwienia sprawy w terminie, określonym w art. 35 k.p.a. lub w przepisach szczególnych, organ administracji publicznej jest obowiązany zawiadomić strony, podając przyczyny zwłoki i wskazując nowy termin załatwienia sprawy oraz pouczając o prawie do wniesienia ponaglenia (art. 36 § 1 k.p.a.). Ten sam obowiązek ciąży na organie administracji publicznej również w przypadku zwłoki w załatwieniu sprawy z przyczyn niezależnych od organu (art. 36 § 2 k.p.a.).
+53	Oznacza to, iż sąd rozpoznając skargę ocenia, czy zaskarżona decyzja nie narusza przepisów prawa materialnego bądź przepisów postępowania administracyjnego.
+53	Stanowiska stron w postępowaniu przed Naczelnym Sądem Administracyjnym.
+53	Sąd orzekał w następującym stanie faktycznym sprawy:
+53	W sprawie ustalono następujący stan faktyczny.
+53	Związanie Naczelnego Sądu Administracyjnego podstawami skargi kasacyjnej wymaga prawidłowego ich określenia w samej skardze.
+53	b) niezgłoszenie wniosku o ogłoszenie upadłości lub niewszczęcie postępowania zapobiegającego ogłoszeniu upadłości (postępowania układowego) nastąpiło bez jego winy;
+52	1) wykonanie lub umorzenie w całości albo w części obowiązku, przedawnienie, wygaśnięcie albo nieistnienie obowiązku;
+52	2) nie ma innych osób spokrewnionych w pierwszym stopniu, są małoletnie lub legitymują się orzeczeniem o znacznym stopniu niepełnosprawności;
+52	2) stwierdza nieważność decyzji lub postanowienia w całości lub w części, jeżeli zachodzą przyczyny określone w art. 156 Kodeksu postępowania administracyjnego lub w innych przepisach;
+52	Dokonanie tego ustalenia należy do sądu krajowego.
+52	Kontrola działalności administracji publicznej przez sądy administracyjne obejmuje orzekanie w sprawach skarg na:
+52	Nie może przy tym wydać orzeczenia na niekorzyść strony skarżącej, chyba że dopatrzy się naruszenia prawa skutkującego stwierdzeniem nieważności zaskarżonego aktu lub czynności.
+52	Przepis art. 245 p.p.s.a. przewiduje możliwość przyznania prawa pomocy w zakresie całkowitym lub częściowym.
+52	Skarga kasacyjna podlega odrzuceniu.
+52	Sąd I instancji za podstawę rozstrzygnięcia przyjął następujące ustalenia.
+52	Sąd orzekał w następującym stanie sprawy.
+52	W odpowiedzi na skargę organ wniósł o jej oddalenie podtrzymując dotychczasowe stanowisko w sprawie.
+52	W odpowiedzi na skargę, Dyrektor Izby Celnej wniósł o jej oddalenie, podtrzymując stanowisko i argumentację przedstawioną w uzasadnieniu zaskarżonej decyzji.
+52	W orzecznictwie przyjmuje się, że przewlekłość postępowania należy traktować jako stan sprawy, którego zaistnienie sąd ocenia bez względu na to, czy organ wydał finalną decyzję, gdyż jest ona zjawiskiem (sytuacją) niezmiennym, co najwyżej stopniowalnym.
+52	Zaskarżona decyzja została wydana w następującym stanie sprawy.
+51	1) urządzający gry hazardowe bez koncesji lub zezwolenia, bez dokonania zgłoszenia, lub bez wymaganej rejestracji automatu lub urządzenia do gry;
+51	2) odroczenie terminu wykonania obowiązku albo brak wymagalności obowiązku z innego powodu, rozłożenie na raty spłaty należności pieniężnej;
+51	2) zgodność projektu zagospodarowania działki lub terenu z przepisami, w tym techniczno-budowlanymi;
+51	4) błąd co do osoby zobowiązanego;
+51	5) niewykonalność obowiązku o charakterze niepieniężnym;
+51	6) niedopuszczalność egzekucji administracyjnej lub zastosowanego środka egzekucyjnego;
+51	8) zastosowanie zbyt uciążliwego środka egzekucyjnego;
+51	9) prowadzenie egzekucji przez niewłaściwy organ egzekucyjny;
+51	Jedną z naczelnych zasad postępowania administracyjnego, wyrażoną w art. 12 § 1 i 2 k.p.a., jest zasada jego szybkości.
+51	Nie budzi zatem wątpliwości, że rozstrzygnięcie wniosku zależy od tego, co zostanie udowodnione przez stronę (por.:
+51	O kosztach orzeczono na podstawie art. 204 pkt 1 p.p.s.a.
+51	Odpowiedź na skargę kasacyjną
+51	Oznacza to, że powinna ona poczynić wszelkie kroki mające na celu uprawdopodobnienie tych okoliczności.
+51	Pismami tymi są skarga, skarga kasacyjna, zażalenie oraz skarga o wznowienie postępowania (art. 230 § 2 cyt. ustawy).
+51	Ponadto wtedy, gdy między poszczególnymi czynnościami organu występują nieusprawiedliwione okresy przerw, które w sumie prowadzą do znaczącego i nieakceptowanego z punktu widzenia zasad ekonomiki procesowej wydłużenia czasu trwania postępowania.
+51	Skargę należało uwzględnić.
+51	Udzielenie stronie prawa pomocy w postępowaniu przed sądem administracyjnym jest więc formą jej dofinansowania z budżetu państwa i przez to powinno się sprowadzać do wypadków, w których zdobycie przez stronę środków na sfinansowanie udziału w postępowaniu sądowym jest rzeczywiście, obiektywnie niemożliwe.
+51	W szczególności dowodem mogą być dokumenty, zeznania świadków, opinie biegłych oraz oględziny (art. 75 § 1).
+51	W trybie uproszczonym sąd rozpoznaje sprawę na posiedzeniu niejawnym w składzie trzech sędziów.
+51	Wyrok ten został wydany w następującym stanie faktycznym i prawnym sprawy.
+51	Wyrok zapadł w następującym stanie faktycznym i prawnym.
+51	Z powyższych względów, w oparciu o art. 245 § 1 i § 2 P.p.s.a. w zw. z art. 246 § 1 pkt 1 tej ustawy, działając na podstawie art. 258 § 1 i § 2 pkt 7 P.p.s.a. w związku z § 3 tego przepisu orzeczono jak w sentencji postanowienia.
+51	Zatem, rozsądny termin postępowania musi zostać określony w świetle wszystkich okoliczności danej sprawy oraz w oparciu o takie kryteria jak: złożoność sprawy, postawę samego skarżącego i właściwych organów, znaczenie przedmiotu postępowania dla skarżącego.
+50	8) bezczynność organów w przypadkach określonych w pkt 1-4a.
+50	Centralna Baza Orzeczeń Sądów Administracyjnych, orzeczenia.nsa.gov.pl).
+50	O każdym przypadku niezałatwienia sprawy w terminie określonym w art. 35 k.p.a. lub w przepisach szczególnych organ administracji publicznej jest obowiązany zawiadomić strony, podając przyczyny zwłoki i wskazując nowy termin załatwienia sprawy oraz pouczając o prawie do wniesienia ponaglenia (art. 36 § 1 k.p.a.). Ten sam obowiązek ciąży na organie administracji publicznej również w przypadku zwłoki w załatwieniu sprawy z przyczyn niezależnych od organu (art. 36 § 2 k.p.a.).
+50	Oznacza to, że w zakresie dokonywanej kontroli Sąd bada, czy organ administracji orzekając w sprawie nie naruszył prawa w stopniu mogącym mieć wpływ na wynik sprawy.
+50	Przepis art. 187 § 1 i 2 stosuje się odpowiednio.
+50	Strona skarżąca uzasadniła wnioski i zaprezentowała swoje stanowisko.
+50	W myśl art. 85 § 1 Kodeksu celnego, należności celne przywozowe są wymagalne według stanu towaru i jego wartości celnej w dniu przyjęcia zgłoszenia celnego i według stawek w tym dniu obowiązujących.
+50	Wyciągnięte w sprawie wnioski są logicznie poprawne i merytorycznie uzasadnione.
+50	Zaskarżona decyzja zawiera pełne uzasadnienie faktyczne i prawne.
+50	Zwolnienia od ponoszenia tego rodzaju danin stanowią odstępstwo od konstytucyjnego obowiązku ich powszechnego i równego ponoszenia, wynikającego z art. 84 ustawy zasadniczej.

@@ -257,13 +257,17 @@ class Library:
 
     # --- wektory ---
 
-    def fragments(self, text):
+    def fragments(self, text, embedder=None):
         """Every text the analyses cut this document into and embed: paragraphs (the
         comparison, the case analysis, the research), the court's reasoning split off, and
         the project's chunks (the document analysis searching the base). Unique, in order."""
         texts = units(text)
         court, _ = court_units(text)
         texts += court
+        formulas = getattr(self.case_folder, "formulas", None)
+        if formulas:  # Porównanie i Analiza sprawy tną tekst bez formułek (pismo / sąd)
+            texts += units(formulas.strip(text, "brief")[0])
+            texts += court_units(text, lambda part: formulas.strip(part, "court", embedder)[0])[0]
         if self.chunker is not None:
             own_chunks = self.chunker.chunk(0, text, "", {})[:OWN_CHUNKS]
             texts += [self.chunker.embedding_input(c) for c in own_chunks]
@@ -275,7 +279,7 @@ class Library:
         if embedder is None:
             raise RuntimeError("brak modelu wektorów (ani LM Studio, ani modelu w procesie)")
         cached = self.embedder_for(embedder, owner=document_id)
-        texts = self.fragments(text)
+        texts = self.fragments(text, embedder)
         for start in range(0, len(texts), PRECOMPUTE_BATCH):
             cached.embed(texts[start : start + PRECOMPUTE_BATCH])
             if progress:

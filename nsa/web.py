@@ -34,7 +34,7 @@ from judgments_core.web import (
     vectors_card,
     vectors_line,
 )
-from nsa import search
+from nsa import formulas, search
 from nsa.chunker import NsaChunker
 from nsa.embed import PROGRESS_KEY
 from nsa.rag import NsaRetriever
@@ -102,6 +102,10 @@ class NsaWebApp(WebApp):
         )
         for pages in (self.analysis, self.comparison, self.folder, self.research):
             pages.library = self.library
+        # Formułki (lista z python -m nsa formulki + wzorce): pomijane w Porównaniu i Analizie sprawy
+        self.comparison.formulas = self.folder.formulas = formulas.load()
+        if getattr(semantic, "embedder", None) is not None:
+            self.comparison.formulas.prepare_in_background(semantic.embedder)
 
     def route(self, request):
         if request.path == "/analiza" or request.path.startswith("/analiza/"):

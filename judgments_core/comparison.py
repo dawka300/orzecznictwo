@@ -6,7 +6,9 @@ The brief is cut into arguments (paragraphs; numbered points start a new one), t
 judgment into passages of the court's own reasoning: from "zważył, co następuje"
 (NSA/WSA), "THE LAW" / "The Court's assessment" (ECHR), else the whole text - the part
 before it restates the parties' arguments and would "answer" every argument with its
-own summary. Both are embedded by the same model (LM Studio when it has the model, else
+own summary. Formulas (boilerplate.py: sentences repeated in many judgments of the
+base, the project's patterns of a court's and a party's formulas, a court's sentences
+close in meaning to a listed one) are dropped from both and listed in the report. Both are embedded by the same model (LM Studio when it has the model, else
 this process'), every argument gets its closest reasoning passage by cosine similarity:
 odniesiono się (>= ANSWERED), częściowo (>= PARTLY), pominięto (below). The thresholds
 are a heuristic for bge-m3 - the report shows the similarity and the passage, the
@@ -145,6 +147,9 @@ class Comparison:
     only_reasoning: bool = True
     passages: int = 0
     stored: tuple = (0, 0)  # numery w teczce (pismo, orzeczenie); 0 = plik albo tekst
+    skip_formulas: bool = True
+    dropped: dict = field(default_factory=dict)  # "pismo"/"orzeczenie" -> [Dropped]
+    formula_sample: int = 0  # z ilu orzeczeń policzono formułki
     matches: list = field(default_factory=list)
 
 
@@ -152,6 +157,7 @@ class DocumentComparison:
     """Comparisons of one project's pages (handle() = the pages)."""
 
     library = None  # library.Library: dokumenty z teczki (ustawia strona projektu)
+    formulas = None  # boilerplate.Formulas projektu (ustawia strona projektu); None = bez filtra
 
     def __init__(self, settings, semantic_embedder):
         self.settings = settings
@@ -159,9 +165,20 @@ class DocumentComparison:
         self.jobs = {}
         self.lock = threading.Lock()
 
-    def start(self, brief_name, brief, judgment_name, judgment, only_reasoning=True, stored=(0, 0)):
+    def start(
+        self,
+        brief_name,
+        brief,
+        judgment_name,
+        judgment,
+        only_reasoning=True,
+        stored=(0, 0),
+        skip_formulas=True,
+    ):
         job = Comparison(uuid.uuid4().hex[:12], brief_name, judgment_name)
         job.only_reasoning, job.stored = only_reasoning, stored
+        job.skip_formulas = skip_formulas and bool(self.formulas)
+        job.formula_sample = self.formulas.sample if job.skip_formulas else 0
         with self.lock:
             self.jobs[job.id] = job
             while len(self.jobs) > MAX_JOBS:
@@ -183,6 +200,12 @@ class DocumentComparison:
             job.embedder = how
             if job.only_reasoning:
                 judgment, job.marker_found = reasoning(judgment)
+            if job.skip_formulas:  # po wycięciu rozważań: "zważył, co następuje" to też formułka
+                job.step = "pomijam formułki"
+                brief, job.dropped["pismo"] = self.formulas.strip(brief, "brief")
+                judgment, job.dropped["orzeczenie"] = self.formulas.strip(
+                    judgment, "court", embedder
+                )
             arguments, passages = units(brief), units(judgment)
             if not arguments or not passages:
                 raise DocumentError("za mało tekstu w jednym z dokumentów")
@@ -223,13 +246,13 @@ class DocumentComparison:
             if job is None:
                 body = "<p class=error>Nie ma takiego porównania (serwer był restartowany?).</p>"
                 return Response(
-                    layout("Porównanie dokumentów", body + _form(self.library)), "404 Not Found"
+                    layout("Porównanie dokumentów", body + self.form()), "404 Not Found"
                 )
             if match.group(2) and job.status == "gotowe":
                 return _pdf(job, layout, _base_url(request))
             return Response(layout("Porównanie dokumentów", _job_page(job)))
         if request.method != "POST":
-            return Response(layout("Porównanie dokumentów", _form(self.library)))
+            return Response(layout("Porównanie dokumentów", self.form()))
         try:
             fields = parse_form(request)
             brief_name, brief, brief_id = form_document(
@@ -240,9 +263,7 @@ class DocumentComparison:
             )
         except (DocumentError, ValueError) as error:
             return Response(
-                layout(
-                    "Porównanie dokumentów", f"<p class=error>{e(error)}</p>" + _form(self.library)
-                ),
+                layout("Porównanie dokumentów", f"<p class=error>{e(error)}</p>" + self.form()),
                 "400 Bad Request",
             )
         job = self.start(
@@ -252,11 +273,15 @@ class DocumentComparison:
             judgment,
             only_reasoning=bool(fields.get("rozwazania")),
             stored=(brief_id, judgment_id),
+            skip_formulas=bool(fields.get("formulki")),
         )
         return Response("", "303 See Other", headers=[("Location", f"/porownanie/{job.id}")])
 
+    def form(self):
+        return _form(self.library, self.formulas)
 
-def _form(library=None):
+
+def _form(library=None, formulas=None):
     return f"""<h1>Porównanie dokumentów</h1>
 <p class=hint>Analiza absencji: które argumenty Twojego pisma (skargi, skargi kasacyjnej, zarzutów)
 mają odpowiedź w rozważaniach sądu, a które sąd pominął. Oba dokumenty są cięte na akapity
@@ -272,8 +297,53 @@ i porównywane po znaczeniu. Dokumenty zostają na tym komputerze i nie są zapi
 <p><label>albo tekst<br><textarea name=tekst_orzeczenia rows=5></textarea></label></p></fieldset>
 <p><label><input type=checkbox name=rozwazania value=1 checked> porównuj tylko z rozważaniami sądu
 (od „zważył, co następuje” / „THE LAW”) - wcześniej sąd streszcza zarzuty stron</label></p>
+{formulas_checkbox(formulas)}
 <p><button type=submit>Porównaj</button></p>
 </form>"""
+
+
+def formulas_checkbox(formulas):
+    if not formulas:
+        return ""
+    return f"""<p><label><input type=checkbox name=formulki value=1 checked> pomiń formułki:
+w orzeczeniu zdania powtarzane w wielu orzeczeniach bazy ({number(len(formulas))}) i do nich
+podobne, typowe formuły („Skarga okazała się bezzasadna.”, „O kosztach orzeczono…”, przytoczenia
+p.p.s.a.); w piśmie nagłówki, wnioski (petitum), podpis i załączniki - raport pokaże, co pominięto
+i dlaczego</label></p>"""
+
+
+def why(item, sample=0):
+    """Why a sentence was left out (boilerplate.Dropped), for the report."""
+    if item.how == "lista":
+        of = f" z {number(sample)}" if sample else ""
+        return f"w {number(item.count)}{of} orzeczeń bazy"
+    if item.how == "wzorzec":
+        return f"wzorzec: {item.label}"
+    return f"podobne {item.score:.2f} do „{shorten(item.label, 120)}”"
+
+
+def dropped_html(title, dropped, sample=0, pdf=False):
+    """The formulas dropped from one document, each once, with the reason."""
+    if not dropped:
+        return ""
+    unique = list({d.sentence: d for d in dropped}.values())
+    items = "".join(
+        f"<li>{e(shorten(d.sentence, 300))} <span class=hint>({e(why(d, sample))})</span></li>"
+        for d in unique
+    )
+    counts = ", ".join(
+        f"{name} {n}"
+        for name, n in (
+            ("z listy", sum(d.how == "lista" for d in dropped)),
+            ("wzorce", sum(d.how == "wzorzec" for d in dropped)),
+            ("podobne", sum(d.how == "podobne" for d in dropped)),
+        )
+        if n
+    )
+    return (
+        f"<details{' open' if pdf else ''}><summary>{e(title)}: pominięte jako formułka "
+        f"({len(dropped)}: {counts})</summary><ul>{items}</ul></details>"
+    )
 
 
 def _job_page(job):
@@ -307,6 +377,17 @@ def _report(job, pdf=False):
         f'<a class=button href="/porownanie/{job.id}.pdf">Pobierz PDF</a>'
         ' <a href="/porownanie">Nowe porównanie</a></p>'
     )
+    if job.skip_formulas:
+        dropped = (
+            f"<p>Pominięte formułki: <b>{len(job.dropped.get('pismo', []))}</b> zdań pisma,"
+            f" <b>{len(job.dropped.get('orzeczenie', []))}</b> zdań orzeczenia"
+            " (nie liczą się ani jako argument, ani jako odpowiedź; „podobne” = zdanie sądu"
+            " bliskie znaczeniem formułce z listy - sprawdź, czy nie odpowiada na zarzut).</p>"
+            + dropped_html("Pismo", job.dropped.get("pismo"), job.formula_sample, pdf)
+            + dropped_html("Orzeczenie", job.dropped.get("orzeczenie"), job.formula_sample, pdf)
+        )
+    else:
+        dropped = "<p class=hint>Formułki nie były pomijane.</p>"
     html = [
         f"""<h1>Porównanie dokumentów</h1>
 {"" if pdf else tools}
@@ -316,7 +397,8 @@ def _report(job, pdf=False):
 <p class=hint>Podobieństwo znaczeniowe (0-1) wskazuje, czy w rozważaniach jest fragment o tym
 samym; nie mówi, czy sąd zarzut uwzględnił, ani czy odpowiedź jest wystarczająca. Progi:
 ≥ {ANSWERED} odniesiono, ≥ {PARTLY} częściowo, niżej pominięto - przejrzyj zwłaszcza
-„pominięte” i „częściowo”.</p>"""
+„pominięte” i „częściowo”.</p>
+{dropped}"""
     ]
     for key, title, note in STATUSES:
         rows = [m for m in job.matches if m.status == key]
