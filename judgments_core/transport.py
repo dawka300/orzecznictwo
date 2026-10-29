@@ -8,6 +8,8 @@ a Transport only performs one GET. Strategies:
   handshake but lets curl through;
 - PlaywrightTransport (judgments_core/browser.py) - a real headless browser,
   when Cloudflare stops curl too (local use only);
+- ProxySellerTransport (judgments_core/proxy_seller.py) - residential proxy
+  from Proxy-Seller Client API v2, when credentials and funds are available;
 - FallbackTransport - a chain of the above: starts with the first and moves
   to the next one when the current keeps getting Cloudflare challenges.
 
@@ -144,6 +146,8 @@ class FallbackTransport(Transport):
             self.challenges += 1
             last = self.position == len(self.factories) - 1
             if last or self.challenges < self.switch_after:
+                if hasattr(self.current, "rotate"):
+                    self.current.rotate()
                 return response  # PoliteClient odczeka i ponowi
             self._switch(full_url(url, params))
 
@@ -175,25 +179,35 @@ def _playwright():
     return PlaywrightTransport()
 
 
+def _proxy_seller():
+    from judgments_core.proxy_seller import make_proxy_seller_from_env
+
+    return make_proxy_seller_from_env()
+
+
 # Strategie po nazwie (ustawienie <PREFIKS>_TRANSPORT, Project.transports).
 TRANSPORTS = {
+    "proxy_seller": _proxy_seller,
     "requests": RequestsTransport,
     "curl": CurlTransport,
     "playwright": _playwright,
 }
 
 
-def make_transport(names, on_switch=None):
+def make_transport(names, on_switch=None, extra_transports=None):
     """One transport by name, or a FallbackTransport for several names in order."""
+    available = dict(TRANSPORTS)
+    if extra_transports:
+        available.update(extra_transports)
     names = [n.strip() for n in names if n.strip()]
-    unknown = [n for n in names if n not in TRANSPORTS]
+    unknown = [n for n in names if n not in available]
     if unknown or not names:
         raise ValueError(
-            f"nieznany transport: {', '.join(unknown) or '(pusto)'} ({' / '.join(TRANSPORTS)})"
+            f"nieznany transport: {', '.join(unknown) or '(pusto)'} ({' / '.join(available)})"
         )
     if len(names) == 1:
-        return TRANSPORTS[names[0]]()
-    return FallbackTransport([(n, TRANSPORTS[n]) for n in names], on_switch=on_switch)
+        return available[names[0]]()
+    return FallbackTransport([(n, available[n]) for n in names], on_switch=on_switch)
 
 
 def is_cloudflare_challenge(response):

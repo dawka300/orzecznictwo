@@ -492,13 +492,27 @@ def _migrate(project, settings):
 
 def _make_source(project, settings, closer, on_event=None):
     """The project's source over its transport strategy; closer closes it at the end."""
-    names = settings.transport.split(",") if settings.transport else project.transports
+    names = [n.strip() for n in settings.transport.split(",")] if settings.transport else list(project.transports)
+
+    extra = {}
+    if settings.proxy_seller_api_key:
+        from judgments_core.proxy_seller import get_proxy_seller_factory
+
+        proxy_factory = get_proxy_seller_factory(settings)
+        if proxy_factory is not None:
+            extra["proxy_seller"] = proxy_factory
+            if "proxy_seller" not in names:
+                names = ["proxy_seller"] + names
+        else:
+            names = [n for n in names if n != "proxy_seller"]
+    else:
+        names = [n for n in names if n != "proxy_seller"]
 
     def switched(old, new, url):
         if on_event is not None:
             on_event("transport", f"{old} blokowany - przejście na {new}", url, None)
 
-    transport = make_transport(names, on_switch=switched)
+    transport = make_transport(names, on_switch=switched, extra_transports=extra)
     log.info("transport: %s", " -> ".join(n.strip() for n in names))
     client = PoliteClient.from_settings(settings, transport=transport, on_event=on_event)
     source = project.source(settings, client)

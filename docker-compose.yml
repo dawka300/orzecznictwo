@@ -86,6 +86,7 @@ services:
       NSA_READ_CONNECTIONS: "2"
       ETPC_DUMP_COMMAND: mariadb-dump --skip-ssl
       NSA_DUMP_COMMAND: mariadb-dump --skip-ssl
+      PROXY_SELLER_API_KEY: ${PROXY_SELLER_API_KEY:-}
       # testy (docker compose run --rm www python -m pytest): tylko baza robocza
       TEST_DB_DSN: mysql://szkielet:szkielet@db:3306/szkielet_test
     extra_hosts:

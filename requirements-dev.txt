@@ -1,6 +1,8 @@
 -r requirements.txt
 pytest
 ruff
+# Opcjonalnie: Proxy-Seller Client API v2 (gdy ustawiony PROXY_SELLER_API_KEY)
+proxy-seller-user-api
 # Tylko lokalnie: transport "playwright" (ETPC_TRANSPORT=playwright), gdy
 # Cloudflare blokuje curl. Po instalacji: python -m playwright install chromium
 playwright

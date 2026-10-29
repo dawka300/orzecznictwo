@@ -52,8 +52,19 @@ class Settings:
     # 1 = jedno połączenie jak dotąd (hosting: limit połączeń); lokalnie na SSD 4.
     read_connections: int = 1
     log_dir: str = "logs"
-    # requests / curl / playwright; puste = domyślny transport projektu
+    # requests / curl / playwright / proxy_seller; puste = domyślny transport projektu
     transport: str = ""
+    # Proxy-Seller (klient API v2, proxy-seller-user-api):
+    # klucz API (puste = wyłączone); zmienna PROXY_SELLER_API_KEY lub <PREFIKS>_PROXY_SELLER_API_KEY
+    proxy_seller_api_key: str = ""
+    # Opcjonalne ID listy proxy rezydencjalnych (puste = pierwsza lista z API)
+    proxy_seller_resident_list_id: str = ""
+    # Opcjonalny klucz pakietu subresident
+    proxy_seller_package_key: str = ""
+    # Brama proxy rezydencjalnych (res.proxy-seller.com, us.res.proxy-seller.com, asia.res.proxy-seller.com)
+    proxy_seller_gateway: str = "res.proxy-seller.com"
+    # Protokół proxy (http lub socks5)
+    proxy_seller_protocol: str = "http"
     # Katalog kopii bazy (względem katalogu repozytorium); puste = bez kopii.
     # Ustawiony: po pobierz/przetworz, które coś zmieniły, kopia jest odświeżana.
     backup_dir: str = ""
@@ -125,12 +136,15 @@ class Settings:
         changes = {}
         for f in fields(cls):
             key = f"{prefix.upper()}_{f.name.upper()}"
-            if key in source:
+            val = source.get(key)
+            if val is None and f.name.startswith("proxy_seller_"):
+                val = source.get(f.name.upper())
+            if val is not None:
                 default = getattr(settings, f.name)
                 try:
-                    changes[f.name] = type(default)(source[key])
+                    changes[f.name] = type(default)(val)
                 except ValueError as e:
-                    raise ValueError(f"Zła wartość {key}={source[key]!r}: {e}") from e
+                    raise ValueError(f"Zła wartość {key}={val!r}: {e}") from e
         env = source.get("APP_ENV", "").strip().lower()
         if env:
             if env not in APP_ENVS:
