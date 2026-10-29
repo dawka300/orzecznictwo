@@ -18,6 +18,8 @@ pusta odpowiedź). Przerwa między zapytaniami co najmniej 3 s. Proxy
 rezydencjalne Proxy-Seller (PROXY_SELLER_API_KEY) tylko na żądanie:
 --transport proxy_seller,requests,curl,playwright (2026-10-29 bramka
 Proxy-Seller odmawia orzeczenia.nsa.gov.pl: "503 Target host denied").
+FlameProxies (FLAMEPROXIES_API_KEY, polskie adresy) też tylko na żądanie:
+--transport flameproxies (2026-10-29 przepuszcza CBOSA).
 
     docker compose run --rm --no-deps www python narzedzia/cbosa_id.py --od 2025-03-05 --do 2025-03-31
     python narzedzia/cbosa_id.py --help
@@ -27,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -41,7 +44,7 @@ import requests
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from judgments_core.settings import Settings
+from judgments_core.settings import DOTENV_PATH, Settings, read_dotenv
 from nsa.cbosa import ids_in
 
 log = logging.getLogger("cbosa_id")
@@ -179,11 +182,70 @@ class ProxySellerHttp(RequestsHttp):
         return status, body
 
 
+FLAME_API = "https://flameproxies.com/api/customer"
+FLAME_PROXIES = 20  # tyle adresów naraz (generowanie nic nie kosztuje, płaci się za ruch)
+
+
+class FlameProxiesHttp(RequestsHttp):
+    """Requests through FlameProxies residential proxies in Poland (FLAMEPROXIES_API_KEY,
+    package: FLAMEPROXIES_PACKAGE_ID or the first residential one); a failed request
+    moves to the next address."""
+
+    name = "flameproxies"
+
+    def __init__(self, user_agent):
+        env = {**read_dotenv(DOTENV_PATH), **os.environ}
+        key = env.get("FLAMEPROXIES_API_KEY", "")
+        if not key:
+            raise RuntimeError("brak FLAMEPROXIES_API_KEY")
+        headers = {"x-api-key": key}
+        package = env.get("FLAMEPROXIES_PACKAGE_ID")
+        if not package:
+            r = requests.get(f"{FLAME_API}/non-api-packages", headers=headers, timeout=30)
+            r.raise_for_status()
+            owned = [p for p in r.json()["packages"] if p["plan"] == "residential"]
+            if not owned:
+                raise RuntimeError("FlameProxies: brak pakietu residential")
+            package = owned[0]["id"]
+        r = requests.post(
+            f"{FLAME_API}/proxies/generate",
+            headers=headers,
+            json={"package_id": int(package), "quantity": FLAME_PROXIES, "country": "pl"},
+            timeout=30,
+        )
+        r.raise_for_status()
+        self.proxies = []
+        for line in r.json()["proxies"]:
+            host, port, user, password = line.split(":", 3)
+            self.proxies.append(f"http://{user}:{password}@{host}:{port}")
+        self.index = 0
+        super().__init__(user_agent)
+        self._apply()
+        log.info("FlameProxies: pakiet %s, %d adresów (PL)", package, len(self.proxies))
+
+    def _apply(self):
+        proxy = self.proxies[self.index % len(self.proxies)]
+        self.session.proxies = {"http": proxy, "https": proxy}
+
+    def fetch(self, url, data=None):
+        try:
+            status, body = super().fetch(url, data)
+        except Exception:
+            self.index += 1
+            self._apply()
+            raise
+        if status != 200:
+            self.index += 1
+            self._apply()
+        return status, body
+
+
 TRANSPORTS = {
     "requests": RequestsHttp,
     "curl": CurlHttp,
     "playwright": PlaywrightHttp,
     "proxy_seller": ProxySellerHttp,
+    "flameproxies": FlameProxiesHttp,
 }
 
 
@@ -467,7 +529,7 @@ def build_parser():
         "--transport",
         default="requests,curl,playwright",
         help="łańcuch transportów po przecinku (domyślnie requests,curl,playwright;"
-        " proxy_seller = proxy rezydencjalne Proxy-Seller, tylko gdy podane)",
+        " proxy_seller / flameproxies = proxy rezydencjalne, tylko gdy podane)",
     )
     p.add_argument("--kontakt", dest="contact", help="e-mail do User-Agent (zalecane)")
     p.add_argument(
