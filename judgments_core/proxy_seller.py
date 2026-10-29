@@ -28,6 +28,27 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+try:
+    from proxy_seller_user_api import ApiError
+except ImportError:  # biblioteka opcjonalna (obraz www, requirements-dev), nie na hostingu
+
+    class ApiError(Exception):
+        """Zastępstwo, gdy biblioteki nie ma: nic go wtedy nie rzuca."""
+
+
+# Błędy wywołań API: biblioteki, sieci i odpowiedzi o nieoczekiwanym kształcie.
+API_ERRORS = (
+    ApiError,
+    requests.RequestException,
+    OSError,
+    ValueError,
+    KeyError,
+    TypeError,
+    AttributeError,
+)
+DEFAULT_GATEWAY = "res.proxy-seller.com"
+_GATEWAY_HOST = re.compile(r"(?<=[@/])[a-z.]*res\.proxy-seller\.com(?=:)")
+
 
 class ProxySellerTransport(Transport):
     """Transport wykonujący zapytania przez proxy rezydencjalne z Proxy-Seller.
@@ -117,7 +138,7 @@ def check_funds_or_package(api) -> tuple[bool, str]:
                         return True, f"aktywny pakiet rezydencjalny (pozostało {mb:.1f} MB)"
                 except (ValueError, TypeError):
                     pass
-        except Exception as e:
+        except API_ERRORS as e:
             log.debug("residentPackage() błąd: %s", e)
 
     # 2. Saldo gotówkowe (cash balance)
@@ -126,7 +147,7 @@ def check_funds_or_package(api) -> tuple[bool, str]:
             bal = api.balance()
             if has_positive_balance(bal):
                 return True, f"saldo konta ({bal})"
-        except Exception as e:
+        except API_ERRORS as e:
             log.debug("balance() błąd: %s", e)
 
     return False, "brak aktywnego pakietu i saldo = 0"
@@ -158,10 +179,16 @@ def parse_proxy_lines(content: str | bytes, default_protocol: str = "http") -> l
     return proxies
 
 
+def with_gateway(proxies: list[str], gateway: str) -> list[str]:
+    """Adresy z bramą proxy rezydencjalnych z ustawień (np. us.res.proxy-seller.com)
+    w miejscu tej z pobranej listy; inne hosty bez zmian."""
+    return [_GATEWAY_HOST.sub(gateway, p) for p in proxies]
+
+
 def fetch_residential_proxies(api, settings: Settings) -> list[str]:
     """Pobiera listę proxy rezydencjalnych (lub subresident) z API Proxy-Seller."""
     protocol = getattr(settings, "proxy_seller_protocol", "http") or "http"
-    gateway = getattr(settings, "proxy_seller_gateway", "res.proxy-seller.com") or "res.proxy-seller.com"
+    gateway = getattr(settings, "proxy_seller_gateway", DEFAULT_GATEWAY) or DEFAULT_GATEWAY
     list_id = getattr(settings, "proxy_seller_resident_list_id", "")
     package_key = getattr(settings, "proxy_seller_package_key", "")
 
@@ -174,7 +201,7 @@ def fetch_residential_proxies(api, settings: Settings) -> list[str]:
                     if isinstance(lists, list) and lists:
                         list_id = lists[0].get("id")
                         break
-                except Exception as e:
+                except API_ERRORS as e:
                     log.debug("Proxy-Seller %s() błąd: %s", method_name, e)
 
     # 2. Jeśli brak listy, a istnieje pakiet - utwórz domyślną listę
@@ -183,27 +210,33 @@ def fetch_residential_proxies(api, settings: Settings) -> list[str]:
             new_list = api.residentListAdd("orzecznictwo-default")
             if isinstance(new_list, dict) and new_list.get("id"):
                 list_id = new_list["id"]
-        except Exception as e:
+        except API_ERRORS as e:
             log.debug("Proxy-Seller residentListAdd() błąd: %s", e)
 
     if list_id and hasattr(api, "proxyDownloadResident"):
         try:
             raw = api.proxyDownloadResident(id=list_id)
-            proxies = parse_proxy_lines(raw, default_protocol=protocol)
+            proxies = with_gateway(parse_proxy_lines(raw, default_protocol=protocol), gateway)
             if proxies:
                 return proxies
-        except Exception as e:
-            log.warning("Proxy-Seller: błąd pobierania listy rezydencjalnej (id=%s): %s", list_id, e)
+        except API_ERRORS as e:
+            log.warning(
+                "Proxy-Seller: błąd pobierania listy rezydencjalnej (id=%s): %s", list_id, e
+            )
 
     # 3. Pakiet subresident jeśli podano package_key
     if package_key and hasattr(api, "proxyDownload"):
         try:
-            raw = api.proxyDownload("subresident", ext="txt", package_key=package_key, protocol=protocol)
-            proxies = parse_proxy_lines(raw, default_protocol=protocol)
+            raw = api.proxyDownload(
+                "subresident", ext="txt", package_key=package_key, protocol=protocol
+            )
+            proxies = with_gateway(parse_proxy_lines(raw, default_protocol=protocol), gateway)
             if proxies:
                 return proxies
-        except Exception as e:
-            log.warning("Proxy-Seller: błąd pobierania subresident (package_key=%s): %s", package_key, e)
+        except API_ERRORS as e:
+            log.warning(
+                "Proxy-Seller: błąd pobierania subresident (package_key=%s): %s", package_key, e
+            )
 
     # 4. Ogólna lista proxy (np. proxyList('resident') lub proxyList())
     if hasattr(api, "proxyList"):
@@ -223,7 +256,7 @@ def fetch_residential_proxies(api, settings: Settings) -> list[str]:
                         proxies.append(f"{protocol}://{ip}:{port}")
             if proxies:
                 return proxies
-        except Exception as e:
+        except API_ERRORS as e:
             log.debug("Proxy-Seller proxyList('resident') błąd: %s", e)
 
     return []
@@ -241,7 +274,7 @@ def get_proxy_seller_transport(settings: Settings) -> ProxySellerTransport | Non
         return None
 
     try:
-        from proxy_seller_user_api import Api, ApiError
+        from proxy_seller_user_api import Api
     except ImportError:
         log.info(
             "Proxy-Seller: podano PROXY_SELLER_API_KEY, ale biblioteka proxy-seller-user-api "
@@ -281,7 +314,11 @@ def get_proxy_seller_transport(settings: Settings) -> ProxySellerTransport | Non
 
     except ApiError as error:
         if getattr(error, "isAccessError", lambda: False)():
-            reasons = [item.get("message") for item in getattr(error, "errors", []) if isinstance(item, dict)]
+            reasons = [
+                item.get("message")
+                for item in getattr(error, "errors", [])
+                if isinstance(item, dict)
+            ]
             log.warning(
                 "Proxy-Seller: błąd dostępu do API (%s). Kontynuuję ze standardowymi strategiami.",
                 ", ".join(reasons) or error,
@@ -293,7 +330,7 @@ def get_proxy_seller_transport(settings: Settings) -> ProxySellerTransport | Non
                 getattr(error, "errors", error),
             )
         return None
-    except Exception as error:
+    except API_ERRORS as error:
         log.warning(
             "Proxy-Seller: nieoczekiwany błąd podczas łączenia z API (%s). Kontynuuję ze standardowymi strategiami.",
             error,
@@ -316,5 +353,7 @@ def make_proxy_seller_from_env() -> ProxySellerTransport:
     settings = Settings.from_env("etpc")
     transport = get_proxy_seller_transport(settings)
     if transport is None:
-        raise RuntimeError("Proxy-Seller jest niedostępny (sprawdź klucz API, stan środków lub instalację biblioteki).")
+        raise RuntimeError(
+            "Proxy-Seller jest niedostępny (sprawdź klucz API, stan środków lub instalację biblioteki)."
+        )
     return transport

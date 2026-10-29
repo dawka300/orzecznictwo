@@ -54,6 +54,10 @@ INFERRED_SYMBOLS = {
     "659": "Skargi na przewlekłe prowadzenie postępowania (opis ustalony z orzeczeń)",
     "6560": "Interpretacje przepisów prawa podatkowego (opis ustalony z orzeczeń)",
     "6561": "Interpretacje w sprawach podatków i opłat lokalnych (opis ustalony z orzeczeń)",
+    # 6550: 87% skarg na decyzje ARiMR (płatności rolne, PROW); 6559 i reszta 655x:
+    # dofinansowanie unijne (zarząd województwa, protesty w konkursach, zwroty).
+    "655": "Środki unijne: płatności rolne i dofinansowanie projektów (opis ustalony z orzeczeń)",
+    "6550": "Płatności rolne i pomoc z PROW przyznawane przez ARiMR (opis ustalony z orzeczeń)",
 }
 # Opisy symboli się nie zmieniają, a zapytanie grupuje judgment_symbols (sekundy):
 # raz na proces strony.

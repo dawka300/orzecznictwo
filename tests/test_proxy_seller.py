@@ -1,3 +1,4 @@
+import importlib.util
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -8,9 +9,15 @@ from judgments_core.proxy_seller import (
     get_proxy_seller_transport,
     has_positive_balance,
     parse_proxy_lines,
+    with_gateway,
 )
 from judgments_core.settings import Settings
 from judgments_core.transport import FallbackTransport
+
+# Testy logowania łatają proxy_seller_user_api.Api: bez biblioteki (hosting) pomijane.
+needs_api = unittest.skipUnless(
+    importlib.util.find_spec("proxy_seller_user_api"), "brak proxy-seller-user-api"
+)
 
 
 class FakeResponse:
@@ -82,46 +89,71 @@ class TestProxySeller(unittest.TestCase):
         self.assertEqual(res, ["http://u:p@res.proxy-seller.com:10001"])
         api.proxyDownloadResident.assert_called_once_with(id=12345)
 
+    def test_gateway_from_settings_replaces_the_listed_one(self):
+        api = MagicMock()
+        api.residentLists.return_value = [{"id": 1}]
+        api.proxyDownloadResident.return_value = (
+            "http://u:p@res.proxy-seller.com:10001\nhttp://u:p@other.host:10002\n"
+        )
+        settings = Settings(proxy_seller_gateway="us.res.proxy-seller.com")
+        self.assertEqual(
+            fetch_residential_proxies(api, settings),
+            ["http://u:p@us.res.proxy-seller.com:10001", "http://u:p@other.host:10002"],
+        )
+        self.assertEqual(
+            with_gateway(["socks5://us.res.proxy-seller.com:1"], "res.proxy-seller.com"),
+            ["socks5://res.proxy-seller.com:1"],
+        )
+
     def test_get_proxy_seller_transport_empty_key(self):
         settings = Settings(proxy_seller_api_key="")
         self.assertIsNone(get_proxy_seller_transport(settings))
 
+    @needs_api
     def test_get_proxy_seller_transport_no_funds(self):
         api_mock = MagicMock()
         api_mock.__enter__.return_value = api_mock
         api_mock.balance.return_value = 0.0
         api_mock.residentPackage.return_value = {"is_active": False, "traffic_left": 0}
 
-        with patch("judgments_core.proxy_seller.fetch_residential_proxies") as fetch_mock:
-            with patch("proxy_seller_user_api.Api", return_value=api_mock):
-                settings = Settings(proxy_seller_api_key="key123")
-                transport = get_proxy_seller_transport(settings)
-                self.assertIsNone(transport)
-                fetch_mock.assert_not_called()
+        fetch = "judgments_core.proxy_seller.fetch_residential_proxies"
+        with patch(fetch) as fetch_mock, patch("proxy_seller_user_api.Api", return_value=api_mock):
+            settings = Settings(proxy_seller_api_key="key123")
+            transport = get_proxy_seller_transport(settings)
+            self.assertIsNone(transport)
+            fetch_mock.assert_not_called()
 
+    @needs_api
     def test_get_proxy_seller_transport_api_error(self):
         from proxy_seller_user_api import ApiError
 
         api_mock = MagicMock()
-        api_mock.__enter__.side_effect = ApiError(503, {}, 200, [{"message": "Error api key", "code": 503}])
+        api_mock.__enter__.side_effect = ApiError(
+            503, {}, 200, [{"message": "Error api key", "code": 503}]
+        )
 
         with patch("proxy_seller_user_api.Api", return_value=api_mock):
             settings = Settings(proxy_seller_api_key="bad_key")
             transport = get_proxy_seller_transport(settings)
             self.assertIsNone(transport)
 
+    @needs_api
     def test_get_proxy_seller_transport_success(self):
         api_mock = MagicMock()
         api_mock.__enter__.return_value = api_mock
         api_mock.balance.return_value = 50.0
 
-        with patch("judgments_core.proxy_seller.fetch_residential_proxies", return_value=["http://u:p@host:1000"]):
-            with patch("proxy_seller_user_api.Api", return_value=api_mock):
-                settings = Settings(proxy_seller_api_key="key123")
-                transport = get_proxy_seller_transport(settings)
-                self.assertIsNotNone(transport)
-                self.assertIsInstance(transport, ProxySellerTransport)
-                self.assertEqual(transport.proxies, ["http://u:p@host:1000"])
+        fetch = "judgments_core.proxy_seller.fetch_residential_proxies"
+        proxies = ["http://u:p@host:1000"]
+        with (
+            patch(fetch, return_value=proxies),
+            patch("proxy_seller_user_api.Api", return_value=api_mock),
+        ):
+            settings = Settings(proxy_seller_api_key="key123")
+            transport = get_proxy_seller_transport(settings)
+            self.assertIsNotNone(transport)
+            self.assertIsInstance(transport, ProxySellerTransport)
+            self.assertEqual(transport.proxies, ["http://u:p@host:1000"])
 
     def test_fallback_chain_rotates_and_switches(self):
         challenge = FakeResponse(403, b"challenge", {"cf-mitigated": "challenge"})
@@ -162,7 +194,9 @@ class TestProxySeller(unittest.TestCase):
         t_proxy = ProxySellerTransport(["http://u:p@host:1"])
         settings = Settings(proxy_seller_api_key="valid_key")
 
-        with patch("judgments_core.proxy_seller.get_proxy_seller_factory", return_value=lambda: t_proxy):
+        with patch(
+            "judgments_core.proxy_seller.get_proxy_seller_factory", return_value=lambda: t_proxy
+        ):
             source = _make_source(project, settings, closer)
             self.assertEqual(source, "source_instance")
             client = project.source.call_args[0][1]

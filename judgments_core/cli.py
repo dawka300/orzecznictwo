@@ -492,7 +492,11 @@ def _migrate(project, settings):
 
 def _make_source(project, settings, closer, on_event=None):
     """The project's source over its transport strategy; closer closes it at the end."""
-    names = [n.strip() for n in settings.transport.split(",")] if settings.transport else list(project.transports)
+    names = (
+        [n.strip() for n in settings.transport.split(",")]
+        if settings.transport
+        else list(project.transports)
+    )
 
     extra = {}
     if settings.proxy_seller_api_key:
