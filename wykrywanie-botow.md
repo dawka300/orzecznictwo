@@ -103,15 +103,64 @@ poziomie połączenia (TLS), czyli wcześniej niż reguły z punktów 2.1-2.5.
 
 ## 3. Dlaczego Python przechodził w połowie, a przeglądarka wcale
 
-- Python nie wykonuje JavaScriptu i nie przedstawia się jako `HeadlessChrome`, więc część reguł
-  go nie łapie; inne (odcisk TLS, brak ciasteczka z JavaScriptu, nagłówki) tak - stąd mniej
-  więcej połowa.
+- Python nie wykonuje JavaScriptu i nie przedstawia się jako `HeadlessChrome`, więc reguły
+  zapory aplikacyjnej (strona blokady) go nie łapały; jego nieudane zapytania to zerwane
+  połączenia, najpewniej odcięcie części rotowanych adresów po reputacji (punkt 4).
 - Chromium bez okna sam ogłasza się nagłówkiem User-Agent i ma `navigator.webdriver = true`:
   zapora rozpoznaje go od pierwszego zapytania, z każdego adresu.
 
 ---
 
-## 4. Słowniczek
+## 4. Poprawki po recenzji (29.10.2026)
+
+Ktoś przejrzał tę notatkę; co się potwierdziło, a co nie:
+
+- **`HeadlessChrome` w User-Agent - sprawdzone, u nas prawda.** Playwright 1.64.1 z obrazu `www`,
+  domyślne `chromium.launch(headless=True)` (stary tryb, osobny `chromium-headless-shell`):
+  `Mozilla/5.0 (X11; Linux x86_64) ... HeadlessChrome/156.0.8078.4 Safari/537.36`,
+  `navigator.webdriver = true`. Recenzja ma rację tylko dla nowego trybu headless
+  (`channel="chromium"`), który ma User-Agent jak zwykły Chrome - tego nie używaliśmy.
+- **Telemetria JavaScript jako przyczyna 0/18 - mało prawdopodobne.** Strona blokady przyszła
+  już jako odpowiedź na pierwsze zapytanie świeżej przeglądarki (prosto na `/doc/<ID>`), zanim
+  jakikolwiek skrypt zapory mógł się wykonać i coś odesłać. Zapora zdecydowała po samym
+  zapytaniu: User-Agent, nagłówki, odcisk TLS. `navigator.webdriver` ma znaczenie dopiero przy
+  kolejnych stronach, gdy skrypt zapory już się wykonał.
+- **Sprzeczność w punkcie 2.4 - słuszna.** Gdyby każde `/doc/<ID>` wymagało ciasteczka z
+  JavaScriptu, Python miałby 0%, a nie ~50%. Lepsze wyjaśnienie: filtrowanie po reputacji
+  adresu (część rotowanych adresów przechodzi, część nie). Ważne: Python **nigdy nie dostał
+  strony blokady**, tylko zerwane połączenia - to inny mechanizm (odcięcie na brzegu sieci)
+  niż strona blokady dla Chromium (reguła zapory aplikacyjnej).
+- **F5 - niesprawdzone.** Rozpoznanie tylko po formacie komunikatu („Attack ID”, „Message ID”).
+  Sprawdza się po nagłówkach odpowiedzi: F5 ASM ustawia ciasteczka `TS` + szesnastkowy ciąg
+  (np. `TS01a2b3c4`), często też `BIGipServer...` (równoważenie obciążenia). Nie sprawdzałem,
+  bo każde zapytanie do CBOSA zapora liczy jako atak.
+- **Doprecyzowanie TLS (2.2):** Python `requests` (urllib3) używa systemowego **OpenSSL**,
+  Chrome - **BoringSSL** (odgałęzienie OpenSSL od Google). Domyślne listy szyfrów i rozszerzeń
+  obu bibliotek są różne, więc odcisk OpenSSL na stronie dla ludzi to sygnatura skryptu.
+- **Doprecyzowanie HTTP/2 (2.3):** Python `requests` obsługuje **tylko HTTP/1.1**. Przeglądarka
+  w trakcie TLS uzgadnia HTTP/2 (rozszerzenie ALPN). HTTP/1.1 z domowego adresu, bez nagłówków
+  `sec-fetch-*` - kolejny sygnał dla zapory, która łączy te cechy.
+
+### Druga runda: dwa mechanizmy na dwóch warstwach
+
+| | Chromium (Playwright) | Python przez proxy | nasze własne IP |
+|---|---|---|---|
+| co widać | strona blokady, **HTTP 500**, „Attack ID” | `ProxyError: Unable to connect to proxy, RemoteDisconnected` (~50%) | TCP się łączy, zerwanie przy TLS (Python, curl, schannel) |
+| gdzie padło | warstwa aplikacji (L7): TLS i HTTP przeszły, zapora przeczytała nagłówki | przy zestawianiu tunelu `CONNECT` przez proxy, **zanim** poszło powitanie TLS do CBOSA | przy powitaniu TLS |
+| najpewniej dlaczego | sygnatura w nagłówkach (`HeadlessChrome`) - decyzja od razu, bez skryptu | odcięcie części rotowanych adresów wyjściowych (reputacja IP) | adres na czarnej liście (trzy różne biblioteki TLS, ten sam wynik - więc nie odcisk) |
+
+- Kolejność decyzji dla Chromium: TLS przechodzi (BoringSSL), zapora parsuje nagłówki, dopasowuje
+  sygnaturę automatu, zwraca stronę blokady. Gdyby decydował skrypt JS, pierwszą odpowiedzią
+  byłaby strona z wyzwaniem (*challenge*), a nie od razu blokada.
+- Odcisk TLS (JA3/JA4) nie mógł zatrzymać Pythona przez proxy: połączenie padało, zanim Python
+  wysłał do CBOSA swoje `ClientHello`.
+- **Niesprawdzone:** czy to F5 (ciasteczek `TS…` / `BIGipServer…` nie widzieliśmy - nagłówki
+  odpowiedzi nie zostały zapisane, bez nowego zapytania nie ma czego sprawdzić) i co znaczy
+  „Attack ID 20000051” (numer reguły czy zdarzenia - brak źródła).
+
+---
+
+## 5. Słowniczek
 
 | Pojęcie | Znaczenie |
 |---|---|
