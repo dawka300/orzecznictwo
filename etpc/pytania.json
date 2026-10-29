@@ -107,5 +107,15 @@
     "oczekiwane": ["6878/75"],
     "filtry": {},
     "szum": ["5809/08", "35763/97", "46221/99"]
+  },
+  {
+    "pytanie": "Egzamin radcowski: organ odwoławczy zbadał tylko formalne liczenie punktów, a skarżący zarzucał, że cała procedura egzaminu była niesprawiedliwa - czy art. 6 ma zastosowanie?",
+    "oczekiwane": ["76980/12", "8543/79"],
+    "filtry": {}
+  },
+  {
+    "pytanie": "Unieważnienie wyniku egzaminu bez dowodu nieprawidłowości, bo nie dało się wyjaśnić nagłej poprawy wyników - arbitralność",
+    "oczekiwane": ["60856/00"],
+    "filtry": {}
   }
 ]
