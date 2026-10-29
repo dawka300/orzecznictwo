@@ -102,10 +102,12 @@ class NsaWebApp(WebApp):
         )
         for pages in (self.analysis, self.comparison, self.folder, self.research):
             pages.library = self.library
-        # Formułki (lista z python -m nsa formulki + wzorce): pomijane w Porównaniu i Analizie sprawy
-        self.comparison.formulas = self.folder.formulas = formulas.load()
+        # Formułki (lista z python -m nsa formulki + wzorce): pomijane w Porównaniu, Analizie sprawy
+        # i Badaniu
+        loaded = formulas.load()
+        self.comparison.formulas = self.folder.formulas = self.research.formulas = loaded
         if getattr(semantic, "embedder", None) is not None:
-            self.comparison.formulas.prepare_in_background(semantic.embedder)
+            loaded.prepare_in_background(semantic.embedder)
 
     def route(self, request):
         if request.path == "/analiza" or request.path.startswith("/analiza/"):

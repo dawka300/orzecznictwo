@@ -37,7 +37,7 @@ from judgments_core.analysis import (
     parse_form,
     read_document,
 )
-from judgments_core.comparison import units
+from judgments_core.comparison import REASONING_MARKERS, units
 from judgments_core.folder import Document, court_units
 from judgments_core.rag import OWN_CHUNKS
 from judgments_core.web import Response, e, file_field, number, shorten
@@ -267,6 +267,8 @@ class Library:
         formulas = getattr(self.case_folder, "formulas", None)
         if formulas:  # Porównanie i Analiza sprawy tną tekst bez formułek (pismo / sąd)
             texts += units(formulas.strip(text, "brief")[0])
+            if REASONING_MARKERS.search(text):  # orzeczenie w Badaniu: formułki sądu
+                texts += units(formulas.strip(text, "court", embedder)[0])
             texts += court_units(text, lambda part: formulas.strip(part, "court", embedder)[0])[0]
         if self.chunker is not None:
             own_chunks = self.chunker.chunk(0, text, "", {})[:OWN_CHUNKS]

@@ -12,6 +12,10 @@ marked paragraphs (optionally the full texts) with a reviewer's instruction: des
 interpret as hypotheses, and say where the measures are probably wrong. Every answer is
 saved with what was sent and the CSVs in badania/badanie/<date>_<id>/ (local, outside git), to
 learn from later.
+
+Formulas (boilerplate.py: headings, petitum, signature; in a judgment the court's stock
+sentences) are left out before measuring, unless the form says otherwise: they say
+nothing about the author.
 """
 
 from __future__ import annotations
@@ -154,8 +158,20 @@ jednej sprawy (kto komu odpowiedział, zmiany między nimi): Analiza sprawy."""
             "<fieldset><legend>Sekcje raportu</legend>"
             "<p class=hint>Wektory, emocje, zniekształcenia, osie i znaczniki liczą się zawsze"
             " (są w CSV); wybór decyduje, co pokazać na stronie i w PDF.</p>"
-            f"{boxes}</fieldset>"
+            f"{boxes}</fieldset>" + self.formulas_html()
         )
+
+    def formulas_html(self):
+        if not self.formulas:
+            return ""
+        return """<p><label><input type=checkbox name=formulki value=1 checked> pomiń formułki
+- nie badamy ich: w piśmie nagłówki, wstęp, wnioski (petitum), podpis, załączniki, pouczenie;
+w orzeczeniu (rozpoznane po „zważył, co następuje”) nagłówek, skład, sentencja i typowe zdania
+sądu („Skarga nie zasługuje na uwzględnienie.”, przytoczenia p.p.s.a.). Raport pokaże, co
+pominięto i dlaczego.</label></p>"""
+
+    def chosen_formulas(self, fields):
+        return bool(fields.get("formulki"))
 
     def chosen_sections(self, fields):
         chosen = tuple(key for key in RESEARCH_SECTIONS if fields.get(f"sekcja_{key}"))
@@ -356,7 +372,7 @@ def document_rows(job):
     categories = [c.key for c in job.categories]
     markers = list(text_markers.MARKERS)
     head = (
-        ["dokument", "nazwa", "rola", "rola_opis", "akapitow", "slow", "zdan"]
+        ["dokument", "nazwa", "rola", "rola_opis", "akapitow", "slow", "zdan", "pominiete_formulki"]
         + [name for _, name in STYLE_FIELDS]
         + [f"znacznik_{k}_1000" for k in markers]
         + [f"os_{k}_srednia" for k in axes]
@@ -376,6 +392,7 @@ def document_rows(job):
                 count,
                 d.style.words,
                 d.style.sentences,
+                len(d.dropped),
             ]
             + [getattr(d.style, attr) for attr, _ in STYLE_FIELDS]
             + [rates.get(k, 0.0) for k in markers]
@@ -408,6 +425,7 @@ def claude_prompt(job, with_text):
         lines.append(
             f"- {d.number}. {d.label or '-'} | {ROLE_NAMES[d.role]} | plik: {d.name} |"
             f" {d.style.words} słów, {len(d.units)} akapitów"
+            + (f", pominięte formułki: {len(d.dropped)} zdań" if job.skip_formulas else "")
         )
     lines += ["", "## Styl poznawczy i znaczniki (na dokument)"]
     for d in job.documents:
@@ -473,15 +491,17 @@ def claude_prompt(job, with_text):
             )
     note = ""
     if with_text:
-        total = sum(len(d.text) for d in job.documents)
+        texts = {d.number: d.clean_text or d.text for d in job.documents}
+        total = sum(len(t) for t in texts.values())
         share = min(1.0, MAX_TEXT_CHARS / total) if total else 1.0
         sent = 0
-        lines += ["", "## Pełne teksty"]
+        lines += ["", "## Pełne teksty" + (" (bez formułek)" if job.skip_formulas else "")]
         for d in job.documents:
-            limit = int(len(d.text) * share)
-            part = d.text[:limit]
+            text = texts[d.number]
+            limit = int(len(text) * share)
+            part = text[:limit]
             sent += len(part)
-            cut = "" if limit >= len(d.text) else f" [UCIĘTE: {limit} z {len(d.text)} znaków]"
+            cut = "" if limit >= len(text) else f" [UCIĘTE: {limit} z {len(text)} znaków]"
             lines += [
                 "",
                 f"### Dokument {d.number}: {d.label or d.name} ({ROLE_NAMES[d.role]}){cut}",

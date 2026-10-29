@@ -211,3 +211,94 @@ def test_brief_heading_lines():
     ):
         assert formulas.pattern(line, "brief"), line
     assert not formulas.pattern("Na decyzję organ czekał ponad rok.", "brief")
+
+
+JUDGMENT_HEADER = [
+    "WYROK",
+    "W IMIENIU RZECZYPOSPOLITEJ POLSKIEJ",
+    "Dnia 10 listopada 2016 r.",
+    "Sygn. akt VI SA/Wa 883/16",
+    "Wojewódzki Sąd Administracyjny w Warszawie w składzie następującym:",
+    "Przewodniczący Sędzia WSA Jakub Linkowski Sędziowie Sędzia WSA Sławomir Kozik",
+    "Protokolant sekr. sąd. Katarzyna Zielińska",
+    (
+        "po rozpoznaniu na rozprawie w dniu 10 listopada 2016 r. sprawy ze skargi H. sp. z o.o."
+        " na decyzję Ministra w przedmiocie opłaty oddala skargę"
+    ),
+    "1. uchyla zaskarżoną decyzję;",
+    "U Z A S A D N I E N I E",
+]
+JUDGMENT_CONTENT = [
+    "Stwierdza się, że kontrolerzy nie sprawdzili żadnego odbiornika.",
+    "Po rozpoznaniu sprawy Sąd uznał, że kontrola była wadliwa, bo nie zbadano odbiorników.",
+    "Sędziowski obowiązek wyjaśnienia sprawy nie został tu naruszony.",
+]
+
+
+def test_judgment_header_and_sentence_are_court_formulas():
+    from nsa import formulas as nsa_formulas
+
+    formulas = nsa_formulas.load()
+    for line in JUDGMENT_HEADER:
+        assert formulas.pattern(line, "court"), line
+    for line in JUDGMENT_CONTENT:
+        assert not formulas.pattern(line, "court"), line
+
+
+def test_research_measures_the_text_without_formulas(monkeypatch):
+    from test_folder import KeywordEmbedder as FolderEmbedder
+
+    from nsa import formulas as nsa_formulas
+
+    monkeypatch.setattr(folder, "choose_embedder", lambda settings, own: (own, "test"))
+    from judgments_core import research
+
+    pages = research.Research(Settings(), FolderEmbedder())
+    pages.formulas = nsa_formulas.load()
+    pages.formulas.examples = []  # bez "podobnych" (fałszywy model)
+    text = (
+        "\n".join(JUDGMENT_HEADER) + "\nSąd zważył, co następuje:\n" + "\n".join(JUDGMENT_CONTENT)
+    )
+    assert "name=formulki" in pages.form()
+    layout = lambda title, body: body
+
+    def run(fields):
+        request = form_research({"sekcja_psychologia": "1", "dok1_tekst": text, **fields})
+        path = dict(pages.handle(request, layout).headers)["Location"]
+        job = pages.get(path.rsplit("/", 1)[1])
+        for _ in range(200):
+            if job.status != "liczy":
+                break
+            time.sleep(0.05)
+        assert job.status == "gotowe", job.error
+        return job, pages.handle(Request({"PATH_INFO": path}), layout).body.decode()
+
+    job, page = run({"formulki": "1"})
+    doc = job.documents[0]
+    assert job.skip_formulas and len(doc.dropped) >= len(JUDGMENT_HEADER)
+    assert "RZECZYPOSPOLITEJ" not in doc.clean_text and "odbiornika" in doc.clean_text
+    assert "Pominięte formułki" in page
+    rows = pages.handle(Request({"PATH_INFO": f"/badanie/{job.id}-dokumenty.csv"}), layout)
+    head, row = rows.body.decode("utf-8-sig").splitlines()
+    assert row.split(",")[head.split(",").index("pominiete_formulki")] == str(len(doc.dropped))
+    job, page = run({})  # bez pola: tekst cały
+    assert not job.skip_formulas and not job.documents[0].dropped
+    assert "Pominięte formułki" not in page
+
+
+def form_research(fields):
+    from test_folder import form as folder_form
+
+    return folder_form(fields, "/badanie")
+
+
+def test_panel_and_sentence_patterns_leave_reasoning():
+    from nsa import formulas as nsa_formulas
+
+    formulas = nsa_formulas.load()
+    for line in (
+        "Referendarz sądowy zasadnie uznał, iż skarżący nie przedstawił wydatków.",
+        "Zwraca uwagę wielowiekowa tradycja odrębności tej dziedziny prawa.",
+    ):
+        assert not formulas.pattern(line, "court"), line
+    assert formulas.pattern("sędzia WSA (del.) sędzia NSA (przew.) sędzia NSA", "court")

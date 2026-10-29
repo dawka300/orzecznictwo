@@ -77,6 +77,7 @@ class Document:
     text: str
     stored_id: int = 0  # numer w teczce (library.py): wektory z bazy; 0 = plik albo tekst
     dropped: list = field(default_factory=list)  # pominięte formułki [boilerplate.Dropped]
+    clean_text: str = ""  # tekst bez formułek (miary Badania, tekst dla Claude'a)
     units: list = field(default_factory=list)
     own: list = field(default_factory=list)  # numery akapitów do odpowiedzi (sąd: rozważania)
     vectors: list = field(default_factory=list)
@@ -122,6 +123,7 @@ class Folder:
     embedder: str = ""
     seconds: float = 0.0
     documents: list = field(default_factory=list)
+    skip_formulas: bool = True
     axes: list = field(default_factory=list)
     categories: list = field(default_factory=list)  # psyche.Category
     thresholds: dict = field(default_factory=dict)
@@ -191,10 +193,11 @@ zapisywane."""
             rf"^{re.escape(self.base)}/([0-9a-f]{{12}})(\.pdf|\.csv|-dokumenty\.csv|\.zip)?$"
         )
 
-    def start(self, documents, sections=None):
+    def start(self, documents, sections=None, skip_formulas=True):
         job = (self.job_class or Folder)(
             uuid.uuid4().hex[:12], documents=documents, sections=sections or self.default_sections
         )
+        job.skip_formulas = skip_formulas and bool(self.formulas)
         with self.lock:
             self.jobs[job.id] = job
             while len(self.jobs) > MAX_JOBS:
@@ -215,17 +218,19 @@ zapisywane."""
             embedder, how = choose_embedder(self.settings, self.semantic_embedder)
             job.embedder = how
             for doc in job.documents:
-                clean = self.cleaner(doc, embedder)
+                clean = self.cleaner(doc, embedder, job)
                 if doc.role == "sad":
                     doc.units, doc.own = court_units(doc.text, clean)
+                    doc.clean_text = doc.text
                 else:
-                    doc.units = units(clean(doc.text))
+                    doc.clean_text = clean(doc.text)
+                    doc.units = units(doc.clean_text)
                     doc.own = list(range(len(doc.units)))
                 if not doc.units:
                     raise DocumentError(f"za mało tekstu: {doc.title}")
-                if self.psychology:
-                    doc.markers = text_markers.analyse(doc.text)
-                    doc.style = psyche.style(doc.text)
+                if self.psychology:  # miary tekstu bez formułek: nie badamy formułek
+                    doc.markers = text_markers.analyse(doc.clean_text)
+                    doc.style = psyche.style(doc.clean_text)
             texts = [u for doc in job.documents for u in doc.units]
             owned = {u: d.stored_id for d in job.documents if d.stored_id for u in d.units}
             if owned and self.library is not None:  # dokumenty z teczki: wektory z bazy
@@ -254,12 +259,12 @@ zapisywane."""
             job.seconds = time.monotonic() - started
             job.step = ""
 
-    def cleaner(self, doc, embedder=None):
-        """text -> text without formulas (a court's or a party's, by the role), remembered
-        in doc.dropped (the legal analysis); the text as it is in the research."""
-        if self.psychology or not self.formulas:
+    def cleaner(self, doc, embedder=None, job=None):
+        """text -> text without formulas (a court's or a party's, formula_kind), remembered
+        in doc.dropped; the text as it is when the job keeps formulas."""
+        if not self.formulas or (job is not None and not job.skip_formulas):
             return lambda text: text
-        kind = "court" if doc.role == "sad" else "brief"
+        kind = self.formula_kind(doc)
 
         def clean(text):
             text, dropped = self.formulas.strip(text, kind, embedder)
@@ -267,6 +272,19 @@ zapisywane."""
             return text
 
         return clean
+
+    @staticmethod
+    def formula_kind(doc):
+        """A court's formulas for the court, and for a text without a role that has the
+        court's "zważył, co następuje" / "THE LAW" (a judgment in the research); a
+        party's (headings, petitum, signature) for the rest."""
+        if doc.role == "sad" or (doc.role == "inny" and REASONING_MARKERS.search(doc.text)):
+            return "court"
+        return "brief"
+
+    def chosen_formulas(self, fields):
+        """Leave formulas out? The case analysis always (a child may ask in its form)."""
+        return True
 
     def _psychology(self, job, embedder, how, vectors):
         """The research measures: semantic axes, emotions and cognitive distortions."""
@@ -318,7 +336,7 @@ zapisywane."""
                 layout(self.title, f"<p class=error>{e(error)}</p>" + self.form()),
                 "400 Bad Request",
             )
-        job = self.start(documents, sections)
+        job = self.start(documents, sections, self.chosen_formulas(fields))
         return Response("", "303 See Other", headers=[("Location", f"{self.base}/{job.id}")])
 
     def chosen_sections(self, fields):
@@ -412,7 +430,7 @@ zapisywane."""
             "znaczniki": lambda: _markers_html(job),
         }
         html += [renderers[key]() for key in SECTIONS if key in job.sections]
-        if not self.psychology and self.formulas:
+        if self.formulas and job.skip_formulas:
             dropped = "".join(
                 dropped_html(d.title, d.dropped, self.formulas.sample, pdf) for d in job.documents
             )

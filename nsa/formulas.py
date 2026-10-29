@@ -32,6 +32,45 @@ _PETITUM = (
 )
 
 COURT_PATTERNS = (
+    # nagłówek i sentencja (całe orzeczenie, np. w Badaniu; Porównanie bierze same rozważania)
+    (
+        "nagłówek orzeczenia",
+        r"(?:wyrok|postanowienie|uchwała|u\s?z\s?a\s?s\s?a\s?d\s?n\s?i\s?e\s?n\s?i\s?e|sentencja|"
+        r"teza)(?: w imieniu rzeczypospolitej polskiej)?" + _END,
+    ),
+    ("nagłówek orzeczenia", r"w imieniu rzeczypospolitej polskiej" + _END),
+    ("nagłówek orzeczenia", r"(?:dnia )?\d{1,2} \w+ \d{4} r\.?(?: r\.)?"),
+    (
+        "nagłówek orzeczenia",
+        r"(?:sygn\.(?: akt)?|sygnatura(?: akt)?)\s*:?.{0,40}|[IVX]+ [A-Za-z]{2,4}/[A-Za-z]{1,3} "
+        r"\d+/\d+" + _END,
+    ),
+    ("skład sądu", r".{0,200}?\bw składzie(?: następującym)?\s*:?"),
+    (
+        "skład sądu",
+        (
+            # sam skład (nazwiska, tytuły); "Referendarz sądowy zasadnie uznał, że ..." zostaje
+            r"(?!.*\b(?:że|iż|uznał\w*|stwierdził\w*|wskazał\w*|przyjął\w*|zasadnie|słusznie|"
+            r"prawidłowo|błędnie|trafnie|nie)\b)"
+            r"(?:przewodnicząc[ya]|sędzia|sędziowie|protokolant(?:ka)?|asesor|referendarz)"
+            r"(?: (?:sądowy|wsa|nsa|sn|del\.|sekr\.|st\.))*\b.{0,200}"
+        ),
+    ),
+    (
+        "sentencja",
+        (
+            r".{0,60}?\bpo rozpoznaniu\b.{0,200}?\bspraw\w* (?:ze skargi|z wniosku|ze sprzeciwu|"
+            r"z zażalenia|ze skargi kasacyjnej).{0,700}"
+        ),
+    ),
+    (
+        "sentencja",
+        (
+            r"(?:\d{1,2}[.)]\s*|[IVX]+[.)]\s*)?(?:oddala|odrzuca|uchyla|stwierdza|zasądza|umarza|"
+            r"przyznaje|zwraca|odstępuje|zobowiązuje|przekazuje|postanawia|orzeka|wymierza|"
+            r"określa|ustala)\b(?! (?:się|on|ona|ono|to|także|również|jednak|uwagę)\b).{0,400}"
+        ),
+    ),
     (
         "ocena środka zaskarżenia",
         _LEAD + _MEANS + r"\b.{0,40}?\b(?:nie )?(?:zasługuje|zasługiwał\w*|zasługiwać|mogła|może)"
