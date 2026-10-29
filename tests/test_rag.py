@@ -389,3 +389,38 @@ def test_leading_case_cited_by_the_hits_joins_the_ranking():
     assert "Leading 7" in [s.title for s in result.sources]
     # Z filtrem (np. państwo) nic nie dołącza: cytowane mogłyby go łamać.
     assert retriever.retrieve(None, Query("legal aid", respondent="POL")).ranked == [1, 2]
+
+
+class _LinksCursor:
+    """ruling_links of 20 top hits: 10 = cited everywhere (4000 of 80,000 rulings) by 6 of
+    them, 11 = a leading case (400 in the base) by 4, 12 = rarely cited (20) by 3."""
+
+    def execute(self, sql, args=None):
+        self.rows = (
+            [(80_000,)]
+            if "COUNT(*) FROM rulings" in sql
+            else [
+                (10, 6, 4000),
+                (11, 4, 400),
+                (12, 3, 20),
+            ]
+        )
+
+    def fetchall(self):
+        return self.rows
+
+    def fetchone(self):
+        return self.rows[0]
+
+
+def test_cases_cited_everywhere_are_weakened():
+    from etpc.rag import EtpcRetriever
+
+    ids = list(range(20))
+    retriever = EtpcRetriever()
+    assert retriever.cited_by(_LinksCursor(), ids) == [(10, 6), (11, 4), (12, 3)]  # samo n
+    retriever.cited_idf = True  # n * log(N / cytowania w bazie)
+    assert [i for i, _ in retriever.cited_by(_LinksCursor(), ids)] == [12, 11, 10]
+    retriever.cited_idf, retriever.cited_min_lift = False, 10.0
+    # lift: 10 -> 0,3 / 0,05 = 6 (odpada), 11 -> 0,2 / 0,005 = 40, 12 -> 0,15 / 0,00025 = 600
+    assert retriever.cited_by(_LinksCursor(), ids) == [(11, 4), (12, 3)]

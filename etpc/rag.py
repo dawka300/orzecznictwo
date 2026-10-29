@@ -15,6 +15,7 @@ With a small buffer go back to mode = "znaczeniowe".
 
 from __future__ import annotations
 
+import math
 from dataclasses import fields, replace
 
 from etpc import labels, search
@@ -45,6 +46,12 @@ class EtpcRetriever(Retriever):
     # Salduz, Soering, Opuz wychodzą, choć ich tekst brzmi mniej jak pytanie
     # (pytania-panstwa.json: MRR 0,527 -> 0,725; sędzia na 12 pytaniach: nDCG 0,867 -> 0,898).
     cited_weight = 1.0
+    # Osłabienie spraw cytowanych wszędzie (Kudła 3923 razy w bazie, Labita 1955, Gäfgen 850
+    # - na pytaniach-100 częsty szum): lift = ile razy częściej cytują je najlepsze wyniki
+    # niż przeciętne orzeczenie bazy, poniżej progu nie dołączają (0 = bez progu);
+    # cited_idf = kolejność wg n * log(N / cytowania w bazie) zamiast samego n.
+    cited_min_lift = 0.0
+    cited_idf = False
 
     def ranking(self, cur, query):
         # Dwie strony: po zwinięciu etapów jednej skargi zostaje dość kandydatów.
@@ -74,11 +81,24 @@ class EtpcRetriever(Retriever):
 
     def cited_by(self, cur, ids):
         cur.execute(
-            "SELECT cited_id, COUNT(*) n FROM ruling_links WHERE citing_id IN %s"
-            " GROUP BY cited_id ORDER BY n DESC, cited_id LIMIT 50",
+            "SELECT l.cited_id, COUNT(*) n, COALESCE(MAX(k.cited_by), 0)"
+            " FROM ruling_links l LEFT JOIN ruling_ranks k ON k.ruling_id = l.cited_id"
+            " WHERE l.citing_id IN %s GROUP BY l.cited_id ORDER BY n DESC, l.cited_id LIMIT 50",
             (list(ids),),
         )
-        return cur.fetchall()
+        rows = cur.fetchall()
+        if not (self.cited_idf or self.cited_min_lift):
+            return [(cited, n) for cited, n, _ in rows]
+        cur.execute("SELECT COUNT(*) FROM rulings")
+        (total,) = cur.fetchone()
+        scored = []
+        for cited, n, everywhere in rows:
+            everywhere = max(int(everywhere), n)  # MAX() z MariaDB przychodzi jako Decimal
+            if (n / len(ids)) / (everywhere / total) < self.cited_min_lift:
+                continue
+            score = n * math.log(total / everywhere) if self.cited_idf else n
+            scored.append((-score, cited, n))
+        return [(cited, n) for _, cited, n in sorted(scored)]
 
     def filtered(self, query):
         default = search.SearchQuery()
