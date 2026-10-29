@@ -195,11 +195,28 @@ class Connection:
         pass
 
 
+class State:
+    """sync_state in memory (MariaDbStore get/set/delete_state)."""
+
+    def __init__(self):
+        self.values = {}
+
+    def get_state(self, key):
+        return self.values.get(key)
+
+    def set_state(self, key, value):
+        self.values[key] = value
+
+    def delete_state(self, key):
+        self.values.pop(key, None)
+
+
 class RowsJob(IndexJob):
     batch = 2
 
-    def __init__(self, rows, index, **kwargs):
+    def __init__(self, rows, index, state=None, **kwargs):
         super().__init__(Connection(), index, **kwargs)
+        self.store = state or State()
         self.rows = rows  # {key: text}
         self.loaded = []
 
@@ -234,3 +251,15 @@ def test_job_limit_and_budget_stop_without_removing():
     ticks = iter([0, 0, 100, 100, 100])
     result = RowsJob({1: "a"}, MemoryIndex(), time_budget_s=10, clock=lambda: next(ticks)).run()
     assert result.stopped_by == "czas"
+
+
+def test_killed_pass_resumes_from_the_saved_key():
+    store, state = MemoryIndex(), State()
+    rows = {1: "a", 2: "b", 3: "c", 4: "d", 5: "e"}
+    first = RowsJob(rows, store, state, limit=2).run()
+    assert first.stopped_by == "limit" and state.values == {"indeksuj:test": "2"}
+    job = RowsJob(rows, store, state)
+    second = job.run()
+    assert job.loaded == [3, 4, 5]  # bez ponownego czytania 1 i 2
+    assert second.finished and state.values == {}
+    assert second.removed == 0  # wznowiony: usuwanie dopiero przy pełnym przebiegu

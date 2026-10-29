@@ -3,7 +3,10 @@
 MariaDB stays the source of truth; the index is derived like the vectors
 (command indeksuj): documents keyed by the project's integer id, each with a
 version hash ("sha": text sha256 + indexed metadata), so a pass rewrites only
-what changed, may be killed anytime and the next one continues. Texts are
+what changed. A pass may be killed anytime (Ctrl+C, docker stop, --budzet): the
+last written key is kept in sync_state and the next pass continues from it;
+documents of judgments deleted from the database leave the index at the end of
+a pass that started from the first key. Texts are
 analysed (Polish by Morfologik lemmas, English/French by the built-in
 analyzers) but not stored: hits come back as ids, texts are read from MariaDB.
 
@@ -30,6 +33,8 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 import requests
+
+from judgments_core.db import MariaDbStore
 
 log = logging.getLogger(__name__)
 
@@ -311,6 +316,7 @@ class IndexJob(ABC):
         self.time_budget_s = time_budget_s
         self.from_start = from_start
         self.clock = clock
+        self.store = MariaDbStore(conn)  # kursor przerwanego przebiegu w sync_state
         self.result = IndexResult()
 
     @abstractmethod
@@ -324,10 +330,16 @@ class IndexJob(ABC):
 
     def run(self):
         started = last_report = self.clock()
+        state_key = f"indeksuj:{self.index.index}"
         if self.from_start:
             self.index.drop()
+            self.store.delete_state(state_key)
         self.index.ensure(self.definition)
-        r, after, seen = self.result, 0, set()
+        r, seen = self.result, set()
+        after = int(self.store.get_state(state_key) or 0)
+        resumed = after > 0
+        if resumed:
+            log.info("indeks %s: wznawiam od klucza %s", self.index.index, after)
         while True:
             if self.time_budget_s and self.clock() - started >= self.time_budget_s:
                 r.stopped_by = "czas"
@@ -353,6 +365,7 @@ class IndexJob(ABC):
             for key, document in documents.items():
                 document["sha"] = versions[key]
             self.index.bulk(documents)
+            self.store.set_state(state_key, str(after))
             r.indexed += len(documents)
             if self.clock() - last_report >= PROGRESS_EVERY_S:
                 last_report = self.clock()
@@ -364,7 +377,11 @@ class IndexJob(ABC):
                     after,
                 )
         if r.finished:
-            self._remove_deleted(seen)
+            self.store.delete_state(state_key)
+            if resumed:
+                log.info("usunięte z bazy wyjdą z indeksu przy następnym pełnym przebiegu")
+            else:
+                self._remove_deleted(seen)
         self.index.refresh()
         return r
 

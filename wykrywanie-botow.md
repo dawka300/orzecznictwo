@@ -191,9 +191,71 @@ Set-Cookie: cookiesession1=... (Expires, Path, HttpOnly)
   `BIGipServer...` przy F5. Obie da się przemianować (Fortinet ma na to instrukcję); u CBOSA
   nazwa jest domyślna, więc producenta widać z jednego zapytania.
 
+### Oś czasu i wnioski z całej sytuacji
+
+| Kiedy | Co | Wynik |
+|---|---|---|
+| 22.10 | zbieranie numerów z wyszukiwarki z naszego IP (`cbosa_id.py`) | urwane po 270 numerach - najpewniej wtedy nasz adres trafił na czarną listę |
+| 29.10, pierwsze zapytanie | wyszukiwarka z naszego IP (requests, curl, Playwright) | zerwanie przy TLS od pierwszej próby - adres był martwy, zanim cokolwiek dziś zrobiliśmy |
+| | oba serwery (194.181.28.1, 195.117.224.237), Windows i kontener, HTTPS i HTTP | wszędzie to samo - blokada adresu, nie awaria jednego serwera |
+| | Proxy-Seller (~10 prób) | bramka dostawcy: `503 Target host denied` - do CBOSA nie doszło |
+| | FlameProxies, Python: formularz + orzeczenie | przeszło (zwykłe polskie adresy domowe) |
+| | FlameProxies, Python: liczba wyników sty-lip 2025 (7 zapytań) | przeszło: ~57 tys. orzeczeń; sierpień - zerwany tunel proxy |
+| | FlameProxies, Python: 5 stron wyników + orzeczenia od razu po nich | wyniki przeszły, orzeczenia zaczęły padać; numerów nie zapisano (błąd: trzeba było zapisać i pobierać osobno) |
+| | FlameProxies, Python: 8 rund ipify / gov.pl / CBOSA `/doc` | ipify i gov.pl 8/8, CBOSA 4/8 - także samo `/doc` bez wyszukiwarki |
+| | FlameProxies, Playwright (25 zapytań) | 0/25: strona blokady „Attack ID 20000051” - `HeadlessChrome` w User-Agent (błąd: nie sprawdzone przed użyciem) |
+| | `HEAD` na stronę główną | `cookiesession1` - FortiWeb, nie F5 |
+
+Razem przez proxy ~60 zapytań do CBOSA, rozłożonych na kilkanaście minut i kilkadziesiąt
+adresów - za mało na jakiekolwiek przeciążenie; blokada wynikała z oceny sygnałów, nie z liczby.
+
+**Wnioski:**
+
+- **Numery zapisywać od razu, pobierać osobno i powoli.** Narzędzie tak działa (`cbosa_id.py`
+  -> pliki -> `nsa pobierz`); test to ominął.
+- **Sprawdzić własne narzędzie, zanim pójdzie do cudzego serwera** - jedno polecenie pokazałoby
+  `HeadlessChrome`; te 25 zapytań zapora zapisała jako ataki.
+- **Hipoteza z wyglądu to nie dowód.** Dwie recenzje i ja założyliśmy F5 po formacie komunikatu;
+  nagłówki pokazały Fortinet. Ładnie brzmiąca analiza („fazy spalania IP”, „`/doc` ma luźniejsze
+  limity”) rozjechała się z danymi: nasz adres był zablokowany od rana, a `/doc` padało tak samo.
+- **Gdy administrator świadomie blokuje automaty** (robots.txt + zapora), technika przestaje być
+  pytaniem; dane - oficjalnym wnioskiem (informacja publiczna / ponowne wykorzystywanie).
+
 ---
 
-## 5. Słowniczek
+## 5. Gdzie się tego uczyć (obie strony)
+
+**Testery wykrywania automatu** - po czym strona poznaje, że to nie człowiek:
+
+- **bot.sannysoft.com** - klasyczna tabela testów; od razu widać, co zdradza Playwrighta czy
+  Selenium (np. `navigator.webdriver`).
+- **CreepJS** (abrahamjuliot.github.io/creepjs) - bardzo szczegółowy odcisk przeglądarki, wykrywa
+  nawet próby maskowania.
+- **browserleaks.com**, **pixelscan.net** - co przeglądarka ujawnia o sobie: TLS, canvas, WebGL,
+  czcionki, strefa czasowa.
+
+**Strony do ćwiczenia scrapingu** (legalne z założenia):
+
+- **toscrape.com** (books / quotes) - podstawy, wersje z JavaScriptem, logowaniem i stronicowaniem.
+- **scrapethissite.com** - zadania o rosnącej trudności.
+- **scrapingcourse.com** - także strony z wyzwaniami antybotowymi, zrobione do ćwiczeń.
+
+**Własna zapora** - najlepsze dla przyszłej pracy po stronie obrony: konfigurujesz ochronę,
+potem sam ją atakujesz:
+
+- **SafeLine** (otwartoźródłowy WAF z ochroną przed botami) albo **ModSecurity + OWASP Core Rule
+  Set** przed prostą stroną w Dockerze.
+- **Anubis** - lekka zapora z wyzwaniem *proof-of-work*, coraz popularniejsza do ochrony przed
+  scraperami AI.
+- **Cloudflare na własnej domenie** - strona działki: darmowy plan z „Bot Fight Mode” i testy na
+  własnym serwisie; do tego panel z logami, czyli dokładnie to, co widzi obrońca.
+
+**Teoria:** **OWASP Automated Threats to Web Applications** - katalog typów automatycznych
+zagrożeń i metod obrony; porządkuje to, co widać w praktyce.
+
+---
+
+## 6. Słowniczek
 
 | Pojęcie | Znaczenie |
 |---|---|

@@ -227,10 +227,12 @@ Słowa z wyszukiwarki, fragmentów RAG i MCP idą do Elasticsearch, gdy ustawion
 
 | Polecenie / opcja | Co robi | Kiedy |
 |---|---|---|
-| `indeksuj` | zapisuje do indeksu nowe i zmienione orzeczenia (wersja = sha tekstu + metadane), usuwa z indeksu usunięte z bazy | po `przetworz`; pierwszy raz buduje całość (NSA 2,25 mln orzeczeń: godziny) |
+| `indeksuj` | zapisuje do indeksu nowe i zmienione orzeczenia (wersja = sha tekstu + metadane), usuwa z indeksu usunięte z bazy (tylko w przebiegu od początku) | po `przetworz`; pierwszy raz buduje całość (ETPC ~6 min, NSA 2,25 mln orzeczeń: godziny) |
 | `indeksuj --budzet 3600` | najwyżej godzinę, następny przebieg idzie dalej | długie budowanie po kawałku |
 | `indeksuj --limit N` | koniec po N zapisanych dokumentach | próba |
 | `indeksuj --od-poczatku` | usuwa indeks i buduje od nowa | po zmianie mapowania albo analizatora (`<projekt>/textindex.py`) |
+
+Przerwanie i wznowienie: przebieg można zatrzymać w każdej chwili (Ctrl+C, `docker stop <nazwa>`, `--budzet`); ostatni zapisany klucz jest w `sync_state` (`indeksuj:<indeks>`), więc to samo polecenie np. następnego dnia idzie dalej od tego miejsca. Długie budowanie w tle: `docker compose run -d --rm --no-deps --name nsa-indeksuj www python -m nsa indeksuj`, podgląd `docker logs -f nsa-indeksuj`, zatrzymanie `docker stop nsa-indeksuj`.
 
 Stan: `curl -s localhost:9200/_cat/indices?v` (liczba dokumentów i rozmiar). Indeks ma nazwę projektu (`<PREFIKS>_ELASTIC_INDEX` zmienia).
 
