@@ -366,7 +366,7 @@ python narzedzia/cbosa_id.py --od 2025-03-05 --transport curl,playwright        
 | `--sygnatura`, `--symbol`, `--sedzia`, `--hasla` | jak pola formularza CBOSA (np. `--sygnatura "II SA/Wa"`, `--symbol 6110`) |
 | `--maks-stron N` | najwyżej N stron wyników na okres (próba); plik zostaje jako `.part`, więc następne uruchomienie zbierze okres w całości |
 | `--przerwa S` | sekundy między zapytaniami, najmniej 3 (domyślnie 3) |
-| `--transport` | łańcuch po przecinku, domyślnie `requests,curl,playwright` |
+| `--transport` | łańcuch po przecinku, domyślnie `requests,curl,playwright`; `proxy_seller` (proxy rezydencjalne Proxy-Seller, `PROXY_SELLER_API_KEY`) tylko podany wprost, np. `--transport proxy_seller,requests,curl,playwright`; w październiku 2026 bramka Proxy-Seller odmawiała CBOSA (`503 Target host denied`) |
 | `--kontakt EMAIL` | dopisany do User-Agent (zalecane; `playwright` ma własny User-Agent przeglądarki) |
 | `--katalog` | gdzie zapisywać; domyślnie `nsa/database/cbosa-id` (tam czyta `pobierz`) |
 | `--nadpisz` | zbierz jeszcze raz także okresy z gotowym plikiem |

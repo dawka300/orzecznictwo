@@ -14,7 +14,10 @@ uruchomieniu (--nadpisz: zbiera jeszcze raz).
 
 Transport: łańcuch requests -> curl -> playwright; następny przejmuje, gdy
 bieżący kilka razy z rzędu nie dostanie poprawnej strony (błąd sieci, 5xx,
-pusta odpowiedź). Przerwa między zapytaniami co najmniej 3 s; bez proxy.
+pusta odpowiedź). Przerwa między zapytaniami co najmniej 3 s. Proxy
+rezydencjalne Proxy-Seller (PROXY_SELLER_API_KEY) tylko na żądanie:
+--transport proxy_seller,requests,curl,playwright (2026-10-29 bramka
+Proxy-Seller odmawia orzeczenia.nsa.gov.pl: "503 Target host denied").
 
     docker compose run --rm --no-deps www python narzedzia/cbosa_id.py --od 2025-03-05 --do 2025-03-31
     python narzedzia/cbosa_id.py --help
@@ -150,7 +153,38 @@ class PlaywrightHttp:
         self._playwright.stop()
 
 
-TRANSPORTS = {"requests": RequestsHttp, "curl": CurlHttp, "playwright": PlaywrightHttp}
+class ProxySellerHttp(RequestsHttp):
+    """Requests through the Proxy-Seller residential proxies; a failed request moves
+    to the next proxy of the list (judgments_core/proxy_seller.py)."""
+
+    name = "proxy_seller"
+
+    def __init__(self, user_agent):
+        from judgments_core.proxy_seller import get_proxy_seller_transport
+
+        self.proxy = get_proxy_seller_transport(Settings.from_env("nsa"))
+        if self.proxy is None:
+            raise RuntimeError("Proxy-Seller niedostępny (klucz API, środki, lista proxy)")
+        self.session = self.proxy.session
+        self.session.headers["User-Agent"] = user_agent
+
+    def fetch(self, url, data=None):
+        try:
+            status, body = super().fetch(url, data)
+        except Exception:
+            self.proxy.rotate()
+            raise
+        if status != 200:
+            self.proxy.rotate()
+        return status, body
+
+
+TRANSPORTS = {
+    "requests": RequestsHttp,
+    "curl": CurlHttp,
+    "playwright": PlaywrightHttp,
+    "proxy_seller": ProxySellerHttp,
+}
 
 
 class Chain:
@@ -432,7 +466,8 @@ def build_parser():
     p.add_argument(
         "--transport",
         default="requests,curl,playwright",
-        help="łańcuch transportów po przecinku (domyślnie requests,curl,playwright)",
+        help="łańcuch transportów po przecinku (domyślnie requests,curl,playwright;"
+        " proxy_seller = proxy rezydencjalne Proxy-Seller, tylko gdy podane)",
     )
     p.add_argument("--kontakt", dest="contact", help="e-mail do User-Agent (zalecane)")
     p.add_argument(
