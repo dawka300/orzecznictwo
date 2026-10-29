@@ -46,16 +46,46 @@ def read_stats(cur):
     return stats
 
 
+# CBOSA nie podaje opisu tych symboli (pusty także na stronach orzeczeń); ustalone
+# z orzeczeń: 658/659 mają w 89% sygnatury SAB (skargi na bezczynność i przewlekłość),
+# 6560 występuje razem z VAT, PIT i CIT, 6561 z podatkami lokalnymi.
+INFERRED_SYMBOLS = {
+    "658": "Skargi na bezczynność organu (opis ustalony z orzeczeń)",
+    "659": "Skargi na przewlekłe prowadzenie postępowania (opis ustalony z orzeczeń)",
+    "6560": "Interpretacje przepisów prawa podatkowego (opis ustalony z orzeczeń)",
+    "6561": "Interpretacje w sprawach podatków i opłat lokalnych (opis ustalony z orzeczeń)",
+}
+# Opisy symboli się nie zmieniają, a zapytanie grupuje judgment_symbols (sekundy):
+# raz na proces strony.
+_names = {}
+
+
 def symbol_names(cur, codes):
-    """{code: description} - the most common description of each symbol code."""
-    if not codes:
-        return {}
-    cur.execute(
-        "SELECT code, description FROM judgment_symbols WHERE code IN %s AND description <> ''"
-        " GROUP BY code, description",
-        (list(codes),),
-    )
+    """{code: description} - the most common description of each symbol code; codes
+    CBOSA leaves without one get INFERRED_SYMBOLS, "Inne o symbolu podstawowym ..." (x9,
+    as CBOSA writes it) or the description of their basic symbol (first 3 digits)."""
+    codes = list(codes)
+    bases = {c[:3] for c in codes if len(c) == 4}
+    missing = sorted({*codes, *bases} - _names.keys())
+    if missing:
+        cur.execute(
+            "SELECT code, description FROM judgment_symbols WHERE code IN %s AND description <> ''"
+            " GROUP BY code, description",
+            (missing,),
+        )
+        found = {}
+        for code, description in cur.fetchall():
+            found.setdefault(code, description)
+        _names.update({c: found.get(c, "") for c in missing})
     names = {}
-    for code, description in cur.fetchall():
-        names.setdefault(code, description)
+    for code in codes:
+        base = code[:3]
+        name = _names.get(code) or INFERRED_SYMBOLS.get(code, "")
+        if not name and len(code) == 4 and code[0] == "6":
+            if code.endswith("9"):
+                name = f"Inne o symbolu podstawowym {base}"
+            elif _names.get(base) or INFERRED_SYMBOLS.get(base):
+                name = f"{_names.get(base) or INFERRED_SYMBOLS[base]} (symbol podstawowy {base})"
+        if name:
+            names[code] = name
     return names

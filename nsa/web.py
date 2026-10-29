@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 
+from judgments_core.db import read_topics
 from judgments_core.documents import DocumentPages
 from judgments_core.embed import read_progress
 from judgments_core.embeddings import make_embedder
@@ -26,6 +27,7 @@ from judgments_core.web import (
     number,
     print_button,
     text_html,
+    topics_section,
     url,
     vectors_card,
     vectors_line,
@@ -460,9 +462,20 @@ def _similar(cur, semantic, judgment_id):
 def _stats(cur):
     stats = read_stats(cur)
     progress = vectors_card(read_progress(cur, PROGRESS_KEY), COMMAND_EMBED, ORDER_NOTE)
+    levels = read_topics(cur)
+    symbols = stats.get("symbol", [])[:50]
+    # Jedno zapytanie o opisy symboli (wolne: grupuje judgment_symbols) dla tabeli i tematów.
+    names = symbol_names(
+        cur,
+        sorted(
+            {s[0] for s in symbols}
+            | {c for ts in levels.values() for t in ts for c, _ in t["facts"].get("symbols", [])}
+        ),
+    )
+    topics = _topics(cur, levels, names)
     if not stats:
         body = "<h1>Statystyki</h1><p class=empty>Jeszcze nie policzone - uruchom: python -m nsa przetworz</p>"
-        return Response(_layout("Statystyki", body + progress))
+        return Response(_layout("Statystyki", body + progress + topics))
     total = stats["total"][0]
     cards = "".join(
         f"<div class=card><b>{number(v)}</b><span>{t}</span></div>"
@@ -487,8 +500,6 @@ def _stats(cur):
             f"<section class=card-table><h2>{e(caption)}</h2><table>{head}{body}</table></section>"
         )
 
-    symbols = stats.get("symbol", [])[:50]
-    names = symbol_names(cur, [s[0] for s in symbols])
     years = sorted(stats.get("year", []), key=lambda r: int(r[0]), reverse=True)
     # Kolejność = wypełnianie dwóch słupków (.tables): długie tabele na zmianę, by słupki
     # kończyły się mniej więcej równo.
@@ -510,5 +521,56 @@ def _stats(cur):
     updated = total[5].strftime("%d.%m.%Y %H:%M") if total[5] else ""
     body = f"""<h1>Statystyki</h1>
 <p class=hint>Przeliczone {e(updated)} UTC, po ostatnim przetworz. Źródło: zbiór JuDDGES/pl-nsa (CBOSA do 03.2025) i strony orzeczeń CBOSA pobrane później.</p>
-<div class=cards>{cards}</div>{progress}<div class=tables>{tables}</div>"""
+<div class=cards>{cards}</div>{progress}<div class=tables>{tables}</div>{topics}"""
     return Response(_layout("Statystyki", body))
+
+
+# Poziomy tematów (nsa/topics.py): nagłówek, jednostka, opis.
+TOPIC_LEVELS = {
+    "A": (
+        "Tematy orzeczeń",
+        "orzeczeń",
+        (
+            "Wszystkie orzeczenia według treści (bez sentencji i zdań odrębnych), wektory"
+            " wyrównane po sądzie, żeby szablony poszczególnych sądów nie tworzyły osobnych"
+            " tematów."
+        ),
+    ),
+    "B": (
+        "Tematy fragmentów uzasadnień: postanowienia NSA od 2019",
+        "fragmentów",
+        "Wycinek: fragmenty uzasadnień postanowień NSA od 2019 r.",
+    ),
+}
+
+
+def _topics(cur, levels, names):
+    """Topics section of the statistics page (empty until python -m nsa tematy)."""
+    ids = sorted({i for ts in levels.values() for t in ts for i in t["examples"]})
+    titles = {}
+    if ids:
+        cur.execute("SELECT id, docket_number FROM judgments WHERE id IN %s", (ids,))
+        titles = dict(cur.fetchall())
+
+    def court(t):
+        courts = t["facts"].get("court", [])
+        return f"{_court_short(courts[0][0])} {round(100 * courts[0][1])}%" if courts else ""
+
+    def symbols(t):
+        return [
+            (
+                "Symbole",
+                ", ".join(
+                    f"{c} {names.get(c, '')} ({round(100 * s)}%)".replace("  ", " ")
+                    for c, s in t["facts"].get("symbols", [])[:3]
+                ),
+            )
+        ]
+
+    return topics_section(levels, TOPIC_LEVELS, titles, ("najczęstszy sąd", court), symbols)
+
+
+def _court_short(court):
+    if court == NSA_COURT:
+        return "NSA"
+    return court.replace("Wojewódzki Sąd Administracyjny", "WSA")

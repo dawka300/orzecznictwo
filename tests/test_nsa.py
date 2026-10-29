@@ -252,6 +252,21 @@ def test_pages(nsa_db):
     html = get(app, f"/orzeczenie/{nsa_db.target}")[1]
     assert "Uzasadnienia nie ma w zbiorze (CBOSA w stanie z 5.03.2025)" in html
     assert get(app, "/statystyki")[0].startswith("200")
+    with nsa_db.cursor() as cur:  # tematy (python -m nsa tematy) w statystykach
+        cur.execute(
+            "INSERT INTO topics (level, topic, label, description, keywords, size, facts,"
+            " representatives, model, built_at) VALUES ('A', 3, 'Prawo pomocy', 'Opis',"
+            " 'wpis, koszty', 120, %s, %s, 'm', '2026-10-29')",
+            (
+                '{"court": [["Naczelny Sąd Administracyjny", 0.4]], "symbols": [["6014", 0.5]]}',
+                f'["{nsa_db.target}"]',
+            ),
+        )
+    nsa_db.commit()
+    html = get(app, "/statystyki")[1]
+    assert "Tematy orzeczeń (1)" in html and "<summary>Prawo pomocy</summary>" in html
+    assert "NSA 40%" in html and "wpis, koszty" in html
+    assert f'<a href="/orzeczenie/{nsa_db.target}">I OSK 1769/12</a>' in html
     assert get(app, "/orzeczenie/999999")[0].startswith("404")
 
 

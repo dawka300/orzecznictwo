@@ -419,6 +419,56 @@ def vectors_card(progress, command, order_note=""):
 <p class=hint>{e(order_note)} Odśwież stronę, żeby zobaczyć postęp.</p></section>"""
 
 
+def topics_section(levels, captions, titles, side, lines=None):
+    """Topics on a statistics page (python -m <project> tematy; db.read_topics).
+
+    captions: {level: (heading, unit, note)}, in the order shown; titles: {judgment id:
+    title} of the examples; side: (column heading, topic -> text); lines: topic ->
+    [(caption, text)] shown under the keywords (e.g. articles, case symbols)."""
+    sections = []
+    for level, (heading, unit, note) in captions.items():
+        rows = levels.get(level, [])
+        if not rows:
+            continue
+        top = rows[0]["size"]
+        body = "".join(_topic_row(t, top, titles, side[1], lines) for t in rows)
+        sections.append(
+            f"<section class=card-table id=tematy-{level}><h2>{e(heading)} ({len(rows)})</h2>"
+            f"<p class=hint>{e(note)}</p><table><tr><th></th><th>temat</th><th>{e(unit)}</th>"
+            f"<th>{e(side[0])}</th></tr>{body}</table></section>"
+        )
+    if not sections:
+        return ""
+    return (
+        "<h2 id=tematy>Tematy</h2><p class=hint>Grupy o podobnej treści wyznaczone"
+        " automatycznie z wektorów (BERTopic), nazwy i opisy nadał model językowy."
+        " Kliknij temat, żeby zobaczyć opis, słowa kluczowe i przykładowe orzeczenia.</p>"
+        + "".join(sections)
+    )
+
+
+def _topic_row(t, top, titles, side, lines):
+    examples = ", ".join(
+        f'<a href="/orzeczenie/{i}">{e(titles[i])}</a>' for i in t["examples"] if i in titles
+    )
+    parts = [
+        e(t["description"] or ""),
+        f"<b>Słowa:</b> {e(t['keywords'])}",
+        *(
+            f"<b>{e(caption)}:</b> {e(text)}"
+            for caption, text in (lines(t) if lines else ())
+            if text
+        ),
+        f"<b>Przykłady:</b> {examples}" if examples else "",
+    ]
+    inside = "".join(f"<p>{p}</p>" for p in parts if p)
+    return (
+        f"<tr><td>{e(t['level'])}{t['topic']}</td>"
+        f"<td><details><summary>{e(t['label'] or '(bez nazwy)')}</summary>{inside}</details></td>"
+        f"<td class=num{bar(t['size'], top)}>{number(t['size'])}</td><td>{e(side(t))}</td></tr>"
+    )
+
+
 def print_button(label="Pobierz PDF"):
     """Button opening the browser's print dialog ("Save as PDF"): the page as shown,
     also after the browser translated it; the print style keeps only the text."""

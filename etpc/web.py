@@ -20,6 +20,7 @@ from etpc.rag import EtpcRetriever
 from etpc.semantic import EtpcSemantic
 from etpc.stats import read_stats
 from etpc.weights import TIERS
+from judgments_core.db import read_topics
 from judgments_core.documents import DocumentPages
 from judgments_core.embed import read_progress
 from judgments_core.embeddings import make_embedder
@@ -31,6 +32,7 @@ from judgments_core.web import (
     e,
     layout,
     print_button,
+    topics_section,
     url,
     vectors_card,
     vectors_line,
@@ -599,11 +601,13 @@ def _similar(cur, semantic, ruling_id):
 
 def _stats(cur):
     stats = read_stats(cur)
+    topics = _topics(cur)
     if not stats:
         return Response(
             _layout(
                 "Statystyki",
-                "<p class=empty>Statystyki jeszcze nie policzone - uruchom: python -m etpc przetworz</p>",
+                "<p class=empty>Statystyki jeszcze nie policzone - uruchom: python -m etpc przetworz</p>"
+                + topics,
             )
         )
     total = stats["total"][0]
@@ -673,7 +677,7 @@ def _stats(cur):
 <p class=hint>Przeliczone {e(updated)} UTC, po ostatnim przetworz. Orzeczenie = jedno ECLI ze wszystkimi wersjami językowymi.</p>
 <div class=cards>{cards}</div>
 {vectors_card(read_progress(cur, PROGRESS_KEY), COMMAND_EMBED, ORDER_NOTE)}
-<div class=tables>{tables}</div>"""
+<div class=tables>{tables}</div>{topics}"""
     return Response(_layout("Statystyki", body))
 
 
@@ -727,3 +731,50 @@ def _weight_badge(tier, reasons):
 
 def _layout(title, body, lang="pl"):
     return layout(title, body, BRAND, lang=lang)
+
+
+# Poziomy tematów (etpc/topics.py): nagłówek, jednostka, opis.
+TOPIC_LEVELS = {
+    "A": (
+        "Tematy orzeczeń",
+        "orzeczeń",
+        (
+            "Wszystkie orzeczenia według treści (bez sentencji i zdań odrębnych), wektory"
+            " wyrównane po państwie i języku, żeby tematy dotyczyły zagadnienia, nie kraju."
+        ),
+    ),
+    "B": (
+        "Tematy fragmentów ocen prawnych (THE LAW)",
+        "fragmentów",
+        "Fragmenty części THE LAW / EN DROIT: ocena Trybunału.",
+    ),
+}
+
+
+def _topics(cur):
+    """Topics section of the statistics page (empty until python -m etpc tematy)."""
+    levels = read_topics(cur)
+    ids = sorted({i for ts in levels.values() for t in ts for i in t["examples"]})
+    titles = {}
+    if ids:
+        cur.execute("SELECT id, title FROM rulings WHERE id IN %s", (ids,))
+        titles = dict(cur.fetchall())
+
+    def states(t):
+        return ", ".join(
+            f"{label(labels.STATES, s)} {round(100 * share)}%"
+            for s, share in t["facts"].get("respondents", [])[:2]
+        )
+
+    def articles(t):
+        return [
+            (
+                "Artykuły",
+                ", ".join(
+                    f"{a} ({round(100 * share)}%)"
+                    for a, share in t["facts"].get("articles", [])[:5]
+                ),
+            )
+        ]
+
+    return topics_section(levels, TOPIC_LEVELS, titles, ("najczęstsze państwa", states), articles)

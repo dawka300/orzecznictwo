@@ -9,6 +9,7 @@ each, and make them safe to re-run where possible (IF NOT EXISTS).
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -614,6 +615,25 @@ def read_state(cur, key):
     cur.execute("SELECT value FROM sync_state WHERE `key` = %s", (key,))
     row = cur.fetchone()
     return row[0] if row else None
+
+
+def read_topics(cur):
+    """Saved topics through an open cursor (statistics pages): {level: [dict]}, biggest
+    first; facts parsed, "examples" = ids of the representative judgments (A: "id",
+    B: "id:number"), without repeats."""
+    cur.execute(
+        "SELECT level, topic, label, description, keywords, size, facts, representatives"
+        " FROM topics ORDER BY level, size DESC"
+    )
+    columns = [c[0] for c in cur.description]
+    levels = {}
+    for row in cur.fetchall():
+        t = dict(zip(columns, row))
+        t["facts"] = json.loads(t["facts"] or "{}")
+        examples = (r.split(":")[0] for r in json.loads(t["representatives"] or "[]"))
+        t["examples"] = list(dict.fromkeys(int(i) for i in examples))
+        levels.setdefault(t["level"], []).append(t)
+    return levels
 
 
 # --- teczka sprawy (baza teczki) ---------------------------------------------

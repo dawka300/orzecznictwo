@@ -222,5 +222,19 @@ def test_pages(ruling_db):
     assert "<span class='badge tier D' title='waga: bez wyróżnień'>D rutynowe</span>" in html
     assert get(app, "/", "q=satisfaction&waga=C")[1].count("class=title") == 0
     assert get(app, "/statystyki")[0].startswith("200")
+    with ruling_db.cursor() as cur:  # tematy (python -m etpc tematy) w statystykach
+        cur.execute(
+            "INSERT INTO topics (level, topic, label, description, keywords, size, facts,"
+            " representatives, model, built_at) VALUES ('B', 7, 'Długość aresztu', 'Opis',"
+            " 'detention', 50, %s, %s, 'm', '2026-10-29')",
+            ('{"articles": [["5-3", 0.9]], "respondents": [["POL", 0.25]]}', f'["{ruling_id}:2"]'),
+        )
+        cur.execute("SELECT title FROM rulings WHERE id = %s", (ruling_id,))
+        title = cur.fetchone()[0]
+    ruling_db.commit()
+    html = get(app, "/statystyki")[1]
+    assert "Tematy fragmentów ocen prawnych (THE LAW) (1)" in html
+    assert "<summary>Długość aresztu</summary>" in html and "5-3 (90%)" in html
+    assert f'<a href="/orzeczenie/{ruling_id}">{title}</a>' in html
     assert get(app, "/", "q=of")[1].count("class=error") == 1
     assert get(app, "/orzeczenie/999999")[0].startswith("404")
