@@ -9,9 +9,10 @@ services:
     command:
       - "--character-set-server=utf8mb4"
       - "--collation-server=utf8mb4_unicode_ci"
-      # 8G (2026-10-24): teksty + FULLTEXT ETPC w pamięci, hybryda RAG ETPC ~0,6 s
-      # na pytanie zamiast ~61 s przy 4G.
-      - "--innodb-buffer-pool-size=8G"
+      # 4G (2026-10-30): słowa szuka Elasticsearch (indeksuj), baza podaje wiersze po id
+      # i filtry. Wcześniej 8G - FULLTEXT ETPC w pamięci (hybryda ~0,6 s zamiast ~61 s przy 4G);
+      # bez Elastica (albo gdy nie działa) FULLTEXT przy 4G znów jest wolny.
+      - "--innodb-buffer-pool-size=4G"
       # Masowy zapis (przetworz NSA/ETPC, notepad.md "Przyspieszenie przetwarzania"):
       # commit bez fsync na każdą porcję (przebiegi są wznawialne), większy dziennik,
       # tempo zapisu dla SSD, większy bufor FULLTEXT. Pomiar: 2840 -> 4860 rekordów/min.
