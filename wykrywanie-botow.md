@@ -20,8 +20,8 @@ Powiązane: `transport.md` (jak nasze programy pobierają strony).
   > Strona została zablokowana! Nie można wyświetlać strony. Prosimy o kontakt z
   > administratorem. … Client IP: … Attack ID: 20000051 Message ID: …
 
-  Format komunikatu („Attack ID”, „Message ID”) wygląda jak zapora F5 BIG-IP (ASM / Advanced
-  WAF), często używana w polskich urzędach (niesprawdzone).
+  Najpierw zgadywałem F5 BIG-IP; sprawdzenie nagłówków (punkt 4, trzecia runda) wskazuje
+  raczej **Fortinet (FortiWeb / FortiGate)**.
 - **Przerwy między zapytaniami** (co najmniej 3 s) nie miały znaczenia: blokada była od
   pierwszego zapytania.
 
@@ -130,10 +130,9 @@ Ktoś przejrzał tę notatkę; co się potwierdziło, a co nie:
   adresu (część rotowanych adresów przechodzi, część nie). Ważne: Python **nigdy nie dostał
   strony blokady**, tylko zerwane połączenia - to inny mechanizm (odcięcie na brzegu sieci)
   niż strona blokady dla Chromium (reguła zapory aplikacyjnej).
-- **F5 - niesprawdzone.** Rozpoznanie tylko po formacie komunikatu („Attack ID”, „Message ID”).
-  Sprawdza się po nagłówkach odpowiedzi: F5 ASM ustawia ciasteczka `TS` + szesnastkowy ciąg
-  (np. `TS01a2b3c4`), często też `BIGipServer...` (równoważenie obciążenia). Nie sprawdzałem,
-  bo każde zapytanie do CBOSA zapora liczy jako atak.
+- **F5 - po sprawdzeniu raczej nie** (trzecia runda niżej). Recenzja słusznie wskazała, jak
+  to sprawdzić: F5 ASM ustawia ciasteczka `TS` + szesnastkowy ciąg (np. `TS01a2b3c4`), często
+  też `BIGipServer...` (równoważenie obciążenia) - u CBOSA ich nie ma.
 - **Doprecyzowanie TLS (2.2):** Python `requests` (urllib3) używa systemowego **OpenSSL**,
   Chrome - **BoringSSL** (odgałęzienie OpenSSL od Google). Domyślne listy szyfrów i rozszerzeń
   obu bibliotek są różne, więc odcisk OpenSSL na stronie dla ludzi to sygnatura skryptu.
@@ -154,9 +153,43 @@ Ktoś przejrzał tę notatkę; co się potwierdziło, a co nie:
   byłaby strona z wyzwaniem (*challenge*), a nie od razu blokada.
 - Odcisk TLS (JA3/JA4) nie mógł zatrzymać Pythona przez proxy: połączenie padało, zanim Python
   wysłał do CBOSA swoje `ClientHello`.
-- **Niesprawdzone:** czy to F5 (ciasteczek `TS…` / `BIGipServer…` nie widzieliśmy - nagłówki
-  odpowiedzi nie zostały zapisane, bez nowego zapytania nie ma czego sprawdzić) i co znaczy
-  „Attack ID 20000051” (numer reguły czy zdarzenia - brak źródła).
+### Trzecia runda: sprawdzenie nagłówków - to nie F5
+
+Jedno zapytanie `HEAD https://orzeczenia.nsa.gov.pl/` przez proxy (bez treści strony),
+29.10.2026:
+
+```
+HTTP 301 -> http://orzeczenia.nsa.gov.pl/cbo/query
+Server: Apache
+X-XSS-Protection: 1; mode=block
+X-Frame-Options: SAMEORIGIN
+Set-Cookie: cookiesession1=... (Expires, Path, HttpOnly)
+```
+
+- **Brak** ciasteczek F5 (`TS…`, `BIGipServer…`) - obie recenzje i ja założyliśmy F5 za szybko,
+  po samym formacie komunikatu.
+- **`cookiesession1`** - z pamięci (w sesji niesprawdzone): ciasteczko utrwalania sesji
+  w równoważeniu obciążenia urządzeń **Fortinet** (FortiGate / FortiWeb).
+- Strona blokady z polami „Client IP”, „Attack ID”, „Message ID” i numerem w postaci 2000xxxx
+  pasuje do domyślnej strony blokady **FortiWeb** (też z pamięci, niesprawdzone).
+- Nauka: rozpoznanie po wyglądzie komunikatu to hipoteza; nagłówki odpowiedzi to dowód.
+  Warto je zapisywać od razu przy pierwszej blokadzie.
+- Nadal niewiadome: co dokładnie znaczy „Attack ID 20000051” w regułach FortiWeb.
+
+**Uzupełnienie z dokumentacji Fortinetu** (sprawdził recenzent, nie ja):
+
+- **`cookiesession1` to ciasteczko FortiWeb - potwierdzone.** FortiWeb dodaje je przy pierwszym
+  żądaniu, gdy włączone jest zarządzanie sesjami (*Session Management*). Na jego podstawie
+  egzekwuje reguły zależne od historii żądań: strony startowe, kolejność odwiedzanych stron,
+  limit żądań na sesję; identyfikator sesji trafia do logów ruchu. To tłumaczy, dlaczego
+  wejście prosto na `/doc/<ID>` bez strony startowej bywa podejrzane (punkt 2.5).
+- **„Attack ID” - potwierdzone częściowo.** Szablon strony blokady FortiWeb ma makro
+  `%%EVENT_ID%%`, opisane jako „numer identyfikujący typ ataku”; pod nim administrator znajdzie
+  wpis w logu ataków. „Attack ID” najpewniej pokazuje tę wartość. „Message ID” dokumentacja nie
+  wymienia; znaczenie 20000051 - nadal niesprawdzone.
+- **Lekcja dla obrońcy:** domyślna nazwa `cookiesession1` zdradza producenta zapory, tak jak
+  `BIGipServer...` przy F5. Obie da się przemianować (Fortinet ma na to instrukcję); u CBOSA
+  nazwa jest domyślna, więc producenta widać z jednego zapytania.
 
 ---
 
