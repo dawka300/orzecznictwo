@@ -21,6 +21,18 @@ def test_bad_number_names_the_variable(tmp_path):
         Settings.from_env("nsa", environ={"NSA_MAX_RETRIES": "dużo"}, dotenv_path=tmp_path / "x")
 
 
+def test_app_env_is_common_to_projects(tmp_path):
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("APP_ENV=dev\n", encoding="utf-8")
+    assert Settings.from_env("nsa", environ={}, dotenv_path=dotenv).dev
+    assert (
+        Settings.from_env("etpc", environ={"APP_ENV": "PROD"}, dotenv_path=dotenv).app_env == "prod"
+    )
+    assert not Settings.from_env("etpc", environ={}, dotenv_path=tmp_path / "brak").dev
+    with pytest.raises(ValueError, match="APP_ENV"):
+        Settings.from_env("nsa", environ={"APP_ENV": "test"}, dotenv_path=dotenv)
+
+
 def test_missing_dotenv_is_fine(tmp_path):
     assert read_dotenv(tmp_path / "brak") == {}
 

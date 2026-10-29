@@ -10,14 +10,10 @@ from __future__ import annotations
 import logging
 import re
 
-from judgments_core.analysis import DocumentAnalysis
-from judgments_core.comparison import DocumentComparison
+from judgments_core.documents import DocumentPages
 from judgments_core.embed import read_progress
 from judgments_core.embeddings import make_embedder
-from judgments_core.folder import CaseFolder
-from judgments_core.library import Library
 from judgments_core.qdrant import QdrantStore, collection_name
-from judgments_core.research import Research
 from judgments_core.semantic import SemanticUnavailable
 from judgments_core.web import (
     Response,
@@ -34,9 +30,10 @@ from judgments_core.web import (
     vectors_card,
     vectors_line,
 )
-from nsa import formulas, search
+from nsa import search
 from nsa.chunker import NsaChunker
 from nsa.embed import PROGRESS_KEY
+from nsa.formulas import NsaFormulas
 from nsa.rag import NsaRetriever
 from nsa.semantic import NsaSemantic
 from nsa.stats import NSA_COURT, read_stats, symbol_names
@@ -86,40 +83,20 @@ class NsaWebApp(WebApp):
             )
             semantic.prepare_in_background()
         self.semantic = semantic
-        self.analysis = DocumentAnalysis(
+        # Zakładki dokumentów (analiza, porównanie, sprawa, teczka, badanie): wspólne z rdzenia
+        self.documents = DocumentPages(
             settings,
             NsaRetriever(semantic),
             NsaChunker(),
             self.connect,
             getattr(semantic, "embedder", None),
+            NsaFormulas.load(),
         )
-        self.comparison = DocumentComparison(settings, getattr(semantic, "embedder", None))
-        self.folder = CaseFolder(settings, getattr(semantic, "embedder", None))
-        self.research = Research(settings, getattr(semantic, "embedder", None))
-        # Teczka sprawy: dokumenty zapisane raz (OCR), do wyboru w pozostałych zakładkach
-        self.library = Library(
-            settings, self.folder, self.analysis.chunker, getattr(semantic, "embedder", None)
-        )
-        for pages in (self.analysis, self.comparison, self.folder, self.research):
-            pages.library = self.library
-        # Formułki (lista z python -m nsa formulki + wzorce): pomijane w Porównaniu, Analizie sprawy
-        # i Badaniu
-        loaded = formulas.load()
-        self.comparison.formulas = self.folder.formulas = self.research.formulas = loaded
-        if getattr(semantic, "embedder", None) is not None:
-            loaded.prepare_in_background(semantic.embedder)
 
     def route(self, request):
-        if request.path == "/analiza" or request.path.startswith("/analiza/"):
-            return self.analysis.handle(request, _layout)
-        if request.path == "/porownanie" or request.path.startswith("/porownanie/"):
-            return self.comparison.handle(request, _layout)
-        if request.path == "/sprawa" or request.path.startswith("/sprawa/"):
-            return self.folder.handle(request, _layout)
-        if request.path == "/teczka" or request.path.startswith("/teczka/"):
-            return self.library.handle(request, _layout)
-        if request.path == "/badanie" or request.path.startswith("/badanie/"):
-            return self.research.handle(request, _layout)
+        response = self.documents.route(request, _layout)
+        if response is not None:
+            return response
         match = _JUDGMENT_PATH.match(request.path)
         if request.path not in ("/", "/statystyki") and not match:
             return Response(

@@ -35,15 +35,8 @@ from judgments_core.analysis import (
     html_to_pdf,
     parse_form,
 )
-from judgments_core.comparison import (
-    ANSWERED,
-    PARTLY,
-    REASONING_MARKERS,
-    STATUSES,
-    dropped_html,
-    status_of,
-    units,
-)
+from judgments_core.boilerplate import REASONING_MARKERS, Formulas, dropped_html
+from judgments_core.comparison import ANSWERED, PARTLY, STATUSES, status_of, units
 from judgments_core.web import Response, e, file_field, number, shorten
 
 SLOTS = 6  # tyle dokumentów w formularzu
@@ -275,12 +268,9 @@ zapisywane."""
 
     @staticmethod
     def formula_kind(doc):
-        """A court's formulas for the court, and for a text without a role that has the
-        court's "zważył, co następuje" / "THE LAW" (a judgment in the research); a
-        party's (headings, petitum, signature) for the rest."""
-        if doc.role == "sad" or (doc.role == "inny" and REASONING_MARKERS.search(doc.text)):
-            return "court"
-        return "brief"
+        """A court's formulas for the court and for a judgment without a role (the
+        research); a party's (headings, petitum, signature) for the rest."""
+        return Formulas.kind_of(doc.text, doc.role)
 
     def chosen_formulas(self, fields):
         """Leave formulas out? The case analysis always (a child may ask in its form)."""

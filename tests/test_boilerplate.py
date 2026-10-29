@@ -167,7 +167,7 @@ BRIEF_ARGUMENTS = [
 def test_patterns_drop_formulas_and_keep_arguments():
     from nsa import formulas as nsa_formulas
 
-    formulas = nsa_formulas.load()
+    formulas = nsa_formulas.NsaFormulas.load()
     for sentence in COURT_FORMULAS:
         assert formulas.pattern(sentence, "court"), sentence
     for sentence in COURT_ARGUMENTS:
@@ -204,7 +204,7 @@ def test_similar_sentences_go_only_from_a_court():
 def test_brief_heading_lines():
     from nsa import formulas as nsa_formulas
 
-    formulas = nsa_formulas.load()
+    formulas = nsa_formulas.NsaFormulas.load()
     for line in (
         "J., dnia 10 marca 2016 r.",
         "na decyzję Ministra Infrastruktury z dnia [...] lutego 2016 r. w przedmiocie opłaty",
@@ -238,7 +238,7 @@ JUDGMENT_CONTENT = [
 def test_judgment_header_and_sentence_are_court_formulas():
     from nsa import formulas as nsa_formulas
 
-    formulas = nsa_formulas.load()
+    formulas = nsa_formulas.NsaFormulas.load()
     for line in JUDGMENT_HEADER:
         assert formulas.pattern(line, "court"), line
     for line in JUDGMENT_CONTENT:
@@ -254,7 +254,7 @@ def test_research_measures_the_text_without_formulas(monkeypatch):
     from judgments_core import research
 
     pages = research.Research(Settings(), FolderEmbedder())
-    pages.formulas = nsa_formulas.load()
+    pages.formulas = nsa_formulas.NsaFormulas.load()
     pages.formulas.examples = []  # bez "podobnych" (fałszywy model)
     text = (
         "\n".join(JUDGMENT_HEADER) + "\nSąd zważył, co następuje:\n" + "\n".join(JUDGMENT_CONTENT)
@@ -295,10 +295,142 @@ def form_research(fields):
 def test_panel_and_sentence_patterns_leave_reasoning():
     from nsa import formulas as nsa_formulas
 
-    formulas = nsa_formulas.load()
+    formulas = nsa_formulas.NsaFormulas.load()
     for line in (
         "Referendarz sądowy zasadnie uznał, iż skarżący nie przedstawił wydatków.",
         "Zwraca uwagę wielowiekowa tradycja odrębności tej dziedziny prawa.",
     ):
         assert not formulas.pattern(line, "court"), line
     assert formulas.pattern("sędzia WSA (del.) sędzia NSA (przew.) sędzia NSA", "court")
+
+
+ETPC_FORMULAS = [
+    "FOURTH SECTION",
+    "CASE OF LEHTINEN v. FINLAND (No. 2)",
+    "(Application no. 41585/98)",
+    "JUDGMENT",
+    "STRASBOURG",
+    "8 June 2006",
+    (
+        "This judgment will become final in the circumstances set out in Article 44 § 2 of the"
+        " Convention."
+    ),
+    "It may be subject to editorial revision.",
+    "LEHTINEN v. FINLAND (No. 2) JUDGMENT 11",
+    "In the case of Lehtinen v. Finland (No. 2),",
+    "The European Court of Human Rights (Fourth Section), sitting as a Chamber composed of:",
+    "Sir Nicolas Bratza, President,",
+    "Mr J. Casadevall,",
+    "Mr J. Šikuta, judges,",
+    "and Mr M. O’Boyle, Section Registrar,",
+    "Having deliberated in private on 13 December 2005 and on 16 May 2006,",
+    "Delivers the following judgment, which was adopted on the lastmentioned date:",
+    "PROCEDURE",
+    (
+        "The Finnish Government (“the Government”) were represented by their Agent, Mr Arto"
+        " Kosonen, Director in the Ministry for Foreign Affairs."
+    ),
+    "II. ALLEGED VIOLATION OF ARTICLE 6 § 1 OF THE CONVENTION",
+    (
+        "The Court notes that this complaint is not manifestly ill-founded within the meaning of"
+        " Article 35 § 3 (a) of the Convention."
+    ),
+    "It must therefore be declared admissible.",
+    "FOR THESE REASONS, THE COURT UNANIMOUSLY",
+    "1. Holds that there has been a violation of Article 6 § 1 of the Convention;",
+    "(i) EUR 1,500 (one thousand and five hundred euros) in respect of non-pecuniary damage;",
+    (
+        "Done in English, and notified in writing on 8 June 2006, pursuant to Rule 77 §§ 2 and 3"
+        " of the Rules of Court."
+    ),
+    "AFFAIRE MORICE c. FRANCE",
+    (
+        "Cet arrêt deviendra définitif dans les conditions définies à l’article 44 § 2 de la"
+        " Convention."
+    ),
+    "PAR CES MOTIFS, LA COUR, À L’UNANIMITÉ,",
+    "Dit qu’il y a eu violation de l’article 10 de la Convention;",
+    "SPRAWA KUDŁA przeciwko POLSCE",
+    "Wyrok ten stanie się ostateczny zgodnie z warunkami określonymi w art. 44 § 2 Konwencji.",
+]
+ETPC_CONTENT = [
+    "The Court holds that the length of the proceedings was excessive.",
+    "Having regard to the foregoing, the Court considers that there has been a violation.",
+    "The applicant complained that the proceedings had lasted too long.",
+    "Sprawa Kudła przeciwko Polsce dotyczyła długości tymczasowego aresztowania.",
+    "Stwierdza się, że skarżący nie wyczerpał środków krajowych.",
+    "Mr Smith disagreed.",
+]
+
+
+def test_etpc_court_patterns():
+    from etpc.formulas import EtpcFormulas
+
+    formulas = EtpcFormulas.load()
+    for line in ETPC_FORMULAS:
+        assert formulas.pattern(line, "court"), line
+    for line in ETPC_CONTENT:
+        assert not formulas.pattern(line, "court"), line
+    for line in ("European Court of Human Rights", "Skarżący: Jan Kowalski", "Z poważaniem"):
+        assert formulas.pattern(line, "brief"), line
+    assert not formulas.pattern("Skarga do Trybunału jest dopuszczalna.", "brief")
+
+
+def test_kind_of_a_text():
+    k = boilerplate.Formulas.kind_of
+    assert k("Fakty...\nTHE LAW\nThe Court ...") == "court"
+    assert k("Sąd zważył, co następuje: ...") == "court"
+    assert k("Fakty.\nPRAWO\nTrybunał ...") == "court"
+    assert k("Zarzucam naruszenie art. 7 k.p.a.") == "brief"
+    assert k("Sąd zważył, co następuje", role="skarzacy") == "brief"
+
+
+def test_document_analysis_searches_without_formulas(monkeypatch):
+    from test_analysis import FakeConnection, FakeRetriever, multipart, request
+
+    from judgments_core import analysis
+    from nsa.chunker import NsaChunker
+    from nsa.formulas import NsaFormulas
+
+    monkeypatch.setattr(analysis, "lm_studio_has_model", lambda settings: False)
+    retriever = FakeRetriever()
+    pages = analysis.DocumentAnalysis(Settings(), retriever, NsaChunker(), FakeConnection, "model")
+    pages.formulas = NsaFormulas.load()
+    pages.formulas.examples = []  # bez "podobnych" (model to napis)
+    assert "name=formulki" in pages.form()
+    text = "\n".join(BRIEF_FORMULAS + BRIEF_ARGUMENTS)
+    layout = lambda title, body: body
+
+    def run(fields):
+        body, content_type = multipart({"strona": "skarzacy", "tekst": text, **fields}, {})
+        path = dict(pages.handle(request(body, content_type), layout).headers)["Location"]
+        job = pages.get(path.rsplit("/", 1)[1])
+        for _ in range(100):
+            if job.status != "liczy":
+                break
+            time.sleep(0.05)
+        assert job.status == "gotowe", job.error
+        return job, pages.handle(Request({"PATH_INFO": path}), layout).body.decode()
+
+    job, page = run({"formulki": "1"})
+    assert retriever.calls[-1][0] == "\n".join(BRIEF_ARGUMENTS)  # szukane bez formułek
+    assert job.formula_kind == "brief" and len(job.dropped) == len(BRIEF_FORMULAS)
+    assert "Pominięte formułki" in page and "pominięte jako formułka" in page
+    job, page = run({})
+    assert retriever.calls[-1][0] == text and "Formułki nie były pomijane" in page
+
+
+def test_document_pages_share_the_formulas_and_route():
+    from judgments_core.documents import DocumentPages
+
+    formulas = boilerplate.Formulas({boilerplate.normalise(FORMULA): 1}, 10)
+    pages = DocumentPages(Settings(), None, None, None, None, formulas)
+    assert all(tab.formulas is formulas for tab in pages.tabs())
+    assert pages.library.case_folder is pages.folder
+    layout = lambda title, body: body
+    assert (
+        "Porównanie dokumentów"
+        in pages.route(Request({"PATH_INFO": "/porownanie"}), layout).body.decode()
+    )
+    assert "name=formulki" in pages.route(Request({"PATH_INFO": "/badanie"}), layout).body.decode()
+    assert pages.route(Request({"PATH_INFO": "/orzeczenie/1"}), layout) is None

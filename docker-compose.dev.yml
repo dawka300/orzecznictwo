@@ -1,6 +1,7 @@
 # Profil deweloperski (komputer z 64 GB RAM, Docker/WSL ~52 GB): nadpisuje tylko
-# różnice względem docker-compose.yml (profil użytkownika, 32 GB). Włączany linią
-# w .env: COMPOSE_FILE=docker-compose.yml;docker-compose.dev.yml
+# różnice względem docker-compose.yml (profil użytkownika, 32 GB). Włączany w .env:
+#   APP_ENV=dev
+#   COMPOSE_FILE=docker-compose.yml;docker-compose.${APP_ENV:-prod}.yml
 # "command" nie łączy się z bazowym, tylko go zastępuje - stąd pełna lista.
 # Qdrant: kolekcje int8 w RAM (always_ram) - ustawienie kolekcji, nie compose.
 services:

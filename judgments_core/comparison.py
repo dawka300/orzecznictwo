@@ -35,6 +35,7 @@ from judgments_core.analysis import (
     html_to_pdf,
     parse_form,
 )
+from judgments_core.boilerplate import REASONING_MARKERS, checkbox_html, dropped_html
 from judgments_core.web import Response, e, file_field, number, shorten
 
 ANSWERED = 0.70  # cosinus bge-m3: zarzut omówiony (obca sprawa nie przekracza ~0.62; kalibracja I FZ 106/22)
@@ -43,16 +44,14 @@ MIN_UNIT = 200  # krótszy akapit dołącza do następnego (znaki)
 MAX_UNIT = 1500  # dłuższy dzielony na zdania
 MAX_UNITS = 120  # tyle argumentów pisma i fragmentów orzeczenia najwyżej
 EMBED_BATCH = 8
-# Początek własnych rozważań sądu (wcześniej: streszczenie stanowisk stron).
-REASONING_MARKERS = re.compile(
-    r"zważył[a-ząęłńóśźż]*,?\s+co następuje\s*:?"
-    r"|^\s*THE LAW\s*$|^\s*The Court['’]s assessment\s*$"
-    r"|^\s*EN DROIT\s*$|^\s*Appréciation de la Cour\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
 _POINT = re.compile(r"^\s*(\d{1,2}[.)]|[a-z][.)]|[IVX]{1,4}[.)]|-|•)\s+")
 _SENTENCE_END = re.compile(r"(?<=[.;:?!])\s+(?=[A-ZĄĆĘŁŃÓŚŹŻ0-9(„\"])")
 _PDF_PATH = re.compile(r"^/porownanie/([0-9a-f]{12})(\.pdf)?$")
+FORMULAS_NOTE = (
+    "w orzeczeniu zdania powtarzane w wielu orzeczeniach bazy i do nich podobne, typowe formuły"
+    " („Skarga okazała się bezzasadna.”, przytoczenia przepisów o kontroli sądu); w piśmie"
+    " nagłówki, wnioski (petitum), podpis i załączniki"
+)
 STATUSES = (
     ("pominieto", "Pominięte przez sąd", "brak bliskiego fragmentu w rozważaniach sądu"),
     ("czesciowo", "Częściowo", "temat się pojawia, ale nie wprost - sprawdź"),
@@ -297,53 +296,9 @@ i porównywane po znaczeniu. Dokumenty zostają na tym komputerze i nie są zapi
 <p><label>albo tekst<br><textarea name=tekst_orzeczenia rows=5></textarea></label></p></fieldset>
 <p><label><input type=checkbox name=rozwazania value=1 checked> porównuj tylko z rozważaniami sądu
 (od „zważył, co następuje” / „THE LAW”) - wcześniej sąd streszcza zarzuty stron</label></p>
-{formulas_checkbox(formulas)}
+{checkbox_html(formulas, FORMULAS_NOTE)}
 <p><button type=submit>Porównaj</button></p>
 </form>"""
-
-
-def formulas_checkbox(formulas):
-    if not formulas:
-        return ""
-    return f"""<p><label><input type=checkbox name=formulki value=1 checked> pomiń formułki:
-w orzeczeniu zdania powtarzane w wielu orzeczeniach bazy ({number(len(formulas))}) i do nich
-podobne, typowe formuły („Skarga okazała się bezzasadna.”, „O kosztach orzeczono…”, przytoczenia
-p.p.s.a.); w piśmie nagłówki, wnioski (petitum), podpis i załączniki - raport pokaże, co pominięto
-i dlaczego</label></p>"""
-
-
-def why(item, sample=0):
-    """Why a sentence was left out (boilerplate.Dropped), for the report."""
-    if item.how == "lista":
-        of = f" z {number(sample)}" if sample else ""
-        return f"w {number(item.count)}{of} orzeczeń bazy"
-    if item.how == "wzorzec":
-        return f"wzorzec: {item.label}"
-    return f"podobne {item.score:.2f} do „{shorten(item.label, 120)}”"
-
-
-def dropped_html(title, dropped, sample=0, pdf=False):
-    """The formulas dropped from one document, each once, with the reason."""
-    if not dropped:
-        return ""
-    unique = list({d.sentence: d for d in dropped}.values())
-    items = "".join(
-        f"<li>{e(shorten(d.sentence, 300))} <span class=hint>({e(why(d, sample))})</span></li>"
-        for d in unique
-    )
-    counts = ", ".join(
-        f"{name} {n}"
-        for name, n in (
-            ("z listy", sum(d.how == "lista" for d in dropped)),
-            ("wzorce", sum(d.how == "wzorzec" for d in dropped)),
-            ("podobne", sum(d.how == "podobne" for d in dropped)),
-        )
-        if n
-    )
-    return (
-        f"<details{' open' if pdf else ''}><summary>{e(title)}: pominięte jako formułka "
-        f"({len(dropped)}: {counts})</summary><ul>{items}</ul></details>"
-    )
 
 
 def _job_page(job):

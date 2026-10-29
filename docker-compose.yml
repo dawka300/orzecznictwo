@@ -72,6 +72,8 @@ services:
       NSA_QDRANT_URL: http://qdrant:6333
       NSA_EMBED_URL: http://host.docker.internal:1234/v1/embeddings
       NSA_LOG_DIR: logs/www
+      # dev / prod (z .env; wybiera też plik docker-compose.<APP_ENV>.yml przez COMPOSE_FILE)
+      APP_ENV: ${APP_ENV:-prod}
       PORTAL_LOG_DIR: logs/www
       # kopia bazy z kontenera: mariadb-dump z obrazu łączy się z db (host z DSN);
       # wygrywa z ETPC_DUMP_COMMAND z .env (docker exec - w kontenerze nie ma dockera)

@@ -59,8 +59,9 @@ docker compose run --rm --no-deps www python -m etpc tematy --tylko-nazwy       
 docker compose run --rm --no-deps www python -m etpc tematy --tylko-nazwy --claude claude-sonnet-5-5 --max-usd 3   # nazwy od Claude (API, ~$2)
 docker compose run --rm --no-deps www python -m etpc tematy --lista              # przejrzeć tematy: nazwa, słowa, artykuły, przykładowe sprawy
 
-# formułki: zdania powtarzane w wielu orzeczeniach (pomijane w Porównaniu i Analizie sprawy)
+# formułki: zdania powtarzane w wielu orzeczeniach (pomijane we wszystkich zakładkach dokumentów)
 docker compose run --rm --no-deps www python -m nsa formulki                     # próbka 50 000, próg 50 -> nsa/formulki.txt (~6 min)
+docker compose run --rm --no-deps www python -m etpc formulki                    # wersje językowe HUDOC -> etpc/formulki.txt
 
 # szukanie / RAG
 docker compose run --rm --no-deps www python -m etpc fragmenty "odpowiedzialność portalu za komentarze"
@@ -119,15 +120,18 @@ orz etpc stan
 | `docker compose logs -f www` | log portalu (też `logs/www/`) |
 
 ## Docker: profile pamięci (użytkownik 32 GB / deweloper 64 GB)
-`docker-compose.yml` = **profil użytkownika** (komputer z 32 GB RAM): bufor MariaDB 3G, 2 połączenia czytające w `przetworz`. `docker-compose.dev.yml` = **profil deweloperski** (64 GB): nadpisuje tylko różnice (bufor 8G, ustawienia masowego zapisu, 4 połączenia). Profil dev włącza linia w `.env` (compose czyta ją sam, polecenia się nie zmieniają):
+`docker-compose.yml` = **profil użytkownika** (komputer z 32 GB RAM): bufor MariaDB 3G, 2 połączenia czytające w `przetworz`. `docker-compose.dev.yml` = **profil deweloperski** (64 GB): nadpisuje tylko różnice (bufor 8G, ustawienia masowego zapisu, 4 połączenia); `docker-compose.prod.yml` = bez zmian. Profil wybiera **jedna zmienna `APP_ENV`** w `.env` (compose czyta ją sam, polecenia się nie zmieniają):
 ```
-COMPOSE_FILE=docker-compose.yml;docker-compose.dev.yml
+APP_ENV=dev
+COMPOSE_FILE=docker-compose.yml;docker-compose.${APP_ENV:-prod}.yml
 ```
+`APP_ENV` (dev / prod, bez prefiksu projektu) trafia też do kontenera `www`, a kod czyta ją przez `Settings.app_env` / `settings.dev`: funkcje tylko dla dewelopera sprawdzają `settings.dev`. Na hostingu bez dockera `APP_ENV` też z `.env` (brak = prod). Nazwa `APP_ENV`, nie `ENV`: `sh` w kontenerze traktuje `ENV` jako plik startowy.
 | Polecenie | Co robi |
 |---|---|
 | `docker compose config \| grep buffer-pool` | który profil jest włączony (3G = użytkownik, 8G = dev) |
-| `docker compose up -d db www` | **przełącza profil** po zmianie linii w `.env`: odtwarza bazę (przerywa przebiegi i połączenia; po ~1 min działa) - w spokojnej chwili |
-| `$env:COMPOSE_FILE="docker-compose.yml"; docker compose up -d db www` | jednorazowo profil użytkownika (np. pomiar czasu `ocen` jak na 32 GB), bez ruszania `.env`; powrót: `Remove-Item Env:COMPOSE_FILE; docker compose up -d db www` |
+| `docker compose config \| grep APP_ENV` | które środowisko widzi `www` |
+| `docker compose up -d db www` | **przełącza profil** po zmianie `APP_ENV` w `.env`: odtwarza bazę (przerywa przebiegi i połączenia; po ~1 min działa) - w spokojnej chwili |
+| `$env:APP_ENV="prod"; docker compose up -d db www` | jednorazowo profil użytkownika (np. pomiar czasu `ocen` jak na 32 GB), bez ruszania `.env`; powrót: `Remove-Item Env:APP_ENV; docker compose up -d db www` |
 
 Pamięć dla Dockera ustawia `%USERPROFILE%\.wslconfig` (poza repo; po zmianie `wsl --shutdown` i Docker od nowa): użytkownik `[wsl2] memory=22GB`, dev `memory=52GB` + `swap=8GB`. Qdrant: kolekcje int8 w RAM (ustawienie kolekcji, nie compose); na 32 GB NSA będzie potrzebować kwantyzacji binarnej albo wektorów na dysku (do zrobienia).
 
@@ -253,8 +257,8 @@ Na razie tylko ETPC. Liczy lokalnie na CPU (minuty do kilkudziesięciu minut). W
 | http://127.0.0.1:8080 | portal (usługa `www`, działa sama): `/etpc/`, `/nsa/`, statystyki `/etpc/statystyki`, `/nsa/statystyki` |
 | `www --host 0.0.0.0 --port 8081` | jeden projekt sam; z kontenera trzeba wystawić port: `docker compose run --rm --no-deps -p 127.0.0.1:8081:8081 www python -m etpc www --host 0.0.0.0 --port 8081` (8080 zajmuje `www`) |
 
-## Formułki (`formulki`: zdania pomijane w Porównaniu dokumentów i Analizie sprawy)
-Formułka nie jest ani argumentem, ani odpowiedzią na argument, i nie mówi nic o autorze. Porównanie dokumentów, Analiza sprawy (`/sprawa`) i Badanie (`/badanie`: miary, znaczniki, styl i tekst dla Claude'a liczone bez formułek; w CSV dokumentów kolumna `pominiete_formulki`; tekst bez roli = orzeczenie, gdy ma „zważył, co następuje”) pomijają je i wypisują w raporcie z powodem („pominięte jako formułka”); w formularzach Porównania i Badania pole „pomiń formułki” (domyślnie zaznaczone). Trzy sposoby: (1) **lista** - zdanie powtarzane dosłownie w wielu orzeczeniach bazy (`nsa/formulki.txt`, niżej); (2) **wzorce** całych zdań/wierszy w `nsa/formulas.py`: osobno dla sądu (`COURT_PATTERNS`: nagłówek, skład, sentencja, ocena środka, „zważył”, art. 1 p.u.s.a./3, 134, 174, 183 p.p.s.a., koszty, zakończenie) i dla pisma strony / decyzji organu (`BRIEF_PATTERNS`: nagłówki, wstęp, petitum, podpis, załączniki, pouczenie) - wzorzec musi objąć całe zdanie, więc „Skarga nie zasługuje na uwzględnienie, bo …” zostaje; (3) **podobne** (tylko tekst sądu): zdanie z wektorem bge-m3 bliskim zdaniu listy (cosinus >= 0,88, `boilerplate.NEAR`); wektory listy liczone w tle przy starcie portalu (~1 min CPU). Porównanie po normalizacji: małe litery, bez nawiasów (publikator, sygnatury), liczby jako 0, jednakowe cudzysłowy i myślniki. Lista: `nsa/formulki.txt` (w repo, `<w ilu orzeczeniach próbki>	<zdanie>`); usunięty wiersz = zdanie przestaje być pomijane. Po zmianie listy: `docker compose restart www`. Tylko NSA (ETPC bez listy = bez filtra).
+## Formułki (`formulki`: zdania pomijane w zakładkach dokumentów, ETPC i NSA)
+Formułka nie jest ani argumentem, ani odpowiedzią na argument, i nie mówi nic o autorze. Analiza dokumentu (`/analiza`: wyszukiwanie podobnych orzeczeń i znaczniki bez formułek, które ściągałyby orzeczenia z tą samą formułką), Porównanie dokumentów, Analiza sprawy (`/sprawa`) i Badanie (`/badanie`: miary, znaczniki, styl i tekst dla Claude'a liczone bez formułek; w CSV dokumentów kolumna `pominiete_formulki`; tekst bez roli = orzeczenie, gdy ma „zważył, co następuje” / „THE LAW” / „EN DROIT” / „PRAWO”) pomijają je i wypisują w raporcie z powodem („pominięte jako formułka”); w formularzach Analizy dokumentu, Porównania i Badania pole „pomiń formułki” (domyślnie zaznaczone). Trzy sposoby: (1) **lista** - zdanie powtarzane dosłownie w wielu orzeczeniach bazy (`nsa/formulki.txt`, `etpc/formulki.txt`, niżej); (2) **wzorce** całych zdań/wierszy w `<projekt>/formulas.py` (ETPC po angielsku, francusku i dla polskich tłumaczeń: nagłówek, skład, procedura, dopuszczalność, art. 41, sentencja, „Done in English…”; części listu wspólne w `boilerplate.LETTER_PATTERNS`); NSA: osobno dla sądu (`COURT_PATTERNS`: nagłówek, skład, sentencja, ocena środka, „zważył”, art. 1 p.u.s.a./3, 134, 174, 183 p.p.s.a., koszty, zakończenie) i dla pisma strony / decyzji organu (`BRIEF_PATTERNS`: nagłówki, wstęp, petitum, podpis, załączniki, pouczenie) - wzorzec musi objąć całe zdanie, więc „Skarga nie zasługuje na uwzględnienie, bo …” zostaje; (3) **podobne** (tylko tekst sądu): zdanie z wektorem bge-m3 bliskim zdaniu listy (cosinus >= 0,88, `boilerplate.NEAR`); wektory listy liczone w tle przy starcie portalu (~1 min CPU). Porównanie po normalizacji: małe litery, bez nawiasów (publikator, sygnatury), liczby jako 0, jednakowe cudzysłowy i myślniki. Lista: `nsa/formulki.txt` (w repo, `<w ilu orzeczeniach próbki>	<zdanie>`); usunięty wiersz = zdanie przestaje być pomijane. Po zmianie listy: `docker compose restart www`. Kod: rdzeń `judgments_core/boilerplate.py` (`Formulas`, `FormulaCorpus` z `load()`), dzieci `NsaFormulas`, `EtpcFormulas`; zakładki dokumentów składa wspólnie `judgments_core/documents.py` `DocumentPages`.
 
 | Polecenie | Co robi |
 |---|---|

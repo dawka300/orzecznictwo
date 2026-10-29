@@ -101,6 +101,14 @@ class Settings:
     # Teczka sprawy (judgments_core/library.py): baza z dokumentami użytkownika, wspólna
     # dla projektów; puste = baza "teczki" na tym samym serwerze co db_dsn.
     library_dsn: str = ""
+    # Środowisko: APP_ENV (bez prefiksu, wspólne dla projektów) = dev albo prod. dev =
+    # komputer dewelopera (docker-compose.dev.yml, 64 GB) i funkcje widoczne tylko tam.
+    app_env: str = "prod"
+
+    @property
+    def dev(self):
+        """Running on the developer's machine (APP_ENV=dev): dev-only features on."""
+        return self.app_env == "dev"
 
     @classmethod
     def from_env(cls, prefix, environ=None, dotenv_path=DOTENV_PATH):
@@ -119,6 +127,11 @@ class Settings:
                     changes[f.name] = type(default)(source[key])
                 except ValueError as e:
                     raise ValueError(f"Zła wartość {key}={source[key]!r}: {e}") from e
+        env = source.get("APP_ENV", "").strip().lower()
+        if env:
+            if env not in APP_ENVS:
+                raise ValueError(f"Zła wartość APP_ENV={env!r}: dozwolone {', '.join(APP_ENVS)}")
+            changes["app_env"] = env
         if not changes.get("db_dsn"):
             changes["db_dsn"] = LOCAL_DSN.format(name=prefix.lower())
         if not changes.get("library_dsn"):
@@ -127,6 +140,7 @@ class Settings:
 
 
 LIBRARY_DATABASE = "teczki"
+APP_ENVS = ("dev", "prod")
 
 
 def with_database(dsn, name):

@@ -10,6 +10,9 @@ The common part for every project:
    loaded in this process (sentence-transformers, CPU) - the vectors are the same model;
 3. the search: Retriever.like_text (the document cut like the base, each chunk
    searches the vectors, rankings fused);
+   Formulas (boilerplate.py: a judgment's heading, sentence and stock sentences, a
+   brief's headings, petitum and signature) are left out first, unless the form says
+   otherwise: they would pull in judgments with the same formula, not the same case;
 4. the report: the judgments split by Retriever.outcome_group into "na poparcie" /
    "przeciwne" / "inne" from the side the user chose (complainant or authority). It is
    the outcome of the case, not the reasoning: telling which arguments a judgment
@@ -40,6 +43,7 @@ import requests
 
 from judgments_core import claude_report, ocr
 from judgments_core import markers as text_markers
+from judgments_core.boilerplate import checkbox_html, dropped_html
 from judgments_core.embeddings import make_embedder
 from judgments_core.web import Response, e, file_field, number, shorten
 
@@ -57,6 +61,11 @@ _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _JOB_PATH = re.compile(r"^/analiza/([0-9a-f]{12})(\.pdf)?$")
 # href="/..." w raporcie -> pełny adres portalu w PDF (plik otwierany poza przeglądarką).
 _ROOT_HREF = re.compile(r"""(href=["']?)/(?!/)""")
+FORMULAS_NOTE = (
+    "w orzeczeniu (rozpoznane po „zważył, co następuje” / „THE LAW”) nagłówek, skład,"
+    " sentencja i typowe zdania sądu, w piśmie nagłówki, wnioski (petitum), podpis i załączniki"
+    " - ściągałyby orzeczenia z tą samą formułką zamiast podobnych spraw"
+)
 GROUPS = ("uwzglednione", "nieuwzglednione", "inne")
 SIDES = {
     "skarzacy": "skarżącego (skarga, skarga kasacyjna, skarga do ETPC)",
@@ -288,6 +297,10 @@ class Job:
     markers: object = None  # judgments_core.markers.Markers (warstwa 2)
     claude: bool = False  # użytkownik zgodził się wysłać znaczniki do Claude
     stored_id: int = 0  # dokument z teczki: wektory z bazy (library.py)
+    skip_formulas: bool = False
+    formula_kind: str = ""  # "court" (orzeczenie) / "brief" (pismo)
+    formula_sample: int = 0
+    dropped: list = field(default_factory=list)  # boilerplate.Dropped
     claude_report: str = ""
     claude_error: str = ""
     claude_cost: str = ""
@@ -298,6 +311,7 @@ class DocumentAnalysis:
     """Jobs of one project's pages: start, progress, report (handle() = the pages)."""
 
     library = None  # library.Library: dokumenty z teczki (ustawia strona projektu)
+    formulas = None  # boilerplate.Formulas projektu (ustawia strona projektu); None = bez filtra
 
     def __init__(self, settings, retriever, chunker, connect, semantic_embedder):
         self.settings = settings
@@ -308,9 +322,11 @@ class DocumentAnalysis:
         self.jobs = {}
         self.lock = threading.Lock()
 
-    def start(self, filename, text, side, count, claude=False, stored_id=0):
+    def start(self, filename, text, side, count, claude=False, stored_id=0, skip_formulas=True):
         job = Job(uuid.uuid4().hex[:12], filename, side, count, len(text))
         job.claude, job.stored_id = claude, stored_id
+        job.skip_formulas = skip_formulas and bool(self.formulas)
+        job.formula_sample = self.formulas.sample if job.skip_formulas else 0
         with self.lock:
             self.jobs[job.id] = job
             while len(self.jobs) > MAX_JOBS:
@@ -327,9 +343,13 @@ class DocumentAnalysis:
     def _run(self, job, text):
         started = time.monotonic()
         try:
-            job.markers = text_markers.analyse(text)  # warstwa 2: lokalnie, chwila
             job.step = "sprawdzam LM Studio"
             embedder, how = choose_embedder(self.settings, self.semantic_embedder)
+            if job.skip_formulas:
+                job.step = "pomijam formułki"
+                job.formula_kind = self.formulas.kind_of(text)
+                text, job.dropped = self.formulas.strip(text, job.formula_kind, embedder)
+            job.markers = text_markers.analyse(text)  # warstwa 2: lokalnie, chwila
             if job.stored_id and self.library is not None:  # dokument z teczki: wektory z bazy
                 embedder = self.library.embedder_for(embedder, owner=job.stored_id)
                 how += ", wektory zapisane w teczce"
@@ -399,14 +419,14 @@ class DocumentAnalysis:
             if job is None:
                 body = "<p class=error>Nie ma takiej analizy (serwer był restartowany?).</p>"
                 return Response(
-                    layout("Analiza dokumentu", body + _form(self.settings, self.library)),
+                    layout("Analiza dokumentu", body + self.form()),
                     "404 Not Found",
                 )
             if match.group(2) and job.status == "gotowe":
                 return _pdf_response(job, self.retriever, layout, _base_url(request))
             return Response(layout("Analiza dokumentu", _job_page(job, self.retriever)))
         if request.method != "POST":
-            page = _form(self.settings, self.library, request.get_int("teczka"))
+            page = self.form(request.get_int("teczka"))
             return Response(layout("Analiza dokumentu", page))
         try:
             fields = parse_form(request)
@@ -417,15 +437,20 @@ class DocumentAnalysis:
             return Response(
                 layout(
                     "Analiza dokumentu",
-                    f"<p class=error>{e(error)}</p>" + _form(self.settings, self.library),
+                    f"<p class=error>{e(error)}</p>" + self.form(),
                 ),
                 "400 Bad Request",
             )
         side = fields.get("strona") if fields.get("strona") in SIDES else "skarzacy"
         count = min(max(_int(fields.get("ile"), RESULTS), 5), MAX_RESULTS)
         claude = bool(fields.get("claude")) and claude_report.available(self.settings)[0]
-        job = self.start(filename, text, side, count, claude, stored_id)
+        job = self.start(
+            filename, text, side, count, claude, stored_id, bool(fields.get("formulki"))
+        )
         return Response("", "303 See Other", headers=[("Location", f"/analiza/{job.id}")])
+
+    def form(self, selected=0):
+        return _form(self.settings, self.library, selected, self.formulas)
 
 
 def _int(value, default):
@@ -435,7 +460,7 @@ def _int(value, default):
         return default
 
 
-def _form(settings, library=None, selected=0):
+def _form(settings, library=None, selected=0, formulas=None):
     ready, why = claude_report.available(settings)
     claude = (
         "<label><input type=checkbox name=claude value=1> wyślij znaczniki językowe do Claude"
@@ -458,6 +483,7 @@ według wyniku sprawy. Dokument zostaje na tym komputerze i nie jest zapisywany.
 <p><label>albo tekst<br><textarea name=tekst rows=8 cols=80></textarea></label></p>
 <fieldset><legend>Na poparcie stanowiska</legend>{sides}</fieldset>
 <p><label>Ile orzeczeń <input type=number name=ile value={RESULTS} min=5 max={MAX_RESULTS}></label></p>
+{checkbox_html(formulas, FORMULAS_NOTE)}
 <fieldset><legend>Warstwa językowa</legend><p class=hint>Znaczniki (pewność, przymus,
 kwantyfikatory, strona bierna ...) liczone są zawsze, lokalnie.</p>{claude}</fieldset>
 <p><button type=submit>Analizuj</button></p>
@@ -512,6 +538,7 @@ def _report(job, retriever, pdf=False):
 <p class=hint>Podział według <b>wyniku sprawy</b>, nie argumentacji: orzeczenie „na poparcie”
 mogło wygrać z innego powodu, a „przeciwne” może zawierać przydatny pogląd. W sprawach
 kasacyjnych sprawdź, kto wniósł skargę kasacyjną.</p>{own}
+{_formulas_line(job, pdf)}
 <h2 class=layer>Warstwa 1: orzeczenia z bazy</h2>"""
     ]
     for title, group, note in sections:
@@ -523,6 +550,17 @@ kasacyjnych sprawdź, kto wniósł skargę kasacyjną.</p>{own}
             html.append(_source(s, pdf))
     html.append(_language_layer(job, pdf))
     return "\n".join(html)
+
+
+def _formulas_line(job, pdf=False):
+    if not job.skip_formulas:
+        return "<p class=hint>Formułki nie były pomijane.</p>"
+    what = "orzeczenie" if job.formula_kind == "court" else "pismo"
+    return (
+        f"<p>Pominięte formułki: <b>{len(job.dropped)}</b> zdań (dokument potraktowany jako"
+        f" {what}); wyszukiwanie i znaczniki liczone bez nich.</p>"
+        + dropped_html("Dokument", job.dropped, job.formula_sample, pdf)
+    )
 
 
 def _source(s, pdf=False):

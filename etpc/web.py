@@ -13,19 +13,16 @@ import re
 from etpc import labels, search
 from etpc.chunker import EtpcChunker
 from etpc.embed import PROGRESS_KEY
+from etpc.formulas import EtpcFormulas
 from etpc.labels import label
 from etpc.rag import EtpcRetriever
 from etpc.semantic import EtpcSemantic
 from etpc.stats import read_stats
 from etpc.weights import TIERS
-from judgments_core.analysis import DocumentAnalysis
-from judgments_core.comparison import DocumentComparison
+from judgments_core.documents import DocumentPages
 from judgments_core.embed import read_progress
 from judgments_core.embeddings import make_embedder
-from judgments_core.folder import CaseFolder
-from judgments_core.library import Library
 from judgments_core.qdrant import QdrantStore, collection_name
-from judgments_core.research import Research
 from judgments_core.semantic import SemanticUnavailable
 from judgments_core.web import (
     Response,
@@ -87,34 +84,20 @@ class EtpcWebApp(WebApp):
             )
             semantic.prepare_in_background()
         self.semantic = semantic
-        self.analysis = DocumentAnalysis(
+        # Zakładki dokumentów (analiza, porównanie, sprawa, teczka, badanie): wspólne z rdzenia
+        self.documents = DocumentPages(
             settings,
             EtpcRetriever(semantic),
             EtpcChunker(),
             self.connect,
             getattr(semantic, "embedder", None),
+            EtpcFormulas.load(),
         )
-        self.comparison = DocumentComparison(settings, getattr(semantic, "embedder", None))
-        self.folder = CaseFolder(settings, getattr(semantic, "embedder", None))
-        self.research = Research(settings, getattr(semantic, "embedder", None))
-        # Teczka sprawy: dokumenty zapisane raz (OCR), do wyboru w pozostałych zakładkach
-        self.library = Library(
-            settings, self.folder, self.analysis.chunker, getattr(semantic, "embedder", None)
-        )
-        for pages in (self.analysis, self.comparison, self.folder, self.research):
-            pages.library = self.library
 
     def route(self, request):
-        if request.path == "/analiza" or request.path.startswith("/analiza/"):
-            return self.analysis.handle(request, _layout)
-        if request.path == "/porownanie" or request.path.startswith("/porownanie/"):
-            return self.comparison.handle(request, _layout)
-        if request.path == "/sprawa" or request.path.startswith("/sprawa/"):
-            return self.folder.handle(request, _layout)
-        if request.path == "/teczka" or request.path.startswith("/teczka/"):
-            return self.library.handle(request, _layout)
-        if request.path == "/badanie" or request.path.startswith("/badanie/"):
-            return self.research.handle(request, _layout)
+        response = self.documents.route(request, _layout)
+        if response is not None:
+            return response
         match = _RULING_PATH.match(request.path)
         if request.path not in ("/", "/statystyki") and not match:
             return Response(

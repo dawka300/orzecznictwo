@@ -3,6 +3,7 @@ from pathlib import Path
 
 from etpc.deriver import EtpcDeriver
 from etpc.embed import EtpcEmbedJob
+from etpc.formulas import EtpcFormulas
 from etpc.importer import EtpcImporter
 from etpc.mcp import EtpcMcp
 from etpc.pipeline import EtpcRag
@@ -29,6 +30,7 @@ PROJECT = Project(
     mcp=EtpcMcp,
     retriever=EtpcRetriever,
     rag=EtpcRag,
+    formulas=EtpcFormulas,
     topics=EtpcTopics,
 )
 

@@ -28,6 +28,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from judgments_core.web import e, number, shorten
+
 log = logging.getLogger(__name__)
 
 MIN_WORDS = 3  # słów >= 3 liter; krótsze "zdania" (nagłówki, sygnatury) nie są formułkami
@@ -39,14 +41,52 @@ PROGRESS_EVERY_S = 30
 # zdanie dłuższe niż tyle znaków to już wywód, nie formułka.
 NEAR = 0.88
 SIMILAR_MAX_CHARS = 400
+# Wzorce dla "podobnych": tyle najczęstszych zdań listy (ETPC ma ich tysiące; wektory
+# liczone przy starcie portalu, ~7 zdań/s na CPU).
+SIMILAR_EXAMPLES = 500
 EMBED_BATCH = 16
 
+# Początek własnych rozważań sądu: NSA/WSA "zważył, co następuje", ETPC "THE LAW" / "EN DROIT"
+# (wcześniej streszczenie stanowisk stron). Tekst z takim znacznikiem to orzeczenie.
+REASONING_MARKERS = re.compile(
+    r"zważył[a-ząęłńóśźż]*,?\s+co następuje\s*:?"
+    r"|^\s*THE LAW\s*$|^\s*The Court['’]s assessment\s*$"
+    r"|^\s*EN DROIT\s*$|^\s*Appréciation de la Cour\s*$"
+    r"|^\s*PRAWO\s*$|^\s*Ocena Trybunału\s*$",  # polskie tłumaczenia wyroków ETPC
+    re.IGNORECASE | re.MULTILINE,
+)
 # Koniec zdania: . ! ? ; : i spacja przed wielką literą, cyfrą albo cudzysłowem; nie po skrócie.
-_END = re.compile(r"([.!?;:])\s+(?=[A-ZĄĆĘŁŃÓŚŹŻ0-9„\"(])")
+_END = re.compile(r"([.!?;:])\s+(?=[A-ZĄĆĘŁŃÓŚŹŻÀÂÉÈÊÎÔÛÇ0-9„“«‘\"(])")
 _LAST_WORD = re.compile(r"(\w+)\W*$")
 ABBREVIATIONS = frozenset(
     "art ust par pkt lit nr poz dz sygn por zob np tj tzw tzn ww jw ok r zm ze ws pt św"  # noqa: SIM905
-    " dr prof str s orz wyr post cyt dot wg ul godz zw pn al tys mln zł gr ds".split()
+    " dr prof str s orz wyr post cyt dot wg ul godz zw pn al tys mln zł gr ds"
+    # angielskie i francuskie (ETPC): "Smith v. the United Kingdom, no. 123/45, § 6"
+    " no nos para paras pp cf mr mrs ms mme mlle sect vol ibid op cit seq etc req".split()
+)
+# Części listu pisane tak samo w każdym piśmie po polsku (projekty dokładają je do wzorców pisma).
+LETTER_PATTERNS = (
+    (
+        "zakończenie, podpis, załączniki",
+        (
+            r"(?:z poważaniem|z wyrazami szacunku|łączę wyrazy szacunku|\(?podpis\w*\)?|"
+            r"w załączeniu|załącznik\w*)\b.{0,200}"
+        ),
+    ),
+    (
+        "zakończenie, podpis, załączniki",
+        (
+            r"(?:\d{1,2}[.)]|-|•)\s*(?:\d+\s*x\s*)?(?:odpis|pełnomocnictw|dowód uiszczenia|"
+            r"potwierdzeni|kopi|oryginał)\w*\b[^.]{0,80}\.?"
+        ),
+    ),
+    (
+        "miejscowość i data",
+        (
+            r"[\wąćęłńóśźż-]+\.?, (?:dnia |dn\. )?\d{1,2}(?:[./-]\d{1,2}[./-]"
+            r"\d{2,4}| \w+ \d{4}(?: r\.?)?)"
+        ),
+    ),
 )
 _QUOTES = str.maketrans({c: '"' for c in "„”“«»‟″"} | {c: "'" for c in "‘’‚`´"})
 _DASHES = re.compile(r"[‐‑‒–—―−]")
@@ -168,6 +208,14 @@ class Formulas:
         key = normalise(sentence)
         return self.counts.get(key, 0) if key else 0
 
+    @staticmethod
+    def kind_of(text, role=""):
+        """ "court" for a court's text (role "sad", or no role and the marker of its own
+        reasoning: a judgment), "brief" for a party's brief or an authority's decision."""
+        if role == "sad" or (role in ("", "inny") and REASONING_MARKERS.search(text)):
+            return "court"
+        return "brief"
+
     def pattern(self, sentence, kind):
         """The label of the first pattern of `kind` the whole sentence matches, or ""."""
         text = _SPACES.sub(" ", sentence).strip()
@@ -256,10 +304,56 @@ class Formulas:
         with self._lock:
             if key not in self._vectors:
                 vectors = []
-                for start in range(0, len(self.examples), EMBED_BATCH):
-                    vectors += embedder.embed(self.examples[start : start + EMBED_BATCH])
-                self._vectors[key] = (_unit(np, vectors), self.examples)
+                examples = self.examples[:SIMILAR_EXAMPLES]  # plik: od najczęstszych
+                for start in range(0, len(examples), EMBED_BATCH):
+                    vectors += embedder.embed(examples[start : start + EMBED_BATCH])
+                self._vectors[key] = (_unit(np, vectors), examples)
             return self._vectors[key]
+
+
+def why(item, sample=0):
+    """Why a sentence was left out (Dropped), for a report."""
+    if item.how == "lista":
+        of = f" z {number(sample)}" if sample else ""
+        return f"w {number(item.count)}{of} orzeczeń bazy"
+    if item.how == "wzorzec":
+        return f"wzorzec: {item.label}"
+    return f"podobne {item.score:.2f} do „{shorten(item.label, 120)}”"
+
+
+def dropped_html(title, dropped, sample=0, pdf=False):
+    """The formulas left out of one document, each once, with the reason."""
+    if not dropped:
+        return ""
+    unique = list({d.sentence: d for d in dropped}.values())
+    items = "".join(
+        f"<li>{e(shorten(d.sentence, 300))} <span class=hint>({e(why(d, sample))})</span></li>"
+        for d in unique
+    )
+    counts = ", ".join(
+        f"{name} {n}"
+        for name, n in (
+            ("z listy", sum(d.how == "lista" for d in dropped)),
+            ("wzorce", sum(d.how == "wzorzec" for d in dropped)),
+            ("podobne", sum(d.how == "podobne" for d in dropped)),
+        )
+        if n
+    )
+    return (
+        f"<details{' open' if pdf else ''}><summary>{e(title)}: pominięte jako formułka "
+        f"({len(dropped)}: {counts})</summary><ul>{items}</ul></details>"
+    )
+
+
+def checkbox_html(formulas, what):
+    """The form's "leave formulas out" box (checked); "" when the project has none.
+    what: what is left out, in the words of the tab."""
+    if not formulas:
+        return ""
+    return (
+        "<p><label><input type=checkbox name=formulki value=1 checked> pomiń formułki: "
+        f"{what} - raport pokaże, co pominięto i dlaczego</label></p>"
+    )
 
 
 def _unit(np, vectors):
@@ -309,15 +403,24 @@ def save(path, found, sample, source):
 
 
 class FormulaCorpus:
-    """Parent of the projects' formula sources (command formulki): which texts of the
-    base are counted. A child gives `file` (where the list lives, read by the pages),
-    `source` (a line about what was counted) and sample_texts()."""
+    """Parent of the projects' formulas: the list (command formulki: which texts of the
+    base are counted) and the patterns, loaded together for the pages (load). A child
+    gives `file` (where the list lives), `source` (a line about what was counted),
+    `court_patterns` / `brief_patterns` ([(label, regex)] in its languages) and
+    sample_texts()."""
 
     file: Path
     source = "orzeczenia z bazy"
+    court_patterns: tuple = ()
+    brief_patterns: tuple = ()
 
     def __init__(self, conn):
         self.conn = conn
+
+    @classmethod
+    def load(cls):
+        """The project's Formulas for the pages: its list and its patterns."""
+        return Formulas.load(cls.file, cls.court_patterns, cls.brief_patterns)
 
     def sample_texts(self, size, rng):
         """Texts of `size` judgments picked at random (rng: random.Random)."""

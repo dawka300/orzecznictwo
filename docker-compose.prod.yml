@@ -1,0 +1,5 @@
+# Profil użytkownika (32 GB RAM): bez zmian względem docker-compose.yml. Plik jest po to,
+# żeby jedna linia w .env wybierała profil:
+#   APP_ENV=prod   (albo dev - docker-compose.dev.yml, komputer dewelopera, 64 GB)
+#   COMPOSE_FILE=docker-compose.yml;docker-compose.${APP_ENV:-prod}.yml
+services: {}

@@ -2,7 +2,9 @@
 reasons of many judgments, a random sample - child of FormulaCorpus) and the patterns of
 whole sentences: a court's formulas said in many words and the parts of a party's brief
 or an authority's decision that are no argument (headings, petitum, signature,
-instruction on appeal). load() gives both to the pages.
+instruction on appeal); NsaFormulas.load() gives both to the pages. The parts of a letter
+written the same in any Polish brief (signature, attachments, place and date) come from
+the core (LETTER_PATTERNS).
 
 A pattern must match the whole sentence (fullmatch, case ignored), so "Skarga nie
 zasługuje na uwzględnienie." goes, "Skarga nie zasługuje na uwzględnienie, bo organ
@@ -14,7 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from judgments_core.boilerplate import FormulaCorpus, Formulas
+from judgments_core.boilerplate import LETTER_PATTERNS, FormulaCorpus
 
 FILE = Path(__file__).parent / "formulki.txt"
 BATCH = 500
@@ -263,44 +265,21 @@ BRIEF_PATTERNS = (
         r".{0,250}",
     ),
     (
-        "zakończenie, podpis, załączniki",
-        (
-            r"(?:z poważaniem|z wyrazami szacunku|łączę wyrazy szacunku|\(?podpis\w*\)?|w załączeniu|"
-            r"załącznik\w*)\b.{0,200}"
-        ),
-    ),
-    (
-        "zakończenie, podpis, załączniki",
-        (
-            r"(?:\d{1,2}[.)]|-|•)\s*(?:\d+\s*x\s*)?(?:odpis|pełnomocnictw|dowód uiszczenia|"
-            r"potwierdzeni|kopi|oryginał)\w*\b[^.]{0,80}\.?"
-        ),
-    ),
-    (
         "pouczenie",
         (
             r"(?:od (?:niniejszej|tej) (?:decyzji|uchwały|postanowienia)|na (?:niniejszą|tę) "
             r"(?:decyzję|uchwałę)|na (?:niniejsze|to) postanowienie).{0,400}"
         ),
     ),
-    (
-        "miejscowość i data",
-        (
-            r"[\wąćęłńóśźż-]+\.?, (?:dnia |dn\. )?\d{1,2}(?:[./-]\d{1,2}[./-]"
-            r"\d{2,4}| \w+ \d{4}(?: r\.?)?)"
-        ),
-    ),
+    *LETTER_PATTERNS,
 )
-
-
-def load():
-    """The list and the patterns for the pages."""
-    return Formulas.load(FILE, COURT_PATTERNS, BRIEF_PATTERNS)
 
 
 class NsaFormulas(FormulaCorpus):
     file = FILE
     source = "uzasadnienia orzeczeń NSA i WSA (CBOSA), losowa próbka"
+    court_patterns = COURT_PATTERNS
+    brief_patterns = BRIEF_PATTERNS
 
     def sample_texts(self, size, rng):
         with self.conn.cursor() as cur:

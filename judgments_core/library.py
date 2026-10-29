@@ -37,7 +37,8 @@ from judgments_core.analysis import (
     parse_form,
     read_document,
 )
-from judgments_core.comparison import REASONING_MARKERS, units
+from judgments_core.boilerplate import REASONING_MARKERS
+from judgments_core.comparison import units
 from judgments_core.folder import Document, court_units
 from judgments_core.rag import OWN_CHUNKS
 from judgments_core.web import Response, e, file_field, number, shorten
@@ -264,15 +265,18 @@ class Library:
         texts = units(text)
         court, _ = court_units(text)
         texts += court
+        versions = [text]
         formulas = getattr(self.case_folder, "formulas", None)
-        if formulas:  # Porównanie i Analiza sprawy tną tekst bez formułek (pismo / sąd)
+        if formulas:  # zakładki tną też tekst bez formułek (pismo / sąd / rozpoznany sam)
             texts += units(formulas.strip(text, "brief")[0])
-            if REASONING_MARKERS.search(text):  # orzeczenie w Badaniu: formułki sądu
+            if REASONING_MARKERS.search(text):  # orzeczenie bez roli: formułki sądu
                 texts += units(formulas.strip(text, "court", embedder)[0])
             texts += court_units(text, lambda part: formulas.strip(part, "court", embedder)[0])[0]
-        if self.chunker is not None:
-            own_chunks = self.chunker.chunk(0, text, "", {})[:OWN_CHUNKS]
-            texts += [self.chunker.embedding_input(c) for c in own_chunks]
+            versions.append(formulas.strip(text, formulas.kind_of(text), embedder)[0])
+        if self.chunker is not None:  # Analiza dokumentu: fragmenty jak w bazie
+            for version in versions:
+                own_chunks = self.chunker.chunk(0, version, "", {})[:OWN_CHUNKS]
+                texts += [self.chunker.embedding_input(c) for c in own_chunks]
         return list(dict.fromkeys(texts))
 
     def precompute(self, document_id, text, progress=None):

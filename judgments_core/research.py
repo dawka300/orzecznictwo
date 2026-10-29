@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from judgments_core import claude_report
 from judgments_core import markers as text_markers
 from judgments_core.analysis import FILE_TYPES, DocumentError, _base_url, parse_form
+from judgments_core.boilerplate import checkbox_html
 from judgments_core.folder import ROLE_NAMES, SECTIONS, CaseFolder, Folder
 from judgments_core.web import Response, e, file_field, shorten
 
@@ -162,13 +163,12 @@ jednej sprawy (kto komu odpowiedział, zmiany między nimi): Analiza sprawy."""
         )
 
     def formulas_html(self):
-        if not self.formulas:
-            return ""
-        return """<p><label><input type=checkbox name=formulki value=1 checked> pomiń formułki
-- nie badamy ich: w piśmie nagłówki, wstęp, wnioski (petitum), podpis, załączniki, pouczenie;
-w orzeczeniu (rozpoznane po „zważył, co następuje”) nagłówek, skład, sentencja i typowe zdania
-sądu („Skarga nie zasługuje na uwzględnienie.”, przytoczenia p.p.s.a.). Raport pokaże, co
-pominięto i dlaczego.</label></p>"""
+        return checkbox_html(
+            self.formulas,
+            "nie badamy ich. W piśmie nagłówki, wstęp, wnioski (petitum), podpis, załączniki,"
+            " pouczenie; w orzeczeniu (rozpoznane po „zważył, co następuje” / „THE LAW”)"
+            " nagłówek, skład, sentencja i typowe zdania sądu",
+        )
 
     def chosen_formulas(self, fields):
         return bool(fields.get("formulki"))
