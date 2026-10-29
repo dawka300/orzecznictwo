@@ -166,7 +166,7 @@ Przebiegi są wznawialne: to samo polecenie po przerwaniu = kontynuacja. Drugi t
 | `stan --problemy` | to samo plus lista otwartych problemów (brakujące rekordy, błędy parsera) | po `sprawdz`, żeby zobaczyć, czego brakuje |
 | `sprawdz` | dla każdego roku porównuje liczbę orzeczeń w źródle z bazą; różnice zapisuje jako problemy | raz na jakiś czas, czy pobieranie niczego nie zgubiło |
 | `sprawdz --od 2020 --do 2022` | to samo tylko dla tych lat (szybciej, mniej zapytań do źródła) | podejrzenie dziury w jednym okresie: `sprawdz --od 2021 --do 2021` |
-| `kopia` | zrzut całej bazy projektu do `<PREFIKS>_BACKUP_DIR/<projekt>.sql.gz` (nadpisuje poprzedni) | przed ryzykowną migracją albo `przetworz --od-poczatku`; ETPC lokalnie trafia do `etpc/database/` |
+| `kopia` | zrzut całej bazy projektu do `<PREFIKS>_BACKUP_DIR/<projekt>-<RRRRMMDD-GGMMSS>.sql.gz` (czas UTC; zostają 3 najnowsze, starsze są usuwane) | przed ryzykowną migracją albo `przetworz --od-poczatku`; ETPC lokalnie trafia do `etpc/database/` |
 
 ## Pobieranie (`pobierz`)
 Bez opcji pobiera dalej od miejsca, w którym skończył poprzedni przebieg (kursor w bazie). Domyślnie bez limitu czasu (`<PREFIKS>_TIME_BUDGET_S=0`).

@@ -7,7 +7,7 @@ python -m nsa przetworz                 # raw_records -> tabele projektu
 python -m nsa sprawdz                   # porównaj źródło z bazą, zapisz braki
 python -m nsa pobierz --brakujace       # dociągnij braki znalezione przez sprawdz
 python -m nsa stan                      # kursory, ostatnie przebiegi, blokady, problemy
-python -m nsa kopia                     # zrzut bazy do <NSA_BACKUP_DIR>/nsa.sql.gz
+python -m nsa kopia                     # zrzut bazy do <NSA_BACKUP_DIR>/nsa-<data>.sql.gz (zostają 3 ostatnie)
 python -m etpc www --port 8080          # wyszukiwarka w przeglądarce
 python -m etpc wektory --budzet 3600    # embeddingi (LM Studio) do Qdranta, wznawia
 python -m etpc mcp                      # baza jako narzędzia dla Claude'a (stdio, .mcp.json)
@@ -40,7 +40,7 @@ from pathlib import Path
 import pymysql
 
 from judgments_core import boilerplate, db
-from judgments_core.backup import dump_database
+from judgments_core.backup import dated_path, dump_database, prune
 from judgments_core.embeddings import make_embedder
 from judgments_core.http import PoliteClient
 from judgments_core.importer import Importer
@@ -1097,10 +1097,11 @@ def _backup(project, settings, required=False):
             log.error("Brak katalogu kopii: ustaw %s_BACKUP_DIR", project.name.upper())
             return 2
         return 0
-    path = DOTENV_PATH.parent / settings.backup_dir / f"{project.name}.sql.gz"
+    path = dated_path(DOTENV_PATH.parent / settings.backup_dir, project.name)
     # Pod blokadą: kopia nie wypada w połowie pobierania z innego procesu.
     with db.connect(settings.db_dsn) as conn, db.MariaDbStore(conn).lock(_lock_name(project)):
         dump_database(settings.db_dsn, path, shlex.split(settings.dump_command))
+    prune(path.parent, project.name)
     return 0
 
 

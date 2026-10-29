@@ -1,9 +1,11 @@
 import gzip
+import os
 import sys
+from datetime import datetime, timezone
 
 import pytest
 
-from judgments_core.backup import dump_database
+from judgments_core.backup import dated_path, dump_database, prune
 
 DSN = "mysql://jan:tajne%21@db.example:3307/etpc"
 # Udaje mysqldump: wypisuje argumenty i hasło z MYSQL_PWD.
@@ -39,3 +41,33 @@ def test_failed_dump_keeps_previous_copy(tmp_path):
 def test_missing_program_is_a_runtime_error(tmp_path):
     with pytest.raises(RuntimeError, match="nie można uruchomić"):
         dump_database(DSN, tmp_path / "etpc.sql.gz", ["nie-ma-takiego-programu-xyz"])
+
+
+def test_dated_path_uses_utc_time(tmp_path):
+    now = datetime(2026, 10, 29, 8, 5, 3, tzinfo=timezone.utc)
+    assert dated_path(tmp_path, "nsa", now) == tmp_path / "nsa-20261029-080503.sql.gz"
+
+
+def test_prune_keeps_newest_three_of_the_project_only(tmp_path):
+    names = [
+        "etpc.sql.gz",
+        "etpc-20261021-100000.sql.gz",
+        "etpc-20261022-100000.sql.gz",
+        "etpc-20261023-100000.sql.gz",
+        "etpc-20261024-100000.sql.gz",
+    ]
+    for age, name in enumerate(reversed(names)):
+        path = tmp_path / name
+        path.write_bytes(b"x")
+        os.utime(path, (1_000_000 - age, 1_000_000 - age))
+    (tmp_path / "etpc2-20261020-100000.sql.gz").write_bytes(b"inny projekt")
+    (tmp_path / "etpc-20261025-100000.sql.gz.abc.tmp").write_bytes(b"w toku")
+    removed = prune(tmp_path, "etpc")
+    assert sorted(p.name for p in removed) == ["etpc-20261021-100000.sql.gz", "etpc.sql.gz"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "etpc-20261022-100000.sql.gz",
+        "etpc-20261023-100000.sql.gz",
+        "etpc-20261024-100000.sql.gz",
+        "etpc-20261025-100000.sql.gz.abc.tmp",
+        "etpc2-20261020-100000.sql.gz",
+    ]

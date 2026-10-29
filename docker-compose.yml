@@ -44,6 +44,13 @@ services:
       - "127.0.0.1:6333:6333"
     volumes:
       - qdrantdata:/qdrant/storage
+      # Snapshoty kolekcji (narzedzia/kopia-na-dysk.sh) prosto na dysk komputera, nie do
+      # wolumenu Dockera na C: (NSA ~140 GB). QDRANT_SNAPSHOTS_DIR w .env, np. na dysku kopii.
+      - type: bind
+        source: ${QDRANT_SNAPSHOTS_DIR:-./qdrant-snapshots}
+        target: /qdrant/snapshots
+        bind:
+          create_host_path: true
     environment:
       QDRANT__TELEMETRY_DISABLED: "true"
 

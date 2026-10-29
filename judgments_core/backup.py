@@ -1,4 +1,6 @@
-"""Database dump to <backup_dir>/<project>.sql.gz with mysqldump/mariadb-dump.
+"""Database dump to <backup_dir>/<project>-<UTC date>.sql.gz with mysqldump/mariadb-dump.
+
+Only the newest KEEP dumps of a project stay (prune); the older ones are removed.
 
 The dump has no CREATE DATABASE, so it loads into a database of any name
 (on the hosting database names get the account's prefix):
@@ -10,10 +12,12 @@ from __future__ import annotations
 import gzip
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from judgments_core.db import parse_dsn
@@ -27,6 +31,29 @@ DUMP_OPTIONS = [
     "--hex-blob",
     "--no-tablespaces",  # bez uprawnienia PROCESS, którego hosting nie daje
 ]
+KEEP = 3
+
+
+def dated_path(directory, name, now=None):
+    """<directory>/<name>-YYYYMMDD-HHMMSS.sql.gz with the UTC time."""
+    now = now or datetime.now(timezone.utc)
+    return Path(directory) / f"{name}-{now:%Y%m%d-%H%M%S}.sql.gz"
+
+
+def prune(directory, name, keep=KEEP):
+    """Remove all but the newest keep dumps of name (also the old undated <name>.sql.gz).
+
+    Returns the removed paths."""
+    pattern = re.compile(rf"{re.escape(name)}(-\d{{8}}-\d{{6}})?\.sql\.gz")
+    dumps = sorted(
+        (p for p in Path(directory).iterdir() if pattern.fullmatch(p.name)),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for old in dumps[keep:]:
+        old.unlink()
+        log.info("usunięto starą kopię %s", old)
+    return dumps[keep:]
 
 
 def dump_database(dsn, path, command, popen=subprocess.Popen):

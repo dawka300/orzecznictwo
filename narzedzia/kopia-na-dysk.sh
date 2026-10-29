@@ -9,10 +9,14 @@
 #                     repo.bundle (wszystkie gałęzie i historia w jednym pliku:
 #                     git clone repo.bundle), galezie.txt, poza-gitem.tar.gz
 #                     (pliki spoza gita bez dużych danych, .git/config)
-# <kopia>/_bazy/qdrant/   snapshoty kolekcji Qdranta (dwa ostatnie na kolekcję)
+# <kopia>/_bazy/qdrant/   snapshoty kolekcji Qdranta (dwa ostatnie na kolekcję);
+#                     QDRANT_COLLECTIONS="a b" = tylko te, "-" = żadna; snapshot powstaje
+#                     w QDRANT_SNAPSHOTS_DIR z .env (bez niego w Dockerze na C:, gdzie
+#                     NSA ~140 GB się nie mieści) i jest tylko przenoszony na miejsce
 # <kopia>/_bazy/<projekt>.sql.gz   zrzut bazy projektów podanych po katalogu
 #                     (python -m <projekt> kopia w kontenerze, prosto na ten dysk)
-# Baza teczki (Teczka sprawy: dokumenty użytkownika) celowo NIE jest kopiowana.
+# Zrzuty z python -m <projekt> kopia (etpc/database, nsa/database) i ręczne
+# (kopie/: teczki, trening) przechodzą lustrem.
 set -euo pipefail
 
 target="${1:?podaj katalog kopii, np. \"/g/projekty AI/orzecznictwo-szkielet\"}"
@@ -54,11 +58,23 @@ echo "== pliki spoza gita (bez dużych danych)"
 echo "$(wc -l < "$archive/poza-gitem.txt") plików"
 
 echo "== Qdrant: snapshoty kolekcji"
-for collection in $(curl -sf "$qdrant/collections" | grep -o '"name":"[^"]*"' | cut -d'"' -f4); do
+# QDRANT_SNAPSHOTS_DIR (z .env, jak w docker-compose.yml): gdzie Qdrant zapisuje
+# snapshoty na komputerze
+snapshots="${QDRANT_SNAPSHOTS_DIR:-$(sed -n 's/^QDRANT_SNAPSHOTS_DIR=//p' "$repo/.env" 2>/dev/null | tail -n 1)}"
+if [ -n "$snapshots" ]; then snapshots="$(cygpath -u "$snapshots")"; fi
+collections="${QDRANT_COLLECTIONS:-$(curl -sf "$qdrant/collections" | grep -o '"name":"[^"]*"' | cut -d'"' -f4)}"
+if [ "$collections" = "-" ]; then collections=""; fi
+for collection in $collections; do
     name="$(curl -sf -X POST "$qdrant/collections/$collection/snapshots?wait=true" \
         | grep -o '"name":"[^"]*"' | cut -d'"' -f4)"
-    curl -sf -o "$target/_bazy/qdrant/$name" "$qdrant/collections/$collection/snapshots/$name"
-    curl -sf -X DELETE "$qdrant/collections/$collection/snapshots/$name" > /dev/null
+    if [ -n "$snapshots" ]; then
+        # snapshot już na dysku komputera: przeniesienie zamiast pobierania przez HTTP
+        mv "$snapshots/$collection/$name" "$target/_bazy/qdrant/"
+        rm -f "$snapshots/$collection/$name.checksum"
+    else
+        curl -sf -o "$target/_bazy/qdrant/$name" "$qdrant/collections/$collection/snapshots/$name"
+        curl -sf -X DELETE "$qdrant/collections/$collection/snapshots/$name" > /dev/null
+    fi
     # na dysku kopii dwa ostatnie snapshoty kolekcji
     ls -t "$target/_bazy/qdrant/$collection-"*.snapshot | tail -n +3 | xargs -r rm --
     echo "$collection: $name ($(du -h "$target/_bazy/qdrant/$name" | cut -f1))"
