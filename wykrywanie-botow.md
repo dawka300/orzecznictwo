@@ -266,3 +266,6 @@ zagrożeń i metod obrony; porządkuje to, co widać w praktyce.
 | proxy rezydencjalne | pośrednik z adresami IP domowych łączy (zwykle cudze urządzenia w sieci dostawcy) |
 | robots.txt | plik, w którym właściciel strony mówi automatom, czego im nie wolno |
 | reputacja IP | ocena adresu na podstawie jego historii (spam, ataki, znane proxy) |
+
+
+SafeLine to otwarty projekt z oficjalną dokumentacją instalacji w Dockerze, więc możesz go postawić sam według ich instrukcji. Jeśli przy tym coś się wysypie, np. port albo sieć w Docker Desktop, z samą konfiguracją Dockera chętnie pomogę.
