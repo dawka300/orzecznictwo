@@ -255,16 +255,21 @@ class WordSearch(ABC):
     def filters(self, q):
         """The part of the project's SearchQuery the index filters on (as payload_filters)."""
 
+    def query(self, boolean, q):
+        """The Elasticsearch query: the words and q's filters. A child may change the
+        scoring (e.g. boost important judgments) around it."""
+        return {
+            "bool": {
+                "must": [boolean_query(boolean, self.fields)],
+                "filter": filter_clauses(self.filters(q)),
+            }
+        }
+
     def ranked(self, boolean, q, size, sort=""):
         """([judgment id] best first, total matching) for a boolean query and q's filters;
         sort "desc"/"asc" orders by date instead of score."""
         body = {
-            "query": {
-                "bool": {
-                    "must": [boolean_query(boolean, self.fields)],
-                    "filter": filter_clauses(self.filters(q)),
-                }
-            },
+            "query": self.query(boolean, q),
             "size": size,
             "_source": False,
             "track_total_hits": True,

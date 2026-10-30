@@ -93,9 +93,31 @@ class EtpcIndexJob(IndexJob):
         return documents
 
 
+# Premie w wyniku słów (mnożniki): sprawy ważne wg HUDOC (importance 1 = kluczowe) i wyroki
+# przed decyzjami - pytania zwykle prowadzą do wyroków wzorcowych. Strojenie 2026-10-30 razem
+# z WORD_WEIGHT w etpc/search.py: pytania-100 MRR 0,161 -> 0,243, w kontekście 34% -> 43%.
+IMPORTANCE_BOOST = {1: 1.5, 2: 1.3, 3: 1.1}
+JUDGMENT_BOOST = 1.2
+
+
 class EtpcWords(WordSearch):
     fields = TEXT_FIELDS
     group_field = "ruling_id"  # wersje językowe jednego orzeczenia
+
+    def query(self, boolean, q):
+        functions = [
+            {"filter": {"term": {"importance": level}}, "weight": weight}
+            for level, weight in IMPORTANCE_BOOST.items()
+        ]
+        functions.append({"filter": {"term": {"kind": "judgment"}}, "weight": JUDGMENT_BOOST})
+        return {
+            "function_score": {
+                "query": super().query(boolean, q),
+                "functions": functions,
+                "score_mode": "multiply",  # ważna sprawa i wyrok: oba mnożniki
+                "boost_mode": "multiply",
+            }
+        }
 
     def filters(self, q):
         filters = EtpcSemantic.payload_filters(self, q)  # te same co w wektorach

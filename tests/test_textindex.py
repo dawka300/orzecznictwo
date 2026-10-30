@@ -155,7 +155,8 @@ def test_ranked_collapses_versions_to_rulings():
     body = session.requests[0][2]
     assert body["collapse"] == {"field": "ruling_id"}
     assert body["sort"][0] == {"date": "desc"}
-    assert body["query"]["bool"]["filter"] == [{"term": {"kind": "JUDGMENTS"}}]
+    inner = body["query"]["function_score"]["query"]
+    assert inner["bool"]["filter"] == [{"term": {"kind": "JUDGMENTS"}}]
 
 
 class MemoryIndex:
@@ -263,3 +264,11 @@ def test_killed_pass_resumes_from_the_saved_key():
     assert job.loaded == [3, 4, 5]  # bez ponownego czytania 1 i 2
     assert second.finished and state.values == {}
     assert second.removed == 0  # wznowiony: usuwanie dopiero przy pełnym przebiegu
+
+
+def test_etpc_boosts_important_judgments():
+    query = EtpcWords(None).query("+torture", EtpcQuery(kind="judgment"))["function_score"]
+    weights = {str(f["filter"]["term"]): f["weight"] for f in query["functions"]}
+    assert weights["{'importance': 1}"] > weights["{'importance': 3}"] > 1
+    assert weights["{'kind': 'judgment'}"] > 1
+    assert query["query"]["bool"]["filter"] == [{"term": {"kind": "judgment"}}]

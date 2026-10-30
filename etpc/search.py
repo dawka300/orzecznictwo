@@ -50,6 +50,10 @@ FULLTEXT_ABORTED_ERROR = 188
 LOCATE_WORDS = 8
 # Tryb hybrydowy: tyle najlepszych orzeczeń z każdej listy (łączone przez rrf z rdzenia).
 CANDIDATES = 200
+# Waga listy słów w rrf (znaczenie = 1). Strojenie 2026-10-30 (Elasticsearch, pytania-100
+# i pytania-panstwa, logs/elastic/strojenie-etpc*.txt): 1,0 -> MRR 0,161 / 0,670; 0,5 -> 0,215 /
+# 0,686; 0,3 (z premiami w etpc/textindex.py) -> 0,243 / 0,693; 1,5 -> 0,115 / 0,392.
+WORD_WEIGHT = 0.3
 # Wyszukiwanie po samych słowach z indeksu: tyle najlepszych (filtry spoza indeksu w SQL).
 WORD_CANDIDATES = 1000
 # W trybie hybrydowym słowa mogą trwać krócej: jest jeszcze wynik znaczeniowy.
@@ -350,7 +354,7 @@ def _hybrid(cur, q, semantic, words=None):
         sql, args = _ids_query(q, None, only_ids=list(passages), top=len(passages))
         allowed = {row[0] for row in _run(cur, sql, args)}
     by_meaning = [i for i in passages if i in allowed]
-    scores = rrf((by_meaning, by_words))
+    scores = rrf((by_meaning, by_words), weights=(1.0, WORD_WEIGHT))
     ids = sorted(scores, key=lambda i: -scores[i])
     if q.sort and ids:
         ids = [row[0] for row in _run(cur, *_ids_query(q, None, only_ids=ids, top=len(ids)))]

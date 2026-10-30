@@ -176,7 +176,8 @@ def test_hybrid_merges_meaning_and_words(ruling_db):
         assert (result.mode, result.total) == ("hybrydowe", 1)
         hit = result.hits[0]
         assert hit.passage == "THE LAW" and hit.snippet.startswith("THE LAW")
-        assert hit.score == pytest.approx(2 / 61)  # pierwsze miejsce na obu listach
+        # pierwsze miejsce na obu listach; słowa z wagą WORD_WEIGHT
+        assert hit.score == pytest.approx((1 + search.WORD_WEIGHT) / 61)
         # słowo, którego nie ma, i tak daje wynik znaczeniowy
         assert search.search(cur, search.SearchQuery(text="zzzzz"), up).total == 1
         # filtr nieznany Qdrantowi odsiewa w SQL
